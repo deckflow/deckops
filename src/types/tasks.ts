@@ -17,9 +17,6 @@ export const COMPRESS_TYPES: Record<string, string> = {
  * File type to task type mappings for extract command
  */
 export const EXTRACT_TYPES: Record<string, string> = {
-  '.jpg': 'image.ocr',
-  '.jpeg': 'image.ocr',
-  '.png': 'image.ocr',
   '.pptx': 'pptx.getFontInfo',
 };
 
@@ -27,7 +24,6 @@ export const EXTRACT_TYPES: Record<string, string> = {
  * Extract type to task type mappings
  */
 export const EXTRACT_TYPE_MAP: Record<string, string> = {
-  ocr: 'image.ocr',
   fonts: 'pptx.getFontInfo',
   'text-shapes': 'pptx.getTextShapes',
 };

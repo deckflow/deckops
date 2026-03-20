@@ -1,5 +1,5 @@
 /**
- * Extract command
+ * Convert command
  */
 
 import { Command } from 'commander';
@@ -7,23 +7,23 @@ import chalk from 'chalk';
 import ora from 'ora';
 import path from 'path';
 import { Context } from '../context.js';
-import { EXTRACT_TYPES, EXTRACT_TYPE_MAP, DEFAULT_TIMEOUT } from '../utils/constants.js';
+import { RENDER_FORMATS, DEFAULT_TIMEOUT } from '../utils/constants.js';
 
 /**
- * Register extract command
+ * Register convert command
  */
-export function registerExtractCommand(program: Command, ctx: Context): void {
+export function registerConvertCommand(program: Command, ctx: Context): void {
   program
-    .command('extract <input-file>')
-    .description('Extract information from a file (fonts, text-shapes)')
-    .option('--type <type>', 'Extract type: fonts, text-shapes')
+    .command('convert <input-file>')
+    .description('Convert a file to different format')
+    .requiredOption(
+      '--to <format>',
+      'Output format: image, pdf, video, html, png, pptx, webp'
+    )
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
     .action(
-      async (
-        inputFile: string,
-        options: { type?: string; wait?: boolean; timeout: string }
-      ) => {
+      async (inputFile: string, options: { to: string; wait?: boolean; timeout: string }) => {
         const wait = options.wait !== false;
         try {
           const client = ctx.getClient();
@@ -32,25 +32,23 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
 
           // Determine task type
           const ext = path.extname(inputFile).toLowerCase();
-          let taskType: string;
+          const formatMap = RENDER_FORMATS[options.to];
 
-          if (options.type) {
-            taskType = EXTRACT_TYPE_MAP[options.type];
-            if (!taskType) {
-              const supportedTypes = Object.keys(EXTRACT_TYPE_MAP).join(', ');
-              ctx.error(
-                `Unknown extract type: ${options.type}\nSupported: ${supportedTypes}`,
-                'INVALID_TYPE'
-              );
-            }
-          } else {
-            taskType = EXTRACT_TYPES[ext];
-            if (!taskType) {
-              ctx.error(
-                `Cannot auto-detect extract type for: ${ext}\nPlease specify --type`,
-                'UNSUPPORTED_TYPE'
-              );
-            }
+          if (!formatMap) {
+            const supportedFormats = Object.keys(RENDER_FORMATS).join(', ');
+            ctx.error(
+              `Unsupported output format: ${options.to}\nSupported: ${supportedFormats}`,
+              'UNSUPPORTED_FORMAT'
+            );
+          }
+
+          const taskType = formatMap[ext];
+          if (!taskType) {
+            const supportedExts = Object.keys(formatMap).join(', ');
+            ctx.error(
+              `Cannot convert ${ext} to ${options.to}\nSupported input types: ${supportedExts}`,
+              'UNSUPPORTED_CONVERSION'
+            );
           }
 
           // Upload file
@@ -71,7 +69,7 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
 
           // Create task
           if (!ctx.jsonOutput) {
-            spinner = ora('Creating extraction task...').start();
+            spinner = ora('Creating conversion task...').start();
           }
 
           const taskName = path.basename(inputFile, ext);
@@ -84,23 +82,23 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
           // Wait for completion
           if (options.wait) {
             if (!ctx.jsonOutput) {
-              spinner = ora('Processing...').start();
+              spinner = ora('Converting...').start();
             }
 
             task = await client.waitForTask(task.id, parseInt(options.timeout, 10));
 
             if (spinner) {
               if (task.status === 'completed') {
-                spinner.succeed('Extraction completed');
+                spinner.succeed('Conversion completed');
               } else {
-                spinner.fail('Extraction failed');
+                spinner.fail('Conversion failed');
               }
             }
           }
 
           ctx.output(task, (t) => {
             const lines = [
-              `${chalk.bold('Extraction Task:')}`,
+              `${chalk.bold('Conversion Task:')}`,
               `  Task ID: ${chalk.cyan(t.id)}`,
               `  Status: ${t.status === 'completed' ? chalk.green(t.status) : chalk.yellow(t.status)}`,
             ];

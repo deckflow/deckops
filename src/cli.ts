@@ -11,7 +11,8 @@ import { registerFileCommands } from './commands/file.js';
 import { registerTaskCommands } from './commands/task.js';
 import { registerCompressCommand } from './commands/compress.js';
 import { registerExtractCommand } from './commands/extract.js';
-import { registerRenderCommand } from './commands/render.js';
+import { registerOcrCommand } from './commands/ocr.js';
+import { registerConvertCommand } from './commands/convert.js';
 import { registerRunCommand } from './commands/run.js';
 import { registerReplCommand } from './commands/repl.js';
 import { ExitCode, outputError } from './utils/errors.js';
@@ -41,7 +42,8 @@ async function main() {
   registerTaskCommands(program, ctx);
   registerCompressCommand(program, ctx);
   registerExtractCommand(program, ctx);
-  registerRenderCommand(program, ctx);
+  registerOcrCommand(program, ctx);
+  registerConvertCommand(program, ctx);
   registerRunCommand(program, ctx);
   registerReplCommand(program, ctx);
 

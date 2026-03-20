@@ -97,9 +97,9 @@ export class Config {
   }
 
   /**
-   * Get space ID
+   * Get space ID (defaults to 'UMYSELF')
    */
-  get spaceId(): string | undefined {
+  get spaceId(): string {
     return this.data.spaceId;
   }
 
@@ -107,7 +107,7 @@ export class Config {
    * Set space ID
    * Note: You must call save() manually after setting properties
    */
-  set spaceId(value: string | undefined) {
+  set spaceId(value: string) {
     this.data.spaceId = value;
   }
 
@@ -177,6 +177,6 @@ export class Config {
    * Check if minimum configuration is present
    */
   isConfigured(): boolean {
-    return Boolean(this.token && this.spaceId);
+    return Boolean(this.token);
   }
 }

@@ -7,12 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - 2026-03-20
 
+### Added
+
+- **New `ocr` command** for Optical Character Recognition
+  - Dedicated command for extracting text from images
+  - Supports 12 languages via `--language` parameter
+  - Example: `deckflow ocr image.jpg --language en`
+
 ### Changed
 
 - **BREAKING CHANGE**: Configuration directory moved from `~/.tools-ui/` to `~/.deckflow/`
   - Config file now located at `~/.deckflow/config.json`
   - This provides a more intuitive and branded directory name
   - Users need to reconfigure or manually move their existing config file
+- **BREAKING CHANGE**: `render` command renamed to `convert`
+  - `--format` parameter renamed to `--to`
+  - Example: `deckflow convert slides.pptx --to pdf` (previously `deckflow render slides.pptx --format pdf`)
+- **BREAKING CHANGE**: OCR moved from `extract` to dedicated `ocr` command
+  - Old: `deckflow extract image.jpg --type ocr --language en`
+  - New: `deckflow ocr image.jpg --language en`
+  - `extract` command now only supports `fonts` and `text-shapes` types
+- **spaceId is now optional** with default value `UMYSELF`
+  - Only authentication token is required for configuration
+  - Space ID defaults to `UMYSELF` if not explicitly set
 
 ### Migration Guide
 

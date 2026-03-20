@@ -65,7 +65,8 @@ describe('CLI E2E Tests', () => {
       expect(result.stdout).toContain('config');
       expect(result.stdout).toContain('compress');
       expect(result.stdout).toContain('extract');
-      expect(result.stdout).toContain('render');
+      expect(result.stdout).toContain('ocr');
+      expect(result.stdout).toContain('convert');
     });
 
     it('should show version', async () => {
@@ -134,7 +135,7 @@ describe('CLI E2E Tests', () => {
       expect(result.exitCode).not.toBe(0);
     });
 
-    it('should require token and space for file operations', async () => {
+    it('should require token for file operations', async () => {
       // Create a test file
       const testFile = path.join(tempDir, 'test.txt');
       await fs.writeFile(testFile, 'test content');
@@ -143,7 +144,7 @@ describe('CLI E2E Tests', () => {
       const clearResult = await runCLI(['config', 'set-token', '']);
       expect(clearResult.exitCode).toBe(0);
 
-      // Try to upload without config
+      // Try to upload without token (spaceId has default value)
       const result = await runCLI(['file', 'upload', testFile]);
 
       expect(result.exitCode).not.toBe(0);
@@ -195,13 +196,18 @@ describe('CLI E2E Tests', () => {
       const result = await runCLI(['extract', '--help']);
 
       expect(result.stdout).toContain('--type');
+    });
+
+    it('should accept ocr language parameter', async () => {
+      const result = await runCLI(['ocr', '--help']);
+
       expect(result.stdout).toContain('--language');
     });
 
-    it('should accept render format parameter', async () => {
-      const result = await runCLI(['render', '--help']);
+    it('should accept convert to parameter', async () => {
+      const result = await runCLI(['convert', '--help']);
 
-      expect(result.stdout).toContain('--format');
+      expect(result.stdout).toContain('--to');
     });
   });
 

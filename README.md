@@ -1,13 +1,13 @@
 # Deckflow CLI
 
-> TypeScript/Node.js implementation of deckflow-cli - File processing and conversion tools
+> Deckflow CLI helps you convert, extract, ocr from the command line.
 
 [![Tests](https://img.shields.io/badge/tests-44%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](tests/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 
-A powerful command-line tool for file processing, conversion, and task management. This is a complete TypeScript port of the Python deckflow-cli, maintaining 100% feature parity while leveraging Node.js ecosystem best practices.
+A powerful command-line tool for file processing, conversion, and task management.
 
 ## ✨ Features
 
@@ -23,13 +23,13 @@ A powerful command-line tool for file processing, conversion, and task managemen
 ## 📦 Installation
 
 ```bash
-npm install -g deckflow
+npm install -g @deckflow/cli
 ```
 
 Or use without installing:
 
 ```bash
-npx deckflow <command>
+npx @deckflow/cli <command>
 ```
 
 ## 🚀 Quick Start
@@ -37,10 +37,10 @@ npx deckflow <command>
 ### 1. Configure Authentication
 
 ```bash
-# Set your authentication token
+# Set your authentication token (required)
 deckflow config set-token YOUR_TOKEN
 
-# Set your workspace/space ID
+# Optional: Set your workspace/space ID (defaults to 'UMYSELF')
 deckflow config set-space YOUR_SPACE_ID
 
 # Optional: Set custom API base URL
@@ -57,10 +57,10 @@ deckflow config show
 deckflow compress presentation.pptx
 
 # Extract text from image (OCR)
-deckflow extract image.jpg --type ocr --language en
+deckflow ocr image.jpg --language en
 
 # Convert PowerPoint to PDF
-deckflow render slides.pptx --format pdf
+deckflow convert slides.pptx --to pdf
 
 # Upload a file
 deckflow file upload document.pdf
@@ -114,29 +114,39 @@ deckflow compress <input-file>          # Compress a file
 - Documents: ZIP, PPTX, KEY, DOCX, XLSX
 - Videos: MP4, AVI, MOV, MKV
 
-### Extract Information
+### OCR (Optical Character Recognition)
 
 ```bash
-deckflow extract <input-file>           # Extract information
-  --type <type>                         # Extract type: ocr, fonts, text-shapes
+deckflow ocr <input-file>               # Extract text from images
   --language <lang>                     # OCR language (default: zh-hans)
   --no-wait                             # Don't wait for completion
   --timeout <seconds>                   # Timeout in seconds (default: 300)
 ```
 
+**Supported languages:**
+`zh-hans`, `zh-hant`, `en`, `ja`, `ko`, `ar`, `de`, `es`, `fr`, `it`, `pt`, `ru`
+
+**Supported formats:**
+JPG, JPEG, PNG
+
+### Extract Information
+
+```bash
+deckflow extract <input-file>           # Extract information from files
+  --type <type>                         # Extract type: fonts, text-shapes
+  --no-wait                             # Don't wait for completion
+  --timeout <seconds>                   # Timeout in seconds (default: 300)
+```
+
 **Extract types:**
-- `ocr` - Optical Character Recognition (images)
 - `fonts` - Font information (PPTX)
 - `text-shapes` - Text shapes (PPTX)
 
-**OCR Languages:**
-`zh-hans`, `zh-hant`, `en`, `ja`, `ko`, `ar`, `de`, `es`, `fr`, `it`, `pt`, `ru`
-
-### Render/Convert Files
+### Convert Files
 
 ```bash
-deckflow render <input-file>            # Convert file format
-  --format <format>                     # Required: output format
+deckflow convert <input-file>           # Convert file format
+  --to <format>                         # Required: output format
   --no-wait                             # Don't wait for completion
   --timeout <seconds>                   # Timeout in seconds (default: 300)
 ```
@@ -312,7 +322,7 @@ Configuration is stored in `~/.deckflow/config.json`:
 
 **Configuration options:**
 - `token` - Authentication token (required)
-- `spaceId` - Workspace/space ID (required)
+- `spaceId` - Workspace/space ID (optional, default: `UMYSELF`)
 - `apiBase` - API base URL (default: `https://app.deckflow.com/v1`)
 - `signURI` - Sign-in URI (optional)
 
@@ -320,10 +330,12 @@ Configuration is stored in `~/.deckflow/config.json`:
 
 ### "Not configured" error
 
-Make sure you've set both token and space ID:
+Make sure you've set your authentication token:
 
 ```bash
 deckflow config set-token <your-token>
+
+# Optionally set space ID (defaults to 'UMYSELF')
 deckflow config set-space <your-space-id>
 ```
 

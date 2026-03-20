@@ -1,5 +1,5 @@
 /**
- * Render command
+ * OCR command
  */
 
 import { Command } from 'commander';
@@ -7,47 +7,44 @@ import chalk from 'chalk';
 import ora from 'ora';
 import path from 'path';
 import { Context } from '../context.js';
-import { RENDER_FORMATS, DEFAULT_TIMEOUT } from '../utils/constants.js';
+import { DEFAULT_TIMEOUT, DEFAULT_OCR_LANGUAGE, OCR_LANGUAGES } from '../utils/constants.js';
 
 /**
- * Register render command
+ * Register OCR command
  */
-export function registerRenderCommand(program: Command, ctx: Context): void {
+export function registerOcrCommand(program: Command, ctx: Context): void {
   program
-    .command('render <input-file>')
-    .description('Render/convert a file to different format')
-    .requiredOption(
-      '--format <format>',
-      'Output format: image, pdf, video, html, png, pptx, webp'
-    )
+    .command('ocr <input-file>')
+    .description('Extract text from images using OCR')
+    .option('--language <lang>', `OCR language (${OCR_LANGUAGES.join(', ')})`, DEFAULT_OCR_LANGUAGE)
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
     .action(
-      async (inputFile: string, options: { format: string; wait?: boolean; timeout: string }) => {
+      async (
+        inputFile: string,
+        options: { language: string; wait?: boolean; timeout: string }
+      ) => {
         const wait = options.wait !== false;
         try {
           const client = ctx.getClient();
           const uploader = ctx.getUploader();
-          const spaceId = ctx.config.spaceId!;
+          const spaceId = ctx.config.spaceId;
 
-          // Determine task type
-          const ext = path.extname(inputFile).toLowerCase();
-          const formatMap = RENDER_FORMATS[options.format];
-
-          if (!formatMap) {
-            const supportedFormats = Object.keys(RENDER_FORMATS).join(', ');
+          // Validate language
+          if (!OCR_LANGUAGES.includes(options.language as any)) {
             ctx.error(
-              `Unsupported output format: ${options.format}\nSupported: ${supportedFormats}`,
-              'UNSUPPORTED_FORMAT'
+              `Unsupported language: ${options.language}\nSupported: ${OCR_LANGUAGES.join(', ')}`,
+              'INVALID_LANGUAGE'
             );
           }
 
-          const taskType = formatMap[ext];
-          if (!taskType) {
-            const supportedExts = Object.keys(formatMap).join(', ');
+          // Validate file extension
+          const ext = path.extname(inputFile).toLowerCase();
+          const supportedExts = ['.jpg', '.jpeg', '.png'];
+          if (!supportedExts.includes(ext)) {
             ctx.error(
-              `Cannot render ${ext} to ${options.format}\nSupported input types: ${supportedExts}`,
-              'UNSUPPORTED_CONVERSION'
+              `Unsupported file type: ${ext}\nSupported: ${supportedExts.join(', ')}`,
+              'UNSUPPORTED_TYPE'
             );
           }
 
@@ -67,13 +64,16 @@ export function registerRenderCommand(program: Command, ctx: Context): void {
             spinner.succeed('File uploaded');
           }
 
-          // Create task
+          // Create OCR task
           if (!ctx.jsonOutput) {
-            spinner = ora('Creating render task...').start();
+            spinner = ora('Creating OCR task...').start();
           }
 
           const taskName = path.basename(inputFile, ext);
-          let task = await client.addTask(spaceId, [fileId], taskType, taskName);
+          const taskType = 'image.ocr';
+          const params = { language: options.language };
+
+          let task = await client.addTask(spaceId, [fileId], taskType, taskName, params);
 
           if (spinner) {
             spinner.succeed(`Task created: ${task.id}`);
@@ -82,24 +82,25 @@ export function registerRenderCommand(program: Command, ctx: Context): void {
           // Wait for completion
           if (options.wait) {
             if (!ctx.jsonOutput) {
-              spinner = ora('Processing...').start();
+              spinner = ora('Processing OCR...').start();
             }
 
             task = await client.waitForTask(task.id, parseInt(options.timeout, 10));
 
             if (spinner) {
               if (task.status === 'completed') {
-                spinner.succeed('Render completed');
+                spinner.succeed('OCR completed');
               } else {
-                spinner.fail('Render failed');
+                spinner.fail('OCR failed');
               }
             }
           }
 
           ctx.output(task, (t) => {
             const lines = [
-              `${chalk.bold('Render Task:')}`,
+              `${chalk.bold('OCR Task:')}`,
               `  Task ID: ${chalk.cyan(t.id)}`,
+              `  Language: ${options.language}`,
               `  Status: ${t.status === 'completed' ? chalk.green(t.status) : chalk.yellow(t.status)}`,
             ];
 

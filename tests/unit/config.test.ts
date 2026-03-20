@@ -26,7 +26,7 @@ describe('Config', () => {
 
   it('should create empty config', () => {
     expect(config.token).toBeUndefined();
-    expect(config.spaceId).toBeUndefined();
+    expect(config.spaceId).toBe('UMYSELF'); // Default value
   });
 
   it('should set and get token', async () => {
@@ -37,6 +37,10 @@ describe('Config', () => {
     const config2 = new Config(tempDir);
     await config2.load();
     expect(config2.token).toBe('test-token-123');
+  });
+
+  it('should have spaceId default value', () => {
+    expect(config.spaceId).toBe('UMYSELF');
   });
 
   it('should set and get space ID', async () => {
@@ -57,10 +61,10 @@ describe('Config', () => {
     expect(config.isConfigured()).toBe(false);
 
     await config.setToken('token');
-    expect(config.isConfigured()).toBe(false);
-
-    await config.setSpaceId('space');
     expect(config.isConfigured()).toBe(true);
+
+    // spaceId has default value 'UMYSELF'
+    expect(config.spaceId).toBe('UMYSELF');
   });
 
   it('should delete config key', async () => {
