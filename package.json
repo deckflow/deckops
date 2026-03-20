@@ -1,6 +1,6 @@
 {
   "name": "@deckflow/cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Deckflow CLI - File processing and conversion tools",
   "type": "module",
   "main": "./dist/cli.js",

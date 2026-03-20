@@ -300,7 +300,7 @@ npm run test:coverage
 
 ## 🔑 Configuration
 
-Configuration is stored in `~/.tools-ui/config.json`:
+Configuration is stored in `~/.deckflow/config.json`:
 
 ```json
 {

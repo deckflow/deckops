@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-20
+
+### Changed
+
+- **BREAKING CHANGE**: Configuration directory moved from `~/.tools-ui/` to `~/.deckflow/`
+  - Config file now located at `~/.deckflow/config.json`
+  - This provides a more intuitive and branded directory name
+  - Users need to reconfigure or manually move their existing config file
+
+### Migration Guide
+
+If you have an existing configuration at `~/.tools-ui/config.json`, you can migrate it:
+
+```bash
+# Option 1: Move the entire directory
+mv ~/.tools-ui ~/.deckflow
+
+# Option 2: Reconfigure with the CLI
+deckflow config set-token YOUR_TOKEN
+deckflow config set-space YOUR_SPACE_ID
+```
+
 ## [0.2.0] - 2024-03-20
 
 ### Added

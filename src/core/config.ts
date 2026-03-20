@@ -1,6 +1,6 @@
 /**
  * Configuration management for deckflow CLI
- * Manages CLI configuration stored in ~/.tools-ui/config.json
+ * Manages CLI configuration stored in ~/.deckflow/config.json
  */
 
 import fs from 'fs/promises';
@@ -9,7 +9,7 @@ import os from 'os';
 import { ConfigSchema, type ConfigData } from '../types/config.js';
 
 export class Config {
-  private static readonly DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.tools-ui');
+  private static readonly DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.deckflow');
   private static readonly CONFIG_FILE = 'config.json';
 
   private readonly configDir: string;
