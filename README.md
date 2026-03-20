@@ -62,9 +62,6 @@ deckflow ocr image.jpg --language en
 # Convert PowerPoint to PDF
 deckflow convert slides.pptx --to pdf
 
-# Upload a file
-deckflow file upload document.pdf
-
 # List tasks
 deckflow task list --limit 10
 
@@ -81,13 +78,6 @@ deckflow config set-token <token>      # Set authentication token
 deckflow config set-space <space-id>   # Set workspace ID
 deckflow config set-api-base <url>     # Set API base URL
 deckflow config show                    # Show current configuration
-```
-
-### File Operations
-
-```bash
-deckflow file upload <path>             # Upload a file
-  --no-progress                         # Disable progress indicator
 ```
 
 ### Task Management
@@ -181,7 +171,7 @@ deckflow repl                           # Start interactive mode
 
 # In REPL:
 deckflow> config show
-deckflow> file upload test.pdf
+deckflow> compress presentation.pptx
 deckflow> task list
 deckflow> exit
 ```
@@ -206,23 +196,13 @@ deckflow --json compress file.zip
 ### Batch Processing
 
 ```bash
-# Upload multiple files
-for file in *.pdf; do
-  deckflow file upload "$file"
+# Process multiple files
+for file in *.pptx; do
+  deckflow compress "$file"
 done
 
 # Or use REPL mode
 deckflow repl
-```
-
-### Progress Tracking
-
-```bash
-# Upload with progress indicator
-deckflow file upload large-file.mp4
-
-# Disable progress
-deckflow file upload large-file.mp4 --no-progress
 ```
 
 ### Non-blocking Operations
@@ -337,14 +317,6 @@ deckflow config set-token <your-token>
 
 # Optionally set space ID (defaults to 'UMYSELF')
 deckflow config set-space <your-space-id>
-```
-
-### File upload fails
-
-Check file exists and you have read permissions:
-
-```bash
-ls -l <file-path>
 ```
 
 ### Task timeout

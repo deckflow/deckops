@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Supports 12 languages via `--language` parameter
   - Example: `deckflow ocr image.jpg --language en`
 
+### Removed
+
+- **`file` command removed**
+  - File upload is now an internal operation
+  - Users interact with higher-level commands (compress, ocr, convert, etc.)
+  - File upload happens automatically when needed
+
 ### Changed
 
 - **BREAKING CHANGE**: Configuration directory moved from `~/.tools-ui/` to `~/.deckflow/`

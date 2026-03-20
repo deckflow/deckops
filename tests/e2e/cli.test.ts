@@ -134,22 +134,6 @@ describe('CLI E2E Tests', () => {
 
       expect(result.exitCode).not.toBe(0);
     });
-
-    it('should require token for file operations', async () => {
-      // Create a test file
-      const testFile = path.join(tempDir, 'test.txt');
-      await fs.writeFile(testFile, 'test content');
-
-      // Clear config
-      const clearResult = await runCLI(['config', 'set-token', '']);
-      expect(clearResult.exitCode).toBe(0);
-
-      // Try to upload without token (spaceId has default value)
-      const result = await runCLI(['file', 'upload', testFile]);
-
-      expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain('Not configured');
-    });
   });
 
   describe('JSON Output Mode', () => {
@@ -228,27 +212,6 @@ describe('CLI E2E Tests', () => {
       expect(result.stdout).toContain('--type');
       expect(result.stdout).toContain('--limit');
       expect(result.stdout).toContain('--offset');
-    });
-  });
-
-  describe('File Commands', () => {
-    it('should show file upload help', async () => {
-      const result = await runCLI(['file', 'upload', '--help']);
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Upload a file');
-      expect(result.stdout).toContain('--no-progress');
-    });
-
-    it('should fail when file does not exist', async () => {
-      // Restore config first
-      await runCLI(['config', 'set-token', 'test-token']);
-      await runCLI(['config', 'set-space', 'test-space']);
-
-      const result = await runCLI(['file', 'upload', '/non/existent/file.txt']);
-
-      expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain('File not found');
     });
   });
 });
