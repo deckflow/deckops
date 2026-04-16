@@ -5,7 +5,7 @@
 import { Config } from './core/config.js';
 import { APIClient } from './core/api-client.js';
 import { FileUploader } from './core/file-uploader.js';
-import { runLoginFlow } from './core/auth.js';
+import { runCheckoutFlow, runLoginFlow } from './core/auth.js';
 import { outputError, ExitCode } from './utils/errors.js';
 
 /**
@@ -17,6 +17,7 @@ export class Context {
   private _apiClient?: APIClient;
   private _uploader?: FileUploader;
   private _loginPromise?: Promise<string>;
+  private _checkoutPromise?: Promise<void>;
 
   constructor() {
     this.config = new Config();
@@ -48,6 +49,9 @@ export class Context {
       this._apiClient = new APIClient(this.config.apiBase, this.config.token!, {
         onUnauthorized: async () => {
           return await this.ensureLoggedIn();
+        },
+        onPaymentRequired: async () => {
+          await this.ensureCheckout();
         },
       });
     }
@@ -104,6 +108,38 @@ export class Context {
       return await this._loginPromise;
     } finally {
       this._loginPromise = undefined;
+    }
+  }
+
+  /**
+   * Ensure checkout is completed when backend returns 402.
+   * Auto-triggered by API client.
+   */
+  async ensureCheckout(port: number = 3737): Promise<void> {
+    if (this._checkoutPromise) {
+      return await this._checkoutPromise;
+    }
+
+    this._checkoutPromise = (async () => {
+      const token = this.config.token;
+      if (!token) {
+        // If we don't have a token, fall back to login first.
+        await this.ensureLoggedIn(port, 'unauthorized');
+      }
+
+      await runCheckoutFlow({
+        apiBase: this.config.apiBase,
+        port,
+        jsonOutput: this.jsonOutput,
+        token: this.config.token!,
+        spaceId: this.config.spaceId,
+      });
+    })();
+
+    try {
+      await this._checkoutPromise;
+    } finally {
+      this._checkoutPromise = undefined;
     }
   }
 

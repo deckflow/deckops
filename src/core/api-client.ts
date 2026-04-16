@@ -12,11 +12,13 @@ import type { Task, UploadAuthResponse, TaskListResponse } from '../types/api.js
 
 type APIClientOptions = {
   onUnauthorized?: () => Promise<string>;
+  onPaymentRequired?: () => Promise<void>;
 };
 
 export class APIClient {
   private client: AxiosInstance;
   private onUnauthorized?: () => Promise<string>;
+  private onPaymentRequired?: () => Promise<void>;
 
   constructor(
     public readonly baseURL: string,
@@ -26,6 +28,7 @@ export class APIClient {
     // Remove trailing slash
     this.baseURL = baseURL.replace(/\/$/, '');
     this.onUnauthorized = options.onUnauthorized;
+    this.onPaymentRequired = options.onPaymentRequired;
 
     // Create axios instance
     this.client = axios.create({
@@ -37,7 +40,7 @@ export class APIClient {
       timeout: 30000,
     });
 
-    // Auto login & retry once on 401
+    // Auto login/checkout & retry once on 401/402
     this.client.interceptors.response.use(
       (res) => res,
       async (error) => {
@@ -47,6 +50,15 @@ export class APIClient {
 
         const status = error.response?.status;
         const cfg: any = error.config;
+
+        if (status === 402 && this.onPaymentRequired && cfg && !cfg.__deckopsCheckoutRetried) {
+          cfg.__deckopsCheckoutRetried = true;
+
+          await this.onPaymentRequired();
+
+          // Retry the original request once after checkout
+          return await this.client.request(cfg);
+        }
 
         if (status === 401 && this.onUnauthorized && cfg && !cfg.__deckopsAuthRetried) {
           cfg.__deckopsAuthRetried = true;
