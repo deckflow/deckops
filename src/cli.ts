@@ -7,6 +7,7 @@
 import { Command } from 'commander';
 import { Context } from './context.js';
 import { registerConfigCommands } from './commands/config.js';
+import { registerLoginCommand } from './commands/login.js';
 import { registerTaskCommands } from './commands/task.js';
 import { registerCompressCommand } from './commands/compress.js';
 import { registerExtractCommand } from './commands/extract.js';
@@ -37,6 +38,7 @@ async function main() {
 
   // Register command groups and commands
   registerConfigCommands(program, ctx);
+  registerLoginCommand(program, ctx);
   registerTaskCommands(program, ctx);
   registerCompressCommand(program, ctx);
   registerExtractCommand(program, ctx);

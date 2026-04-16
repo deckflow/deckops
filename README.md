@@ -34,10 +34,24 @@ npx @deckflow/cli <command>
 
 ## 🚀 Quick Start
 
-### 1. Configure Authentication
+### 1. Login
+
+**Option A: Interactive Login (Recommended)**
 
 ```bash
-# Set your authentication token (required)
+# Open browser and login automatically
+deckflow login
+```
+
+This will:
+1. Open your browser to the login page
+2. Wait for you to complete authentication
+3. Automatically save the token to your configuration
+
+**Option B: Manual Configuration**
+
+```bash
+# Set your authentication token manually
 deckflow config set-token YOUR_TOKEN
 
 # Optional: Set your workspace/space ID (defaults to 'UMYSELF')
@@ -70,6 +84,18 @@ deckflow task get <task-id>
 ```
 
 ## 📖 Commands
+
+### Login
+
+```bash
+deckflow login                         # Interactive login via browser
+  --port <port>                        # Local server port (default: 3737)
+```
+
+This command:
+- Opens your default browser to the login page
+- Starts a local server to receive the authentication callback
+- Automatically saves the token to your configuration
 
 ### Configuration Commands
 

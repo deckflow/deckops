@@ -24,11 +24,12 @@ This document summarizes the complete migration of the Python deckflow-cli to Ty
 | **Total** | **44** | **100%** | **✅** |
 
 ### Commands Implemented
+- **Auth**: 1 command (login)
 - **Config**: 4 commands (set-token, set-space, set-api-base, show)
 - **Task**: 3 commands (list, get, delete)
 - **Business**: 5 commands (compress, extract, ocr, convert, run)
 - **Interactive**: 1 command (repl)
-- **Total**: 13 individual commands
+- **Total**: 14 individual commands
 
 ## 🏗️ Architecture
 
@@ -67,8 +68,9 @@ nodejs-deckflow-cli/
 │   │   ├── config.ts         ✅ 8 tests
 │   │   ├── api-client.ts     ✅ 12 tests
 │   │   └── file-uploader.ts  ✅ 5 tests
-│   ├── commands/             ✅ 8 command files
+│   ├── commands/             ✅ 9 command files
 │   │   ├── config.ts
+│   │   ├── login.ts
 │   │   ├── task.ts
 │   │   ├── compress.ts
 │   │   ├── extract.ts

@@ -2,7 +2,7 @@
  * API client for deckflow backend
  */
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -10,15 +10,22 @@ import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsou
 import { APIError } from '../utils/errors.js';
 import type { Task, UploadAuthResponse, TaskListResponse } from '../types/api.js';
 
+type APIClientOptions = {
+  onUnauthorized?: () => Promise<string>;
+};
+
 export class APIClient {
   private client: AxiosInstance;
+  private onUnauthorized?: () => Promise<string>;
 
   constructor(
     public readonly baseURL: string,
-    public readonly token: string
+    token: string,
+    options: APIClientOptions = {}
   ) {
     // Remove trailing slash
     this.baseURL = baseURL.replace(/\/$/, '');
+    this.onUnauthorized = options.onUnauthorized;
 
     // Create axios instance
     this.client = axios.create({
@@ -29,6 +36,35 @@ export class APIClient {
       },
       timeout: 30000,
     });
+
+    // Auto login & retry once on 401
+    this.client.interceptors.response.use(
+      (res) => res,
+      async (error) => {
+        if (!axios.isAxiosError(error)) {
+          throw error;
+        }
+
+        const status = error.response?.status;
+        const cfg: any = error.config;
+
+        if (status === 401 && this.onUnauthorized && cfg && !cfg.__deckopsAuthRetried) {
+          cfg.__deckopsAuthRetried = true;
+
+          const newToken = await this.onUnauthorized();
+
+          // Update defaults for subsequent requests
+          this.client.defaults.headers.common['X-Auth-Token'] = newToken;
+
+          // Update the original request and retry
+          cfg.headers = cfg.headers || {};
+          cfg.headers['X-Auth-Token'] = newToken;
+          return await this.client.request(cfg);
+        }
+
+        throw error;
+      }
+    );
 
     // Configure retry logic
     axiosRetry(this.client, {
