@@ -8,6 +8,16 @@ import ora from 'ora';
 
 const LOGIN_TIMEOUT = 300000; // 5 minutes
 
+function isChinesePreferredLanguage(acceptLanguageHeader: string | string[] | undefined): boolean {
+  const raw = Array.isArray(acceptLanguageHeader) ? acceptLanguageHeader.join(',') : (acceptLanguageHeader ?? '');
+  return raw.toLowerCase().includes('zh');
+}
+
+function isChineseCliLocale(): boolean {
+  const locale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '';
+  return locale.toLowerCase().includes('zh');
+}
+
 async function openBrowser(url: string): Promise<void> {
   const { default: open } = await import('open');
   await open(url);
@@ -42,6 +52,12 @@ function startCallbackServer(
       const url = new URL(req.url || '', `http://localhost:${port}`);
       const token = url.searchParams.get('token');
       const spaceId = url.searchParams.get('spaceId') || url.searchParams.get('space_id') || undefined;
+      const isZh = isChinesePreferredLanguage(req.headers['accept-language']);
+      const pageTitle = isZh ? '登录成功' : 'Login Successful';
+      const pageHeading = isZh ? '登录成功！' : 'Login Successful!';
+      const pageDescription = isZh
+        ? '你可以关闭此窗口并返回终端。'
+        : 'You can close this window and return to your terminal.';
 
       if (token) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -50,7 +66,7 @@ function startCallbackServer(
           <html>
             <head>
               <meta charset="utf-8">
-              <title>Login Successful</title>
+              <title>${pageTitle}</title>
               <style>
                 body {
                   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -86,8 +102,8 @@ function startCallbackServer(
             <body>
               <div class="container">
                 <div class="success-icon">✓</div>
-                <h1>Login Successful!</h1>
-                <p>You can close this window and return to your terminal.</p>
+                <h1>${pageHeading}</h1>
+                <p>${pageDescription}</p>
               </div>
             </body>
           </html>
@@ -150,6 +166,12 @@ function startRedirectServer(
       url.searchParams.forEach((v, k) => {
         params[k] = v;
       });
+      const isZh = isChinesePreferredLanguage(req.headers['accept-language']);
+      const pageTitle = isZh ? '完成' : 'Done';
+      const pageHeading = isZh ? '完成' : 'Done';
+      const pageDescription = isZh
+        ? '你可以关闭此窗口并返回终端。'
+        : 'You can close this window and return to your terminal.';
 
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(`
@@ -157,7 +179,7 @@ function startRedirectServer(
         <html>
           <head>
             <meta charset="utf-8">
-            <title>Continue</title>
+            <title>${pageTitle}</title>
             <style>
               body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -188,8 +210,8 @@ function startRedirectServer(
           </head>
           <body>
             <div class="container">
-              <h1>完成</h1>
-              <p>你可以关闭此窗口并返回终端。</p>
+              <h1>${pageHeading}</h1>
+              <p>${pageDescription}</p>
             </div>
           </body>
         </html>
@@ -252,12 +274,13 @@ export async function runLoginFlow(options: {
   jsonOutput: boolean;
   reason?: 'explicit' | 'unauthorized';
 }): Promise<{ token: string; spaceId?: string }> {
+  const isZh = isChineseCliLocale();
   const callbackUrl = `http://localhost:${options.port}`;
   const loginUrl = buildLoginUrl(options.apiBase, callbackUrl);
 
   if (!options.jsonOutput) {
     if (options.reason === 'unauthorized') {
-      console.log(chalk.yellow('\n认证已失效，需要重新登录。\n'));
+      console.log(chalk.yellow(isZh ? '\n认证已失效，需要重新登录。\n' : '\nAuthentication expired. Please log in again.\n'));
     } else {
       console.log(chalk.cyan('\n🔐 Deckflow Login\n'));
     }
@@ -271,8 +294,8 @@ export async function runLoginFlow(options: {
     await openBrowser(loginUrl);
   } catch {
     if (!options.jsonOutput) {
-      console.log(chalk.yellow('\n无法自动打开浏览器。'));
-      console.log(`请手动打开此链接：\n${chalk.cyan(loginUrl)}\n`);
+      console.log(chalk.yellow(isZh ? '\n无法自动打开浏览器。' : '\nUnable to open browser automatically.'));
+      console.log(`${isZh ? '请手动打开此链接：' : 'Please open this link manually:'}\n${chalk.cyan(loginUrl)}\n`);
     }
   }
 
@@ -298,6 +321,7 @@ export async function runCheckoutFlow(options: {
   token: string;
   spaceId?: string;
 }): Promise<void> {
+  const isZh = isChineseCliLocale();
   const redirectUrl = `http://localhost:${options.port}`;
   const checkoutUrl = buildCheckoutUrl({
     apiBase: options.apiBase,
@@ -307,7 +331,7 @@ export async function runCheckoutFlow(options: {
   });
 
   if (!options.jsonOutput) {
-    console.log(chalk.yellow('\n余额不足，需要购买后继续。\n'));
+    console.log(chalk.yellow(isZh ? '\n余额不足，需要购买后继续。\n' : '\nInsufficient balance. Please complete payment to continue.\n'));
     console.log(`Opening browser to: ${chalk.underline(checkoutUrl)}`);
     console.log(chalk.dim(`Waiting for checkout completion on port ${options.port}...\n`));
   }
@@ -318,8 +342,8 @@ export async function runCheckoutFlow(options: {
     await openBrowser(checkoutUrl);
   } catch {
     if (!options.jsonOutput) {
-      console.log(chalk.yellow('\n无法自动打开浏览器。'));
-      console.log(`请手动打开此链接：\n${chalk.cyan(checkoutUrl)}\n`);
+      console.log(chalk.yellow(isZh ? '\n无法自动打开浏览器。' : '\nUnable to open browser automatically.'));
+      console.log(`${isZh ? '请手动打开此链接：' : 'Please open this link manually:'}\n${chalk.cyan(checkoutUrl)}\n`);
     }
   }
 
