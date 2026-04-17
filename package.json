@@ -31,6 +31,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/deckflow/deckops.git"
+  },
+  "homepage": "https://github.com/deckflow/deckops#readme",
+  "bugs": {
+    "url": "https://github.com/deckflow/deckops/issues"
+  },
   "dependencies": {
     "axios": "^1.6.0",
     "axios-retry": "^4.0.0",
