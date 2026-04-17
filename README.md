@@ -1,369 +1,237 @@
-# Deckflow CLI
+# Deckops CLI
 
-> Deckflow CLI helps you convert, extract, ocr from the command line.
+Deckops CLI is a TypeScript command-line tool for Deckflow file processing workflows (compress, convert, extract, OCR, and task management).
 
-[![Tests](https://img.shields.io/badge/tests-44%20passed-brightgreen)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](tests/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 
-A powerful command-line tool for file processing, conversion, and task management.
+## Features
 
-## ✨ Features
+- File upload + task creation for Deckflow backend
+- Built-in task polling with timeout and non-blocking mode
+- Browser-based login flow with local callback server
+- Auto re-login on 401 and checkout flow on 402
+- JSON output mode (`--json`) for automation scripts
+- Interactive REPL mode for repeated operations
 
-- 🚀 **Fast File Processing** - Compress, extract, and convert files with ease
-- 🔄 **Real-time Updates** - Server-Sent Events (SSE) for live task progress
-- 📦 **Smart Uploads** - Multi-part concurrent uploads with automatic deduplication
-- 🎯 **Type-Safe** - Full TypeScript implementation with comprehensive type definitions
-- 🔁 **Auto-Retry** - Automatic retry logic for network failures (429/5xx errors)
-- 📊 **JSON Output** - Machine-readable output for scripting and automation
-- 💬 **Interactive REPL** - REPL mode for batch operations
-- 🌈 **Beautiful UI** - Progress indicators and colored output
+## Installation
 
-## 📦 Installation
+Install globally:
 
 ```bash
-npm install -g @deckflow/cli
+npm install -g deckops
 ```
 
-Or use without installing:
+Or run from source in this repository:
 
 ```bash
-npx @deckflow/cli <command>
+npm install
+npm run build
+node dist/cli.js --help
 ```
 
-## 🚀 Quick Start
+> CLI executable name from this package is `deckops`.
 
-### 1. Login
+## Quick Start
 
-**Option A: Interactive Login (Recommended)**
+### 1) Login (recommended)
 
 ```bash
-# Open browser and login automatically
-deckflow login
+deckops login
 ```
 
-This will:
-1. Open your browser to the login page
-2. Wait for you to complete authentication
-3. Automatically save the token to your configuration
+This command opens a browser, receives the callback at `http://localhost:3737`, and saves credentials into local config.
 
-**Option B: Manual Configuration**
+### 2) Basic usage
 
 ```bash
-# Set your authentication token manually
-deckflow config set-token YOUR_TOKEN
+# Compress
+deckops compress presentation.pptx
 
-# Optional: Set your workspace/space ID
-deckflow config set-space YOUR_SPACE_ID
+# OCR
+deckops ocr image.jpg --language en
 
-# Optional: Set custom API base URL
-deckflow config set-api-base https://api.example.com
+# Convert PPTX to PDF
+deckops convert slides.pptx --to pdf
 
-# View current configuration
-deckflow config show
+# List recent tasks
+deckops task list --limit 10
 ```
 
-### 2. Basic Usage
+## Commands
+
+### Global options
 
 ```bash
-# Compress a file
-deckflow compress presentation.pptx
-
-# Extract text from image (OCR)
-deckflow ocr image.jpg --language en
-
-# Convert PowerPoint to PDF
-deckflow convert slides.pptx --to pdf
-
-# List tasks
-deckflow task list --limit 10
-
-# Get task details
-deckflow task get <task-id>
+deckops --json <command>
 ```
 
-## 📖 Commands
+- `--json`: machine-readable JSON output
 
 ### Login
 
 ```bash
-deckflow login                         # Interactive login via browser
-  --port <port>                        # Local server port (default: 3737)
+deckops login [--port <port>]
 ```
 
-This command:
-- Opens your default browser to the login page
-- Starts a local server to receive the authentication callback
-- Automatically saves the token to your configuration
+- Default callback port: `3737`
 
-### Configuration Commands
+### Config
 
 ```bash
-deckflow config set-token <token>      # Set authentication token
-deckflow config set-space <space-id>   # Set workspace ID
-deckflow config set-api-base <url>     # Set API base URL
-deckflow config show                    # Show current configuration
+deckops config set-token <token>
+deckops config set-space <space-id>
+deckops config set-api-base <url>
+deckops config show
 ```
 
-### Task Management
+### Task management
 
 ```bash
-deckflow task list                      # List all tasks
-  --type <type>                         # Filter by task type
-  --limit <n>                           # Maximum results (default: 50)
-  --offset <n>                          # Pagination offset (default: 0)
-
-deckflow task get <task-id>             # Get task details
-deckflow task delete <task-id>          # Delete a task
+deckops task list [--type <type>] [--limit <n>] [--offset <n>]
+deckops task get <task-id>
+deckops task delete <task-id>
 ```
 
-### Compress Files
+### Compress
 
 ```bash
-deckflow compress <input-file>          # Compress a file
-  --no-wait                             # Don't wait for completion
-  --timeout <seconds>                   # Timeout in seconds (default: 300)
+deckops compress <input-file> [--no-wait] [--timeout <seconds>]
 ```
 
-**Supported formats:**
-- Documents: ZIP, PPTX, KEY, DOCX, XLSX
-- Videos: MP4, AVI, MOV, MKV
+Supported input extensions:
 
-### OCR (Optical Character Recognition)
+- Document/archive: `.zip`, `.pptx`, `.key`, `.docx`, `.xlsx`
+- Video: `.mp4`, `.avi`, `.mov`, `.mkv`
+
+### OCR
 
 ```bash
-deckflow ocr <input-file>               # Extract text from images
-  --language <lang>                     # OCR language (default: zh-hans)
-  --no-wait                             # Don't wait for completion
-  --timeout <seconds>                   # Timeout in seconds (default: 300)
+deckops ocr <input-file> [--language <lang>] [--no-wait] [--timeout <seconds>]
 ```
 
-**Supported languages:**
-`zh-hans`, `zh-hant`, `en`, `ja`, `ko`, `ar`, `de`, `es`, `fr`, `it`, `pt`, `ru`
+- Default language: `zh-hans`
+- Supported languages: `zh-hans`, `zh-hant`, `en`, `ja`, `ko`, `ar`, `de`, `es`, `fr`, `it`, `pt`, `ru`
+- Supported input extensions: `.jpg`, `.jpeg`, `.png`
 
-**Supported formats:**
-JPG, JPEG, PNG
-
-### Extract Information
+### Extract
 
 ```bash
-deckflow extract <input-file>           # Extract information from files
-  --type <type>                         # Extract type: fonts, text-shapes
-  --no-wait                             # Don't wait for completion
-  --timeout <seconds>                   # Timeout in seconds (default: 300)
+deckops extract <input-file> [--type <type>] [--no-wait] [--timeout <seconds>]
 ```
 
-**Extract types:**
-- `fonts` - Font information (PPTX)
-- `text-shapes` - Text shapes (PPTX)
+- Extract types:
+  - `fonts` -> `pptx.getFontInfo`
+  - `text-shapes` -> `pptx.getTextShapes`
+- Auto-detection currently supports `.pptx` (defaults to `pptx.getFontInfo`)
 
-### Convert Files
+### Convert
 
 ```bash
-deckflow convert <input-file>           # Convert file format
-  --to <format>                         # Required: output format
-  --no-wait                             # Don't wait for completion
-  --timeout <seconds>                   # Timeout in seconds (default: 300)
+deckops convert <input-file> --to <format> [--no-wait] [--timeout <seconds>]
 ```
 
-**Output formats:**
-- `image` - Convert to images (PPT, PPTX, PDF, KEY)
-- `pdf` - Convert to PDF (PPT, PPTX, DOC, DOCX, KEY)
-- `video` - Convert to video (PPT, PPTX)
-- `html` - Convert to HTML (KEY)
-- `png` - Convert to PNG (HTML, MD)
-- `pptx` - Convert to PPTX (PPT, HTML)
-- `webp` - Convert to WebP (JPG, JPEG, PNG)
+Supported output formats:
 
-### Run Custom Tasks
+- `image`: `.ppt`, `.pptx`, `.pdf`, `.key`
+- `pdf`: `.ppt`, `.pptx`, `.doc`, `.docx`, `.key`
+- `video`: `.ppt`, `.pptx`
+- `html`: `.key`
+- `png`: `.html`, `.md`
+- `pptx`: `.ppt`, `.html`
+- `webp`: `.jpg`, `.jpeg`, `.png`
+
+### Run explicit task type
 
 ```bash
-deckflow run <task-type> <input-files...>   # Run task with explicit type
-  --param <key=value>                       # Task parameters (repeatable)
-  --no-wait                                 # Don't wait for completion
-  --timeout <seconds>                       # Timeout in seconds (default: 300)
+deckops run <task-type> <input-files...> [--param <key=value>] [--no-wait] [--timeout <seconds>]
 ```
 
-**Example:**
+`--param` can be repeated and values are parsed as JSON when possible.
+
+Example:
+
 ```bash
-deckflow run convertor.ppt2pdf presentation.ppt --param quality=high
+deckops run convertor.ppt2pdf demo.ppt --param quality="high"
+deckops run some.task input.pdf --param retries=3 --param debug=true
 ```
 
-### Interactive REPL
+### REPL
 
 ```bash
-deckflow repl                           # Start interactive mode
+deckops repl
+```
 
-# In REPL:
+Inside REPL:
+
+```bash
 deckflow> config show
-deckflow> compress presentation.pptx
 deckflow> task list
 deckflow> exit
 ```
 
-## 🔧 Advanced Usage
+## Authentication behavior
 
-### JSON Output for Scripting
+- If `token` or `spaceId` is missing, most API commands will trigger login flow automatically.
+- On backend `401`, client will auto prompt login and retry.
+- On backend `402`, client will open browser checkout flow, then continue.
 
-All commands support `--json` flag for machine-readable output:
+## Configuration
 
-```bash
-# Get configuration as JSON
-deckflow --json config show
+Config file path:
 
-# List tasks as JSON
-deckflow --json task list | jq '.tasks[0].id'
+- `~/.deckops/config.json`
 
-# Compress and get result as JSON
-deckflow --json compress file.zip
-```
+Common fields:
 
-### Batch Processing
+- `token`: auth token
+- `spaceId`: workspace/space identifier
+- `apiBase`: API base URL (default: `https://app.deckflow.com/v1`)
+- `signURI`: optional sign-in URI field
 
-```bash
-# Process multiple files
-for file in *.pptx; do
-  deckflow compress "$file"
-done
-
-# Or use REPL mode
-deckflow repl
-```
-
-### Non-blocking Operations
-
-```bash
-# Start task without waiting
-deckflow compress video.mp4 --no-wait
-
-# Check task status later
-deckflow task get <task-id>
-```
-
-## 🏗️ Development
-
-### Requirements
-
-- Node.js >= 18.0.0
-- npm or yarn
-
-### Setup
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd nodejs-deckflow-cli
-
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Run tests
-npm test
-
-# Run with coverage
-npm run test:coverage
-
-# Development mode
-npm run dev
-```
-
-### Project Structure
-
-```
-nodejs-deckflow-cli/
-├── src/
-│   ├── core/               # Core modules
-│   │   ├── config.ts       # Configuration management
-│   │   ├── api-client.ts   # API client with SSE
-│   │   └── file-uploader.ts # File upload logic
-│   ├── commands/           # CLI commands
-│   ├── types/              # TypeScript types
-│   ├── utils/              # Utilities
-│   ├── context.ts          # CLI context
-│   └── cli.ts              # Main entry
-├── tests/
-│   ├── unit/               # Unit tests
-│   └── e2e/                # E2E tests
-└── dist/                   # Build output
-```
-
-### Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run unit tests only
-npm run test:unit
-
-# Run E2E tests only
-npm run test:e2e
-
-# Run with coverage
-npm run test:coverage
-```
-
-**Test Coverage:**
-- Config: 8 tests (100% coverage)
-- API Client: 12 tests (100% coverage)
-- File Uploader: 5 tests (100% coverage)
-- E2E: 19 tests
-- **Total: 44 tests, all passing**
-
-## 🔑 Configuration
-
-Configuration is stored in `~/.deckops/config.json`:
+Example:
 
 ```json
 {
   "token": "your-auth-token",
   "spaceId": "your-space-id",
-  "apiBase": "https://api.example.com/v1"
+  "apiBase": "https://app.deckflow.com/v1"
 }
 ```
 
-**Configuration options:**
-- `token` - Authentication token (required)
-- `spaceId` - Workspace/space ID (optional)
-- `apiBase` - API base URL (default: `https://app.deckflow.com/v1`)
-- `signURI` - Sign-in URI (optional)
+## Development
 
-## 🐛 Troubleshooting
+Requirements:
 
-### "Not configured" error
+- Node.js >= 18
 
-Make sure you've set your authentication token:
+Setup:
 
 ```bash
-deckflow config set-token <your-token>
-
-# Optionally set space ID
-deckflow config set-space <your-space-id>
+npm install
+npm run build
+npm run typecheck
+npm run lint
+npm test
 ```
 
-### Task timeout
+Useful scripts:
 
-Increase timeout for large files:
+- `npm run build`
+- `npm run dev`
+- `npm run test`
+- `npm run test:unit`
+- `npm run test:e2e`
+- `npm run test:coverage`
+- `npm run lint`
+- `npm run format`
+- `npm run typecheck`
 
-```bash
-deckflow compress large-file.mp4 --timeout 600
-```
-
-## 📄 License
+## License
 
 MIT
 
-## 🙏 Acknowledgments
+## Links
 
-This is a TypeScript port of the Python [deckflow-cli](../python-deckflow-cli), maintaining 100% feature compatibility while leveraging the Node.js ecosystem.
-
-## 🔗 Links
-
-- [Documentation](./docs/)
-- [API Reference](./docs/api.md)
 - [Changelog](./CHANGELOG.md)
 - [Contributing](./CONTRIBUTING.md)
