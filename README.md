@@ -54,7 +54,7 @@ This will:
 # Set your authentication token manually
 deckflow config set-token YOUR_TOKEN
 
-# Optional: Set your workspace/space ID (defaults to 'UMYSELF')
+# Optional: Set your workspace/space ID
 deckflow config set-space YOUR_SPACE_ID
 
 # Optional: Set custom API base URL
@@ -316,7 +316,7 @@ npm run test:coverage
 
 ## 🔑 Configuration
 
-Configuration is stored in `~/.deckflow/config.json`:
+Configuration is stored in `~/.deckops/config.json`:
 
 ```json
 {
@@ -328,7 +328,7 @@ Configuration is stored in `~/.deckflow/config.json`:
 
 **Configuration options:**
 - `token` - Authentication token (required)
-- `spaceId` - Workspace/space ID (optional, default: `UMYSELF`)
+- `spaceId` - Workspace/space ID (optional)
 - `apiBase` - API base URL (default: `https://app.deckflow.com/v1`)
 - `signURI` - Sign-in URI (optional)
 
@@ -341,7 +341,7 @@ Make sure you've set your authentication token:
 ```bash
 deckflow config set-token <your-token>
 
-# Optionally set space ID (defaults to 'UMYSELF')
+# Optionally set space ID
 deckflow config set-space <your-space-id>
 ```
 

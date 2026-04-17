@@ -5,7 +5,7 @@ import { z } from 'zod';
  */
 export const ConfigSchema = z.object({
   token: z.string().optional(),
-  spaceId: z.string().default('UMYSELF'),
+  spaceId: z.string().optional(),
   apiBase: z.string().url().default('https://app.deckflow.com/v1'),
   signURI: z.string().url().optional(),
 });

@@ -22,11 +22,11 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
     .option('--offset <n>', 'Start index for pagination', '0')
     .action(async (options: { type?: string; limit: string; offset: string }) => {
       try {
-        const client = ctx.getClient();
+        const client = await ctx.getClient();
         const spaceId = ctx.config.spaceId;
 
         if (!spaceId) {
-          ctx.error('Space ID not set. Run: deckflow config set-space <space-id>', 'NO_SPACE_ID');
+          ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
         }
 
         const result = await client.listTasks(
@@ -69,7 +69,7 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
     .description('Get task details')
     .action(async (taskId: string) => {
       try {
-        const client = ctx.getClient();
+        const client = await ctx.getClient();
         const taskData = await client.getTask(taskId);
 
         ctx.output(taskData, (task) => {
@@ -114,7 +114,7 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
     .description('Delete a task')
     .action(async (taskId: string) => {
       try {
-        const client = ctx.getClient();
+        const client = await ctx.getClient();
         await client.deleteTask(taskId);
 
         ctx.output(

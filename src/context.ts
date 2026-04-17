@@ -34,13 +34,19 @@ export class Context {
   /**
    * Get or create API client
    */
-  getClient(): APIClient {
-    if (!this.config.isConfigured()) {
+  async getClient(): Promise<APIClient> {
+    if (!this.config.token || !this.config.spaceId) {
+      await this.ensureLoggedIn(3737, 'explicit');
+    }
+
+    if (!this.config.token) {
+      this.error('Login did not provide a token. Please run `deckflow login` again.', 'NOT_CONFIGURED');
+    }
+
+    if (!this.config.spaceId) {
       this.error(
-        'Not configured. Please set token and space ID:\n' +
-          '  deckflow config set-token <token>\n' +
-          '  deckflow config set-space <space-id>',
-        'NOT_CONFIGURED',
+        'Login succeeded but spaceId is missing. Please run `deckflow login` again.',
+        'NO_SPACE_ID',
         ExitCode.USAGE_ERROR
       );
     }
@@ -62,8 +68,8 @@ export class Context {
   /**
    * Get or create file uploader
    */
-  getUploader(): FileUploader {
-    const client = this.getClient();
+  async getUploader(): Promise<FileUploader> {
+    const client = await this.getClient();
 
     if (!this._uploader) {
       this._uploader = new FileUploader(client);

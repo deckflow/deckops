@@ -34,8 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING CHANGE**: Configuration directory moved from `~/.tools-ui/` to `~/.deckflow/`
-  - Config file now located at `~/.deckflow/config.json`
+- **BREAKING CHANGE**: Configuration directory moved from `~/.tools-ui/` to `~/.deckops/`
+  - Config file now located at `~/.deckops/config.json`
   - This provides a more intuitive and branded directory name
   - Users need to reconfigure or manually move their existing config file
 - **BREAKING CHANGE**: `render` command renamed to `convert`
@@ -45,9 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Old: `deckflow extract image.jpg --type ocr --language en`
   - New: `deckflow ocr image.jpg --language en`
   - `extract` command now only supports `fonts` and `text-shapes` types
-- **spaceId is now optional** with default value `UMYSELF`
+- **spaceId is now optional**
   - Only authentication token is required for configuration
-  - Space ID defaults to `UMYSELF` if not explicitly set
 
 ### Migration Guide
 
@@ -55,7 +54,7 @@ If you have an existing configuration at `~/.tools-ui/config.json`, you can migr
 
 ```bash
 # Option 1: Move the entire directory
-mv ~/.tools-ui ~/.deckflow
+mv ~/.tools-ui ~/.deckops
 
 # Option 2: Reconfigure with the CLI
 deckflow config set-token YOUR_TOKEN

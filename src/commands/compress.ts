@@ -21,9 +21,12 @@ export function registerCompressCommand(program: Command, ctx: Context): void {
     .action(async (inputFile: string, options: { wait?: boolean; timeout: string }) => {
       const wait = options.wait !== false;
       try {
-        const client = ctx.getClient();
-        const uploader = ctx.getUploader();
-        const spaceId = ctx.config.spaceId!;
+        const client = await ctx.getClient();
+        const uploader = await ctx.getUploader();
+        const spaceId = ctx.config.spaceId;
+        if (!spaceId) {
+          ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
+        }
 
         // Auto-detect task type
         const ext = path.extname(inputFile).toLowerCase();

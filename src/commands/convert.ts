@@ -26,9 +26,12 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
       async (inputFile: string, options: { to: string; wait?: boolean; timeout: string }) => {
         const wait = options.wait !== false;
         try {
-          const client = ctx.getClient();
-          const uploader = ctx.getUploader();
+          const client = await ctx.getClient();
+          const uploader = await ctx.getUploader();
           const spaceId = ctx.config.spaceId;
+          if (!spaceId) {
+            ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
+          }
 
           // Determine task type
           const ext = path.extname(inputFile).toLowerCase();

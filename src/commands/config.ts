@@ -70,6 +70,7 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
     .action(() => {
       try {
         const allConfig = ctx.config.all();
+        const shouldShowLoginHint = !allConfig.token || !allConfig.spaceId;
 
         // Mask sensitive data in human-readable output
         const displayConfig = { ...allConfig };
@@ -78,9 +79,13 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
         }
 
         ctx.output(displayConfig, (data) => {
-          return Object.entries(data)
+          const content = Object.entries(data)
             .map(([key, value]) => `${chalk.cyan(key)}: ${value || chalk.gray('(not set)')}`)
             .join('\n');
+          if (shouldShowLoginHint) {
+            return `${content}\n${chalk.yellow('Tip: token or spaceId is missing. Please run `deckflow login` first.')}`;
+          }
+          return content;
         });
       } catch (error) {
         ctx.error((error as Error).message);

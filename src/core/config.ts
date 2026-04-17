@@ -1,6 +1,6 @@
 /**
  * Configuration management for deckflow CLI
- * Manages CLI configuration stored in ~/.deckflow/config.json
+ * Manages CLI configuration stored in ~/.deckops/config.json
  */
 
 import fs from 'fs/promises';
@@ -9,7 +9,7 @@ import os from 'os';
 import { ConfigSchema, type ConfigData } from '../types/config.js';
 
 export class Config {
-  private static readonly DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.deckflow');
+  private static readonly DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.deckops');
   private static readonly CONFIG_FILE = 'config.json';
 
   private readonly configDir: string;
@@ -18,7 +18,7 @@ export class Config {
 
   /**
    * Initialize config manager
-   * @param configDir - Custom config directory (defaults to ~/.tools-ui)
+   * @param configDir - Custom config directory (defaults to ~/.deckops)
    */
   constructor(configDir?: string) {
     this.configDir = configDir || Config.DEFAULT_CONFIG_DIR;
@@ -97,9 +97,9 @@ export class Config {
   }
 
   /**
-   * Get space ID (defaults to 'UMYSELF')
+   * Get space ID
    */
-  get spaceId(): string {
+  get spaceId(): string | undefined {
     return this.data.spaceId;
   }
 
