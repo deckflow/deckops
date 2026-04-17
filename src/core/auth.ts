@@ -17,6 +17,27 @@ function startCallbackServer(
   port: number
 ): Promise<{ token: string; spaceId?: string; server: http.Server }> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutHandle: NodeJS.Timeout;
+
+    const settleResolve = (value: { token: string; spaceId?: string; server: http.Server }): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutHandle);
+      resolve(value);
+    };
+
+    const settleReject = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutHandle);
+      reject(error);
+    };
+
     const server = http.createServer((req, res) => {
       const url = new URL(req.url || '', `http://localhost:${port}`);
       const token = url.searchParams.get('token');
@@ -72,7 +93,7 @@ function startCallbackServer(
           </html>
         `);
 
-        resolve({ token, spaceId: spaceId || undefined, server });
+        settleResolve({ token, spaceId: spaceId || undefined, server });
       } else {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
         res.end('Missing token parameter');
@@ -81,9 +102,9 @@ function startCallbackServer(
 
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        reject(new Error(`Port ${port} is already in use. Please close other applications and try again.`));
+        settleReject(new Error(`Port ${port} is already in use. Please close other applications and try again.`));
       } else {
-        reject(err);
+        settleReject(err);
       }
     });
 
@@ -91,9 +112,9 @@ function startCallbackServer(
       // Server started successfully
     });
 
-    setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
       server.close();
-      reject(new Error('Login timeout. Please try again.'));
+      settleReject(new Error('Login timeout. Please try again.'));
     }, LOGIN_TIMEOUT);
   });
 }
@@ -102,6 +123,27 @@ function startRedirectServer(
   port: number
 ): Promise<{ params: Record<string, string>; server: http.Server }> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutHandle: NodeJS.Timeout;
+
+    const settleResolve = (value: { params: Record<string, string>; server: http.Server }): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutHandle);
+      resolve(value);
+    };
+
+    const settleReject = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutHandle);
+      reject(error);
+    };
+
     const server = http.createServer((req, res) => {
       const url = new URL(req.url || '', `http://localhost:${port}`);
       const params: Record<string, string> = {};
@@ -153,14 +195,14 @@ function startRedirectServer(
         </html>
       `);
 
-      resolve({ params, server });
+      settleResolve({ params, server });
     });
 
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        reject(new Error(`Port ${port} is already in use. Please close other applications and try again.`));
+        settleReject(new Error(`Port ${port} is already in use. Please close other applications and try again.`));
       } else {
-        reject(err);
+        settleReject(err);
       }
     });
 
@@ -168,9 +210,9 @@ function startRedirectServer(
       // Server started successfully
     });
 
-    setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
       server.close();
-      reject(new Error('Operation timeout. Please try again.'));
+      settleReject(new Error('Operation timeout. Please try again.'));
     }, LOGIN_TIMEOUT);
   });
 }
