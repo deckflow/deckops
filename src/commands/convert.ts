@@ -20,8 +20,14 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
       '--to <format>',
       'Output format: image, pdf, video, html, png, pptx, webp'
     )
-    .option('--width <number>', 'Width for html->pptx conversion (only applies to .html --to pptx)')
-    .option('--height <number>', 'Height for html->pptx conversion (only applies to .html --to pptx)')
+    .option(
+      '--width <number>',
+      'Width for html->pptx/html->png conversion (only applies to .html --to pptx/png)'
+    )
+    .option(
+      '--height <number>',
+      'Height for html->pptx/html->png conversion (only applies to .html --to pptx/png)'
+    )
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
     .action(
@@ -83,8 +89,8 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
           const taskName = path.basename(inputFile, ext);
           const params: Record<string, unknown> = {};
 
-          // Only pass width/height for html -> pptx
-          if (taskType === 'convertor.html2pptx') {
+          // Only pass width/height for html -> pptx / html -> png
+          if (taskType === 'convertor.html2pptx' || taskType === 'convertor.html2png') {
             if (options.width !== undefined) {
               const width = Number(options.width);
               if (!Number.isFinite(width) || width <= 0) {

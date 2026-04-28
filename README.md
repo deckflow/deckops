@@ -146,7 +146,7 @@ Supported output formats:
 
 Notes:
 
-- `--width` / `--height` only apply to **HTML -> PPTX** conversion (`.html --to pptx`) and will be sent to the backend as task params.
+- `--width` / `--height` only apply to **HTML -> PPTX** and **HTML -> PNG** conversion (`.html --to pptx` / `.html --to png`) and will be sent to the backend as task params.
 
 ### Join (pptx)
 
