@@ -13,6 +13,7 @@ import { registerCompressCommand } from './commands/compress.js';
 import { registerExtractCommand } from './commands/extract.js';
 import { registerOcrCommand } from './commands/ocr.js';
 import { registerConvertCommand } from './commands/convert.js';
+import { registerJoinCommand } from './commands/join.js';
 import { registerRunCommand } from './commands/run.js';
 import { registerReplCommand } from './commands/repl.js';
 import { ExitCode, outputError } from './utils/errors.js';
@@ -44,6 +45,7 @@ async function main() {
   registerExtractCommand(program, ctx);
   registerOcrCommand(program, ctx);
   registerConvertCommand(program, ctx);
+  registerJoinCommand(program, ctx);
   registerRunCommand(program, ctx);
   registerReplCommand(program, ctx);
 

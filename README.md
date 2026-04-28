@@ -54,6 +54,9 @@ deckops ocr image.jpg --language en
 # Convert PPTX to PDF
 deckops convert slides.pptx --to pdf
 
+# Join multiple PPTX files in order
+deckops join part1.pptx part2.pptx part3.pptx
+
 # List recent tasks
 deckops task list --limit 10
 ```
@@ -144,6 +147,25 @@ Supported output formats:
 Notes:
 
 - `--width` / `--height` only apply to **HTML -> PPTX** conversion (`.html --to pptx`) and will be sent to the backend as task params.
+
+### Join (pptx)
+
+```bash
+deckops join <input-files...> [--name <name>] [--no-wait] [--timeout <seconds>]
+```
+
+Merges multiple `.pptx` files into a single deck using the `pptx.join` task. Files are merged in the order given on the command line, so the first file becomes the start of the merged deck.
+
+- Requires at least **2** `.pptx` files
+- All inputs must have the `.pptx` extension
+- `--name` overrides the task name (defaults to the first input file's base name)
+
+Example:
+
+```bash
+deckops join cover.pptx chapter-1.pptx chapter-2.pptx appendix.pptx
+deckops join a.pptx b.pptx --name combined-deck --timeout 600
+```
 
 ### Run explicit task type
 
