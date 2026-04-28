@@ -20,10 +20,15 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
       '--to <format>',
       'Output format: image, pdf, video, html, png, pptx, webp'
     )
+    .option('--width <number>', 'Width for html->pptx conversion (only applies to .html --to pptx)')
+    .option('--height <number>', 'Height for html->pptx conversion (only applies to .html --to pptx)')
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
     .action(
-      async (inputFile: string, options: { to: string; wait?: boolean; timeout: string }) => {
+      async (
+        inputFile: string,
+        options: { to: string; wait?: boolean; timeout: string; width?: string; height?: string }
+      ) => {
         const wait = options.wait !== false;
         try {
           const client = await ctx.getClient();
@@ -76,14 +81,37 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
           }
 
           const taskName = path.basename(inputFile, ext);
-          let task = await client.addTask(spaceId, [fileId], taskType, taskName);
+          const params: Record<string, unknown> = {};
+
+          // Only pass width/height for html -> pptx
+          if (taskType === 'convertor.html2pptx') {
+            if (options.width !== undefined) {
+              const width = Number(options.width);
+              if (!Number.isFinite(width) || width <= 0) {
+                ctx.error(`Invalid --width: ${options.width}\nExpected: a positive number`, 'INVALID_WIDTH');
+              }
+              params.width = width;
+            }
+            if (options.height !== undefined) {
+              const height = Number(options.height);
+              if (!Number.isFinite(height) || height <= 0) {
+                ctx.error(
+                  `Invalid --height: ${options.height}\nExpected: a positive number`,
+                  'INVALID_HEIGHT'
+                );
+              }
+              params.height = height;
+            }
+          }
+
+          let task = await client.addTask(spaceId, [fileId], taskType, taskName, params);
 
           if (spinner) {
             spinner.succeed(`Task created: ${task.id}`);
           }
 
           // Wait for completion
-          if (options.wait) {
+          if (wait) {
             if (!ctx.jsonOutput) {
               spinner = ora('Converting...').start();
             }

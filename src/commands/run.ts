@@ -39,6 +39,7 @@ export function registerRunCommand(program: Command, ctx: Context): void {
           const spaceId = ctx.config.spaceId;
           if (!spaceId) {
             ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
+            return;
           }
 
           // Parse parameters
@@ -49,7 +50,9 @@ export function registerRunCommand(program: Command, ctx: Context): void {
                 ctx.error(`Invalid parameter format: ${p}\nExpected: key=value`, 'INVALID_PARAM');
               }
 
-              const [key, value] = p.split('=', 2);
+              const idx = p.indexOf('=');
+              const key = p.slice(0, idx);
+              const value = p.slice(idx + 1);
               // Try to parse as JSON, fallback to string
               try {
                 params[key] = JSON.parse(value);
@@ -86,7 +89,8 @@ export function registerRunCommand(program: Command, ctx: Context): void {
             spinner = ora('Creating task...').start();
           }
 
-          const taskName = inputFiles.length > 0 ? path.basename(inputFiles[0]) : undefined;
+          const firstFile = inputFiles[0];
+          const taskName = firstFile ? path.basename(firstFile) : undefined;
           let task = await client.addTask(spaceId, fileIds, taskType, taskName, params);
 
           if (spinner) {
@@ -94,7 +98,7 @@ export function registerRunCommand(program: Command, ctx: Context): void {
           }
 
           // Wait for completion
-          if (options.wait) {
+          if (wait) {
             if (!ctx.jsonOutput) {
               spinner = ora('Processing...').start();
             }

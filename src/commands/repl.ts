@@ -10,7 +10,7 @@ import { Context } from '../context.js';
 /**
  * Register REPL command
  */
-export function registerReplCommand(program: Command, ctx: Context): void {
+export function registerReplCommand(program: Command, _ctx: Context): void {
   program
     .command('repl')
     .description('Start interactive REPL mode')

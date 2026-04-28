@@ -19,6 +19,7 @@ export class APIClient {
   private client: AxiosInstance;
   private onUnauthorized?: () => Promise<string>;
   private onPaymentRequired?: () => Promise<void>;
+  public readonly token: string;
 
   constructor(
     public readonly baseURL: string,
@@ -27,6 +28,7 @@ export class APIClient {
   ) {
     // Remove trailing slash
     this.baseURL = baseURL.replace(/\/$/, '');
+    this.token = token;
     this.onUnauthorized = options.onUnauthorized;
     this.onPaymentRequired = options.onPaymentRequired;
 
@@ -121,7 +123,7 @@ export class APIClient {
         payload.name = name;
       }
 
-      const response = await this.client.post<Task>('/tools/tasks', payload);
+      const response = await this.client.post<Task>(this.url('/tools/tasks'), payload);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -339,7 +341,7 @@ export class APIClient {
               }
             }
           },
-          (error) => {
+          (_error) => {
             // Fall back to polling on SSE error
             clearInterval(checkTimeout);
             if (!resolved) {

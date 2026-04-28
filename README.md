@@ -128,7 +128,7 @@ deckops extract <input-file> [--type <type>] [--no-wait] [--timeout <seconds>]
 ### Convert
 
 ```bash
-deckops convert <input-file> --to <format> [--no-wait] [--timeout <seconds>]
+deckops convert <input-file> --to <format> [--width <number>] [--height <number>] [--no-wait] [--timeout <seconds>]
 ```
 
 Supported output formats:
@@ -140,6 +140,10 @@ Supported output formats:
 - `png`: `.html`, `.md`
 - `pptx`: `.ppt`, `.html`
 - `webp`: `.jpg`, `.jpeg`, `.png`
+
+Notes:
+
+- `--width` / `--height` only apply to **HTML -> PPTX** conversion (`.html --to pptx`) and will be sent to the backend as task params.
 
 ### Run explicit task type
 

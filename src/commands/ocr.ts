@@ -83,7 +83,7 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
           }
 
           // Wait for completion
-          if (options.wait) {
+          if (wait) {
             if (!ctx.jsonOutput) {
               spinner = ora('Processing OCR...').start();
             }

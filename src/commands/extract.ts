@@ -38,22 +38,24 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
           let taskType: string;
 
           if (options.type) {
-            taskType = EXTRACT_TYPE_MAP[options.type];
-            if (!taskType) {
+            const mapped = EXTRACT_TYPE_MAP[options.type];
+            if (!mapped) {
               const supportedTypes = Object.keys(EXTRACT_TYPE_MAP).join(', ');
               ctx.error(
                 `Unknown extract type: ${options.type}\nSupported: ${supportedTypes}`,
                 'INVALID_TYPE'
               );
             }
+            taskType = mapped;
           } else {
-            taskType = EXTRACT_TYPES[ext];
-            if (!taskType) {
+            const autoDetected = EXTRACT_TYPES[ext];
+            if (!autoDetected) {
               ctx.error(
                 `Cannot auto-detect extract type for: ${ext}\nPlease specify --type`,
                 'UNSUPPORTED_TYPE'
               );
             }
+            taskType = autoDetected;
           }
 
           // Upload file
@@ -85,7 +87,7 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
           }
 
           // Wait for completion
-          if (options.wait) {
+          if (wait) {
             if (!ctx.jsonOutput) {
               spinner = ora('Processing...').start();
             }

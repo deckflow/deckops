@@ -23,7 +23,7 @@ export class Config {
   constructor(configDir?: string) {
     this.configDir = configDir || Config.DEFAULT_CONFIG_DIR;
     this.configPath = path.join(this.configDir, Config.CONFIG_FILE);
-    this.data = {};
+    this.data = ConfigSchema.parse({});
   }
 
   /**
