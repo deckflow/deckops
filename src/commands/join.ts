@@ -4,7 +4,6 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
 import path from 'path';
 import { Context } from '../context.js';
 import { DEFAULT_TIMEOUT } from '../utils/constants.js';
@@ -65,9 +64,7 @@ export function registerJoinCommand(program: Command, ctx: Context): void {
             index += 1;
             const baseName = path.basename(inputFile);
 
-            if (!ctx.jsonOutput) {
-              spinner = ora(`Uploading [${index}/${total}] ${baseName}...`).start();
-            }
+            spinner = ctx.createSpinner(`Uploading [${index}/${total}] ${baseName}...`);
 
             const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
               if (spinner) {
@@ -77,15 +74,11 @@ export function registerJoinCommand(program: Command, ctx: Context): void {
 
             fileIds.push(fileId);
 
-            if (spinner) {
-              spinner.succeed(`Uploaded [${index}/${total}] ${baseName}`);
-            }
+            ctx.succeedSpinner(spinner, `Uploaded [${index}/${total}] ${baseName}`);
           }
 
           // Create pptx.join task
-          if (!ctx.jsonOutput) {
-            spinner = ora('Creating pptx.join task...').start();
-          }
+          spinner = ctx.createSpinner('Creating pptx.join task...');
 
           const firstFile = inputFiles[0];
           const taskName =
@@ -98,15 +91,11 @@ export function registerJoinCommand(program: Command, ctx: Context): void {
             taskName
           );
 
-          if (spinner) {
-            spinner.succeed(`Task created: ${task.id}`);
-          }
+          ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 
           // Wait for completion
           if (wait) {
-            if (!ctx.jsonOutput) {
-              spinner = ora('Joining pptx files...').start();
-            }
+            spinner = ctx.createSpinner('Joining pptx files...');
 
             task = await client.waitForTask(task.id, parseInt(options.timeout, 10), true, (t) => {
               if (spinner && t.status === 'running') {
@@ -114,12 +103,10 @@ export function registerJoinCommand(program: Command, ctx: Context): void {
               }
             });
 
-            if (spinner) {
-              if (task.status === 'completed') {
-                spinner.succeed('Join completed');
-              } else {
-                spinner.fail('Join failed');
-              }
+            if (task.status === 'completed') {
+              ctx.succeedSpinner(spinner, 'Join completed');
+            } else {
+              ctx.failSpinner(spinner, 'Join failed');
             }
           }
 

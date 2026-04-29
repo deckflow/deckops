@@ -13,13 +13,16 @@ import type { Task, UploadAuthResponse, TaskListResponse } from '../types/api.js
 type APIClientOptions = {
   onUnauthorized?: () => Promise<string>;
   onPaymentRequired?: () => Promise<void>;
+  getSpaceId?: () => string | undefined;
 };
 
 export class APIClient {
   private client: AxiosInstance;
   private onUnauthorized?: () => Promise<string>;
   private onPaymentRequired?: () => Promise<void>;
-  public readonly token: string;
+  private getSpaceId?: () => string | undefined;
+  public token: string;
+  private spaceId?: string;
 
   constructor(
     public readonly baseURL: string,
@@ -31,6 +34,8 @@ export class APIClient {
     this.token = token;
     this.onUnauthorized = options.onUnauthorized;
     this.onPaymentRequired = options.onPaymentRequired;
+    this.getSpaceId = options.getSpaceId;
+    this.spaceId = options.getSpaceId?.();
 
     // Create axios instance
     this.client = axios.create({
@@ -64,11 +69,16 @@ export class APIClient {
 
         if (status === 401 && this.onUnauthorized && cfg && !cfg.__deckopsAuthRetried) {
           cfg.__deckopsAuthRetried = true;
+          const oldSpaceId = this.spaceId;
 
           const newToken = await this.onUnauthorized();
+          const newSpaceId = this.getSpaceId?.();
 
           // Update defaults for subsequent requests
           this.client.defaults.headers.common['X-Auth-Token'] = newToken;
+          this.token = newToken;
+          this.spaceId = newSpaceId;
+          this.rewriteRequestSpaceId(cfg, oldSpaceId, newSpaceId);
 
           // Update the original request and retry
           cfg.headers = cfg.headers || {};
@@ -92,6 +102,53 @@ export class APIClient {
         );
       },
     });
+  }
+
+  setToken(token: string): void {
+    this.token = token;
+    this.client.defaults.headers.common['X-Auth-Token'] = token;
+  }
+
+  setSpaceId(spaceId: string | undefined): void {
+    this.spaceId = spaceId;
+  }
+
+  private rewriteRequestSpaceId(cfg: any, oldSpaceId?: string, newSpaceId?: string): void {
+    if (!oldSpaceId || !newSpaceId || oldSpaceId === newSpaceId) {
+      return;
+    }
+
+    const encodedOld = encodeURIComponent(oldSpaceId);
+    const encodedNew = encodeURIComponent(newSpaceId);
+
+    if (typeof cfg.url === 'string') {
+      cfg.url = cfg.url.replace(`/spaces/${encodedOld}/`, `/spaces/${encodedNew}/`);
+    }
+
+    if (cfg.params && typeof cfg.params === 'object' && cfg.params.spaceId === oldSpaceId) {
+      cfg.params.spaceId = newSpaceId;
+    }
+
+    if (!cfg.data) {
+      return;
+    }
+
+    if (typeof cfg.data === 'string') {
+      try {
+        const parsed = JSON.parse(cfg.data);
+        if (parsed && typeof parsed === 'object' && parsed.spaceId === oldSpaceId) {
+          parsed.spaceId = newSpaceId;
+          cfg.data = JSON.stringify(parsed);
+        }
+      } catch {
+        // Non-JSON payloads are ignored.
+      }
+      return;
+    }
+
+    if (typeof cfg.data === 'object' && cfg.data.spaceId === oldSpaceId) {
+      cfg.data.spaceId = newSpaceId;
+    }
   }
 
   /**

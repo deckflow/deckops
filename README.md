@@ -131,7 +131,7 @@ deckops extract <input-file> [--type <type>] [--no-wait] [--timeout <seconds>]
 ### Convert
 
 ```bash
-deckops convert <input-file> --to <format> [--width <number>] [--height <number>] [--no-wait] [--timeout <seconds>]
+deckops convert <input-files...> --to <format> [--width <number>] [--height <number>] [--need-embed-fonts [boolean]] [--no-wait] [--timeout <seconds>]
 ```
 
 Supported output formats:
@@ -147,6 +147,8 @@ Supported output formats:
 Notes:
 
 - `--width` / `--height` only apply to **HTML -> PPTX** and **HTML -> PNG** conversion (`.html --to pptx` / `.html --to png`) and will be sent to the backend as task params.
+- `--need-embed-fonts` only applies to **HTML -> PPTX** conversion and maps to task param `needEmbedFonts` (default: `false`).
+- Multiple input files are currently supported only for **HTML -> PPTX** conversion.
 
 ### Join (pptx)
 

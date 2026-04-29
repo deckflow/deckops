@@ -7,6 +7,16 @@ import { APIClient } from './core/api-client.js';
 import { FileUploader } from './core/file-uploader.js';
 import { runCheckoutFlow, runLoginFlow } from './core/auth.js';
 import { outputError, ExitCode } from './utils/errors.js';
+import ora from 'ora';
+
+type SpinnerLike = {
+  text: string;
+  isSpinning?: boolean;
+  start: () => void;
+  stop: () => void;
+  succeed: (text?: string) => void;
+  fail: (text?: string) => void;
+};
 
 /**
  * Global context for CLI commands
@@ -18,6 +28,7 @@ export class Context {
   private _uploader?: FileUploader;
   private _loginPromise?: Promise<string>;
   private _checkoutPromise?: Promise<void>;
+  private activeSpinners = new Set<SpinnerLike>();
 
   constructor() {
     this.config = new Config();
@@ -59,6 +70,7 @@ export class Context {
         onPaymentRequired: async () => {
           await this.ensureCheckout();
         },
+        getSpaceId: () => this.config.spaceId,
       });
     }
 
@@ -91,29 +103,88 @@ export class Context {
     }
 
     this._loginPromise = (async () => {
-      const { token, spaceId } = await runLoginFlow({
-        apiBase: this.config.apiBase,
-        port,
-        jsonOutput: this.jsonOutput,
-        reason,
-      });
+      const pausedSpinners = this.pauseActiveSpinners();
+      try {
+        const { token, spaceId } = await runLoginFlow({
+          apiBase: this.config.apiBase,
+          port,
+          jsonOutput: this.jsonOutput,
+          reason,
+        });
 
-      await this.config.setToken(token);
-      if (spaceId) {
-        await this.config.setSpaceId(spaceId);
+        await this.config.setToken(token);
+        if (spaceId) {
+          await this.config.setSpaceId(spaceId);
+        }
+
+        if (this._apiClient) {
+          this._apiClient.setToken(token);
+          this._apiClient.setSpaceId(this.config.spaceId);
+        }
+
+        return token;
+      } finally {
+        this.resumeSpinners(pausedSpinners);
       }
-
-      // Reset clients so they pick up the new token
-      this._apiClient = undefined;
-      this._uploader = undefined;
-
-      return token;
     })();
 
     try {
       return await this._loginPromise;
     } finally {
       this._loginPromise = undefined;
+    }
+  }
+
+  createSpinner(text: string): SpinnerLike | undefined {
+    if (this.jsonOutput) {
+      return undefined;
+    }
+    const spinner = ora(text) as SpinnerLike;
+    spinner.start();
+    this.activeSpinners.add(spinner);
+    return spinner;
+  }
+
+  succeedSpinner(spinner: SpinnerLike | undefined, text?: string): void {
+    if (!spinner) {
+      return;
+    }
+    this.activeSpinners.delete(spinner);
+    spinner.succeed(text);
+  }
+
+  failSpinner(spinner: SpinnerLike | undefined, text?: string): void {
+    if (!spinner) {
+      return;
+    }
+    this.activeSpinners.delete(spinner);
+    spinner.fail(text);
+  }
+
+  stopSpinner(spinner: SpinnerLike | undefined): void {
+    if (!spinner) {
+      return;
+    }
+    this.activeSpinners.delete(spinner);
+    spinner.stop();
+  }
+
+  private pauseActiveSpinners(): SpinnerLike[] {
+    const paused: SpinnerLike[] = [];
+    for (const spinner of this.activeSpinners) {
+      if (spinner.isSpinning !== false) {
+        spinner.stop();
+        paused.push(spinner);
+      }
+    }
+    return paused;
+  }
+
+  private resumeSpinners(spinners: SpinnerLike[]): void {
+    for (const spinner of spinners) {
+      if (spinner.isSpinning === false) {
+        spinner.start();
+      }
     }
   }
 

@@ -4,7 +4,6 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
 import path from 'path';
 import { Context } from '../context.js';
 import { DEFAULT_TIMEOUT, DEFAULT_OCR_LANGUAGE, OCR_LANGUAGES } from '../utils/constants.js';
@@ -53,9 +52,7 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
 
           // Upload file
           let spinner: any;
-          if (!ctx.jsonOutput) {
-            spinner = ora(`Uploading ${path.basename(inputFile)}...`).start();
-          }
+          spinner = ctx.createSpinner(`Uploading ${path.basename(inputFile)}...`);
 
           const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
             if (spinner) {
@@ -63,14 +60,10 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
             }
           });
 
-          if (spinner) {
-            spinner.succeed('File uploaded');
-          }
+          ctx.succeedSpinner(spinner, 'File uploaded');
 
           // Create OCR task
-          if (!ctx.jsonOutput) {
-            spinner = ora('Creating OCR task...').start();
-          }
+          spinner = ctx.createSpinner('Creating OCR task...');
 
           const taskName = path.basename(inputFile, ext);
           const taskType = 'image.ocr';
@@ -78,24 +71,18 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
 
           let task = await client.addTask(spaceId, [fileId], taskType, taskName, params);
 
-          if (spinner) {
-            spinner.succeed(`Task created: ${task.id}`);
-          }
+          ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 
           // Wait for completion
           if (wait) {
-            if (!ctx.jsonOutput) {
-              spinner = ora('Processing OCR...').start();
-            }
+            spinner = ctx.createSpinner('Processing OCR...');
 
             task = await client.waitForTask(task.id, parseInt(options.timeout, 10));
 
-            if (spinner) {
-              if (task.status === 'completed') {
-                spinner.succeed('OCR completed');
-              } else {
-                spinner.fail('OCR failed');
-              }
+            if (task.status === 'completed') {
+              ctx.succeedSpinner(spinner, 'OCR completed');
+            } else {
+              ctx.failSpinner(spinner, 'OCR failed');
             }
           }
 

@@ -4,7 +4,6 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
 import path from 'path';
 import { Context } from '../context.js';
 import { DEFAULT_TIMEOUT } from '../utils/constants.js';
@@ -67,9 +66,7 @@ export function registerRunCommand(program: Command, ctx: Context): void {
           let spinner: any;
 
           for (const inputFile of inputFiles) {
-            if (!ctx.jsonOutput) {
-              spinner = ora(`Uploading ${path.basename(inputFile)}...`).start();
-            }
+            spinner = ctx.createSpinner(`Uploading ${path.basename(inputFile)}...`);
 
             const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
               if (spinner) {
@@ -79,38 +76,28 @@ export function registerRunCommand(program: Command, ctx: Context): void {
 
             fileIds.push(fileId);
 
-            if (spinner) {
-              spinner.succeed(`Uploaded ${path.basename(inputFile)}`);
-            }
+            ctx.succeedSpinner(spinner, `Uploaded ${path.basename(inputFile)}`);
           }
 
           // Create task
-          if (!ctx.jsonOutput) {
-            spinner = ora('Creating task...').start();
-          }
+          spinner = ctx.createSpinner('Creating task...');
 
           const firstFile = inputFiles[0];
           const taskName = firstFile ? path.basename(firstFile) : undefined;
           let task = await client.addTask(spaceId, fileIds, taskType, taskName, params);
 
-          if (spinner) {
-            spinner.succeed(`Task created: ${task.id}`);
-          }
+          ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 
           // Wait for completion
           if (wait) {
-            if (!ctx.jsonOutput) {
-              spinner = ora('Processing...').start();
-            }
+            spinner = ctx.createSpinner('Processing...');
 
             task = await client.waitForTask(task.id, parseInt(options.timeout, 10));
 
-            if (spinner) {
-              if (task.status === 'completed') {
-                spinner.succeed('Task completed');
-              } else {
-                spinner.fail('Task failed');
-              }
+            if (task.status === 'completed') {
+              ctx.succeedSpinner(spinner, 'Task completed');
+            } else {
+              ctx.failSpinner(spinner, 'Task failed');
             }
           }
 
