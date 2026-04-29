@@ -67,6 +67,8 @@ describe('CLI E2E Tests', () => {
       expect(result.stdout).toContain('extract');
       expect(result.stdout).toContain('ocr');
       expect(result.stdout).toContain('convert');
+      expect(result.stdout).toContain('generation');
+      expect(result.stdout).toContain('translation');
     });
 
     it('should show version', async () => {
@@ -192,6 +194,22 @@ describe('CLI E2E Tests', () => {
       const result = await runCLI(['convert', '--help']);
 
       expect(result.stdout).toContain('--to');
+    });
+
+    it('should accept generation options', async () => {
+      const result = await runCLI(['generation', '--help']);
+
+      expect(result.stdout).toContain('--input-text');
+      expect(result.stdout).toContain('--enable-search');
+    });
+
+    it('should accept translation required options', async () => {
+      const result = await runCLI(['translation', '--help']);
+
+      expect(result.stdout).toContain('--from');
+      expect(result.stdout).toContain('--to');
+      expect(result.stdout).toContain('--engine');
+      expect(result.stdout).toContain('--model');
     });
   });
 

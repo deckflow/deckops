@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **New `generation` command** for document generation
+  - Supports text-only or file-assisted generation
+  - Requires at least one of `inputText` or input files
+  - Supports up to 2 reference files
+  - Supports extensions: `.html`, `.pdf`, `.docx`, `.pptx`, `.txt`, `.md`, `.mm`, `.xmind`, `.ipynb`
+- **New `translation` command** for document translation
+  - Supports extensions: `.docx`, `.pptx`, `.pdf`, `.xlsx`, `.key`
+  - `engine`/`model` are optional with defaults
+  - Default engine: `gemini`
+  - If engine is omitted, default model is `gemini-flash`
+  - If engine is provided and model omitted, default model is the first model under that engine
+  - Validates engine-model compatibility and PDF-specific model matrix
+
 ## [0.4.0] - 2026-03-21
 
 ### Added

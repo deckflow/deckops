@@ -86,3 +86,83 @@ export const OCR_LANGUAGES = [
 ] as const;
 
 export type OcrLanguage = (typeof OCR_LANGUAGES)[number];
+
+/**
+ * Supported language sets for translation
+ */
+export const SUPPORTED_SOURCE_LANGUAGES = [
+  'auto',
+  'zh',
+  'zh-hans',
+  'zh-hant',
+  'en',
+  'ja',
+  'ko',
+  'de',
+  'fr',
+  'es',
+  'it',
+  'pt',
+  'ru',
+] as const;
+
+export const SUPPORTED_TARGET_LANGUAGES = [
+  'zh',
+  'zh-hans',
+  'zh-hant',
+  'en',
+  'ja',
+  'ko',
+  'de',
+  'fr',
+  'es',
+  'it',
+  'pt',
+  'ru',
+] as const;
+
+/**
+ * Generation command supported extensions
+ */
+export const GENERATION_FILE_EXTENSIONS = [
+  '.html',
+  '.pdf',
+  '.docx',
+  '.pptx',
+  '.txt',
+  '.md',
+  '.mm',
+  '.xmind',
+  '.ipynb',
+] as const;
+
+/**
+ * Translation command supported extensions
+ */
+export const TRANSLATION_FILE_EXTENSIONS = ['.docx', '.pptx', '.pdf', '.xlsx', '.key'] as const;
+
+/**
+ * Translation models by engine
+ */
+export const TRANSLATE_MODELS = {
+  deepl: {
+    models: ['deepl'],
+  },
+  gemini: {
+    models: ['gemini-pro', 'gemini-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  },
+  openai: {
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-5.2', 'gpt-5-mini'],
+  },
+} as const;
+
+export const PDF_TRANSLATE_MODELS = {
+  gemini: {
+    models: ['gemini-pro', 'gemini-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  },
+  openai: {
+    models: ['gpt-4', 'gpt-4o-mini', 'gpt-5.1', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o'],
+  },
+} as const;
+
+export type TranslateEngine = keyof typeof TRANSLATE_MODELS;
