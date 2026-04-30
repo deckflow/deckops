@@ -5,6 +5,7 @@
  */
 
 import { Command } from 'commander';
+import { createRequire } from 'module';
 import { Context } from './context.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerLoginCommand } from './commands/login.js';
@@ -20,6 +21,10 @@ import { registerRunCommand } from './commands/run.js';
 import { registerReplCommand } from './commands/repl.js';
 import { ExitCode, outputError } from './utils/errors.js';
 
+const require = createRequire(import.meta.url);
+const packageJson = require('../package.json') as { version?: string };
+const CLI_VERSION = packageJson.version ?? '0.0.0';
+
 async function main() {
   // Create global context
   const ctx = new Context();
@@ -31,7 +36,7 @@ async function main() {
   program
     .name('deckflow')
     .description('Deckflow CLI - File processing and conversion tools')
-    .version('0.2.0')
+    .version(CLI_VERSION)
     .option('--json', 'Output in JSON format')
     .hook('preAction', (thisCommand) => {
       // Set JSON output mode based on global flag

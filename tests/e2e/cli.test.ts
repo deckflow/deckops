@@ -73,9 +73,14 @@ describe('CLI E2E Tests', () => {
 
     it('should show version', async () => {
       const result = await runCLI(['--version']);
+      const packageJsonText = await fs.readFile(
+        new URL('../../package.json', import.meta.url),
+        'utf-8'
+      );
+      const version = (JSON.parse(packageJsonText) as { version: string }).version;
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('0.2.0');
+      expect(result.stdout).toContain(version);
     });
 
     it('should show command-specific help', async () => {
