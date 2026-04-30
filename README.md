@@ -1,6 +1,6 @@
 # Deckops CLI
 
-Deckops CLI is a TypeScript command-line tool for Deckflow file processing workflows (generation, translation, compress, convert, extract, OCR, and task management).
+Deckops CLI is a TypeScript command-line tool for Deckflow file processing workflows (create, translate, compress, convert, extract, OCR, and task management).
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
@@ -55,10 +55,10 @@ deckops ocr image.jpg --language en
 deckops convert slides.pptx --to pdf
 
 # Generate with text prompt only
-deckops generation --input-text "请写一份产品发布会方案"
+deckops create --input-text "请写一份产品发布会方案"
 
 # Translate document with defaults (engine/model auto-selected)
-deckops translation handbook.docx --from zh --to en
+deckops translate handbook.docx --from zh --to en
 
 # Join multiple PPTX files in order
 deckops join part1.pptx part2.pptx part3.pptx
@@ -156,10 +156,10 @@ Notes:
 - `--need-embed-fonts` only applies to **HTML -> PPTX** conversion and maps to task param `needEmbedFonts` (default: `false`).
 - Multiple input files are currently supported only for **HTML -> PPTX** conversion.
 
-### Generation
+### Create
 
 ```bash
-deckops generation [input-files...] [--input-text <text>] [--enable-search [boolean]] [--advanced-model [boolean]] [--fast-mode [boolean]] [--intent <intent>] [--audience <audience>] [--page-count <number>] [--author <name>] [--no-wait] [--timeout <seconds>]
+deckops create [input-files...] [--input-text <text>] [--enable-search [boolean]] [--advanced-model [boolean]] [--fast-mode [boolean]] [--intent <intent>] [--audience <audience>] [--page-count <number>] [--author <name>] [--no-wait] [--timeout <seconds>]
 ```
 
 Rules:
@@ -171,14 +171,14 @@ Rules:
 Example:
 
 ```bash
-deckops generation --input-text "写一份面向开发者的 API 设计文档"
-deckops generation refs.md refs.pdf --input-text "根据参考资料输出总结" --audience "工程团队" --page-count 6
+deckops create --input-text "写一份面向开发者的 API 设计文档"
+deckops create refs.md refs.pdf --input-text "根据参考资料输出总结" --audience "工程团队" --page-count 6
 ```
 
-### Translation
+### Translate
 
 ```bash
-deckops translation <input-file> --from <language> --to <language> [--engine <engine>] [--model <model>] [--use-glossary [boolean]] [--image-translate [boolean]] [--no-wait] [--timeout <seconds>]
+deckops translate <input-file> --from <language> --to <language> [--engine <engine>] [--model <model>] [--use-glossary [boolean]] [--image-translate [boolean]] [--no-wait] [--timeout <seconds>]
 ```
 
 Rules:
@@ -205,8 +205,8 @@ PDF-specific models:
 Example:
 
 ```bash
-deckops translation report.docx --from zh --to en
-deckops translation slides.pdf --from ja --to zh-hans --engine openai --model gpt-4o
+deckops translate report.docx --from zh --to en
+deckops translate slides.pdf --from ja --to zh-hans --engine openai --model gpt-4o
 ```
 
 ### Join (pptx)

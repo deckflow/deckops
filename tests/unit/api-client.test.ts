@@ -97,6 +97,27 @@ describe('APIClient', () => {
     expect(result.status).toBe('completed');
   });
 
+  it('should pass spaceId when fetching task details if configured', async () => {
+    const scopedClient = new APIClient('http://localhost:3000/api', 'test-token', {
+      getSpaceId: () => 'space-99',
+    });
+
+    const mockTask = {
+      id: 'task-xyz',
+      status: 'pending' as const,
+      type: 'test',
+      spaceId: 'space-99',
+    };
+
+    mock
+      .onGet('http://localhost:3000/api/tools/tasks/task-xyz', { params: { spaceId: 'space-99' } })
+      .reply(200, mockTask, { 'content-type': 'application/json' });
+
+    const result = await scopedClient.getTask('task-xyz');
+
+    expect(result.id).toBe('task-xyz');
+  });
+
   it('should delete a task', async () => {
     mock.onDelete('http://localhost:3000/api/tools/tasks/task-123').reply(200);
 

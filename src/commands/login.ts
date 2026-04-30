@@ -31,7 +31,7 @@ export function registerLoginCommand(program: Command, ctx: Context): void {
           () => chalk.green('✓ Login successful!')
         );
       } catch (error) {
-        ctx.error((error as Error).message);
+        ctx.error(error);
       }
     });
 }

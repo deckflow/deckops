@@ -7,14 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Task polling / detail 404**: `getTask`, SSE subscribe, and `deleteTask` now send `spaceId` as a query parameter when the client is configured with a space (same as `task list`), fixing backends that require space scope for `/tools/tasks/:id`.
+
+### Changed
+
+- **API errors**: When the response includes `X-RequestId` (or common variants), it is appended to the error text and exposed as `requestId` in `--json` error output for easier support/debugging. Also reads correlation ids from JSON error bodies (e.g. `requestId`) and from `AxiosHeaders.toJSON()` when plain header iteration misses values. `ctx.error` now accepts the caught error object so `APIError` metadata is preserved in `--json` mode.
+- **API errors**: Response body is always printed for `APIError`—terminal mode shows a **Response body:** block (pretty JSON / text, truncated at 32k chars); `--json` adds `body` (parsed) and `bodyText` (formatted string).
+
 ### Added
 
-- **New `generation` command** for document generation
+- **New `create` command** for document generation (CLI verb; API task type remains `generation`)
   - Supports text-only or file-assisted generation
   - Requires at least one of `inputText` or input files
   - Supports up to 2 reference files
   - Supports extensions: `.html`, `.pdf`, `.docx`, `.pptx`, `.txt`, `.md`, `.mm`, `.xmind`, `.ipynb`
-- **New `translation` command** for document translation
+- **New `translate` command** for document translation
   - Supports extensions: `.docx`, `.pptx`, `.pdf`, `.xlsx`, `.key`
   - `engine`/`model` are optional with defaults
   - Default engine: `gemini`

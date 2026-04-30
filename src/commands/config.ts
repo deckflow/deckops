@@ -25,7 +25,7 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
           () => chalk.green('✓ Token set successfully')
         );
       } catch (error) {
-        ctx.error((error as Error).message);
+        ctx.error(error);
       }
     });
 
@@ -42,7 +42,7 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
           () => chalk.green('✓ Space ID set successfully')
         );
       } catch (error) {
-        ctx.error((error as Error).message);
+        ctx.error(error);
       }
     });
 
@@ -59,7 +59,7 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
           () => chalk.green('✓ API base URL set successfully')
         );
       } catch (error) {
-        ctx.error((error as Error).message);
+        ctx.error(error);
       }
     });
 
@@ -70,7 +70,8 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
     .action(() => {
       try {
         const allConfig = ctx.config.all();
-        const shouldShowLoginHint = !allConfig.token || !allConfig.spaceId;
+        const shouldShowLoginHint = !allConfig.token;
+        const shouldShowSpaceHint = !allConfig.spaceId;
 
         // Mask sensitive data in human-readable output
         const displayConfig = { ...allConfig };
@@ -83,12 +84,15 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
             .map(([key, value]) => `${chalk.cyan(key)}: ${value || chalk.gray('(not set)')}`)
             .join('\n');
           if (shouldShowLoginHint) {
-            return `${content}\n${chalk.yellow('Tip: token or spaceId is missing. Please run `deckflow login` first.')}`;
+            return `${content}\n${chalk.yellow('Tip: token is missing. Please run `deckflow login` first.')}`;
+          }
+          if (shouldShowSpaceHint) {
+            return `${content}\n${chalk.yellow('Tip: spaceId is missing. Some commands require it; set it via `deckflow config set-space <space-id>`.')}`;
           }
           return content;
         });
       } catch (error) {
-        ctx.error((error as Error).message);
+        ctx.error(error);
       }
     });
 }

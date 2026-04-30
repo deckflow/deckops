@@ -101,7 +101,7 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
             return lines.join('\n');
           });
         } catch (error) {
-          ctx.error((error as Error).message);
+          ctx.error(error);
         }
       }
     );

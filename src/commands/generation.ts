@@ -28,12 +28,12 @@ function parseBooleanOption(value: string | boolean | undefined): boolean {
 }
 
 /**
- * Register generation command
+ * Register create command (task type remains `generation` on the API)
  */
 export function registerGenerationCommand(program: Command, ctx: Context): void {
   program
-    .command('generation [input-files...]')
-    .description('Generate document content')
+    .command('create [input-files...]')
+    .description('Create document content')
     .option('--input-text <text>', 'Input text from user')
     .option('--enable-search [boolean]', 'Enable search', parseBooleanOption)
     .option('--advanced-model [boolean]', 'Use advanced model', parseBooleanOption)
@@ -129,7 +129,7 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
           spinner = ctx.createSpinner('Creating generation task...');
 
           const firstFile = inputFiles[0];
-          const taskName = firstFile ? path.basename(firstFile) : options.intent || 'generation';
+          const taskName = firstFile ? path.basename(firstFile) : options.intent || 'create';
           let task = await client.addTask(spaceId, fileIds, 'generation', taskName, params);
 
           ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
@@ -159,7 +159,7 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
             return lines.join('\n');
           });
         } catch (error) {
-          ctx.error((error as Error).message);
+          ctx.error(error);
         }
       }
     );

@@ -113,6 +113,17 @@ export class APIClient {
     this.spaceId = spaceId;
   }
 
+  /**
+   * Task list/detail endpoints require spaceId for some backends; omit when unknown.
+   */
+  private getTaskQueryParams(): Record<string, string> | undefined {
+    const spaceId = this.getSpaceId?.() ?? this.spaceId;
+    if (!spaceId) {
+      return undefined;
+    }
+    return { spaceId };
+  }
+
   private rewriteRequestSpaceId(cfg: any, oldSpaceId?: string, newSpaceId?: string): void {
     if (!oldSpaceId || !newSpaceId || oldSpaceId === newSpaceId) {
       return;
@@ -237,7 +248,10 @@ export class APIClient {
         headers['response-event-stream'] = 'yes';
       }
 
-      const response = await this.client.get<Task>(`/tools/tasks/${taskId}`, { headers });
+      const response = await this.client.get<Task>(`/tools/tasks/${encodeURIComponent(taskId)}`, {
+        headers,
+        params: this.getTaskQueryParams(),
+      });
 
       const contentType = response.headers['content-type']?.toLowerCase() || '';
 
@@ -282,12 +296,13 @@ export class APIClient {
     const abortController = new AbortController();
 
     try {
-      const response = await this.client.get(`/tools/tasks/${taskId}`, {
+      const response = await this.client.get(`/tools/tasks/${encodeURIComponent(taskId)}`, {
         headers: {
           'response-event-stream': 'yes',
         },
         responseType: 'stream',
         signal: abortController.signal,
+        params: this.getTaskQueryParams(),
       });
 
       const contentType = response.headers['content-type']?.toLowerCase() || '';
@@ -341,7 +356,9 @@ export class APIClient {
    */
   async deleteTask(taskId: string): Promise<void> {
     try {
-      await this.client.delete(`/tools/tasks/${taskId}`);
+      await this.client.delete(`/tools/tasks/${encodeURIComponent(taskId)}`, {
+        params: this.getTaskQueryParams(),
+      });
     } catch (error) {
       if (axios.isAxiosError(error)) {
         throw APIError.fromAxiosError(error);

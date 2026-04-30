@@ -59,7 +59,7 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
           return lines.join('\n');
         });
       } catch (error) {
-        ctx.error((error as Error).message);
+        ctx.error(error);
       }
     });
 
@@ -104,7 +104,7 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
           return lines.join('\n');
         });
       } catch (error) {
-        ctx.error((error as Error).message);
+        ctx.error(error);
       }
     });
 
@@ -122,7 +122,7 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
           () => `${chalk.green('✓')} Task ${chalk.cyan(taskId)} deleted`
         );
       } catch (error) {
-        ctx.error((error as Error).message);
+        ctx.error(error);
       }
     });
 }

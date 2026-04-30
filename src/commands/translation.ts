@@ -36,11 +36,11 @@ function parseBooleanOption(value: string | boolean | undefined): boolean {
 }
 
 /**
- * Register translation command
+ * Register translate command
  */
 export function registerTranslationCommand(program: Command, ctx: Context): void {
   program
-    .command('translation <input-file>')
+    .command('translate <input-file>')
     .description('Translate a document file')
     .requiredOption(
       '--from <language>',
@@ -194,7 +194,7 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
             return lines.join('\n');
           });
         } catch (error) {
-          ctx.error((error as Error).message);
+          ctx.error(error);
         }
       }
     );

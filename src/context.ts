@@ -6,7 +6,7 @@ import { Config } from './core/config.js';
 import { APIClient } from './core/api-client.js';
 import { FileUploader } from './core/file-uploader.js';
 import { runCheckoutFlow, runLoginFlow } from './core/auth.js';
-import { outputError, ExitCode } from './utils/errors.js';
+import { APIError, formatResponseBody, outputError, ExitCode } from './utils/errors.js';
 import ora from 'ora';
 
 type SpinnerLike = {
@@ -46,20 +46,14 @@ export class Context {
    * Get or create API client
    */
   async getClient(): Promise<APIClient> {
-    if (!this.config.token || !this.config.spaceId) {
+    // Token is the only hard requirement for authentication.
+    // Some deployments may not return/provide spaceId during login.
+    if (!this.config.token) {
       await this.ensureLoggedIn(3737, 'explicit');
     }
 
     if (!this.config.token) {
       this.error('Login did not provide a token. Please run `deckflow login` again.', 'NOT_CONFIGURED');
-    }
-
-    if (!this.config.spaceId) {
-      this.error(
-        'Login succeeded but spaceId is missing. Please run `deckflow login` again.',
-        'NO_SPACE_ID',
-        ExitCode.USAGE_ERROR
-      );
     }
 
     if (!this._apiClient) {
@@ -236,16 +230,33 @@ export class Context {
   /**
    * Output error and exit
    */
-  error(message: string, code: string = 'ERROR', exitCode: number = ExitCode.ERROR): never {
+  error(input: unknown, code: string = 'ERROR', exitCode: number = ExitCode.ERROR): never {
+    const err: Error =
+      input instanceof APIError
+        ? input
+        : input instanceof Error
+          ? input
+          : new Error(String(input));
+
     if (this.jsonOutput) {
-      console.error(
-        JSON.stringify({
-          error: message,
+      if (err instanceof APIError) {
+        const payload: Record<string, unknown> = {
+          error: err.message,
           code,
-        })
-      );
+        };
+        if (err.requestId) {
+          payload.requestId = err.requestId;
+        }
+        if (err.responseData !== undefined) {
+          payload.body = err.responseData;
+          payload.bodyText = formatResponseBody(err.responseData);
+        }
+        console.error(JSON.stringify(payload));
+      } else {
+        console.error(JSON.stringify({ error: err.message, code }));
+      }
     } else {
-      outputError(new Error(message), false);
+      outputError(err, false);
     }
 
     process.exit(exitCode);
