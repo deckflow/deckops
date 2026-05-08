@@ -213,8 +213,9 @@ describe('CLI E2E Tests', () => {
 
       expect(result.stdout).toContain('--from');
       expect(result.stdout).toContain('--to');
-      expect(result.stdout).toContain('--engine');
       expect(result.stdout).toContain('--model');
+      expect(result.stdout).toContain('Standard');
+      expect(result.stdout).toContain('Pro');
     });
   });
 

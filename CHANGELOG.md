@@ -25,11 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Supports extensions: `.html`, `.pdf`, `.docx`, `.pptx`, `.txt`, `.md`, `.mm`, `.xmind`, `.ipynb`
 - **New `translate` command** for document translation
   - Supports extensions: `.docx`, `.pptx`, `.pdf`, `.xlsx`, `.key`
-  - `engine`/`model` are optional with defaults
-  - Default engine: `gemini`
-  - If engine is omitted, default model is `gemini-flash`
-  - If engine is provided and model omitted, default model is the first model under that engine
-  - Validates engine-model compatibility and PDF-specific model matrix
+  - `model` is required: `Standard` or `Pro`
+  - `engine` parameter has been removed from the CLI
 
 ## [0.4.0] - 2026-03-21
 
