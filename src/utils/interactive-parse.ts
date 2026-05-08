@@ -121,7 +121,7 @@ async function promptOptionValue(option: Option): Promise<string> {
       {
         type: 'list',
         name: 'value',
-        message: `请选择 ${label}`,
+        message: `Select ${label}`,
         choices: option.argChoices,
       },
     ])) as { value: string };
@@ -132,8 +132,8 @@ async function promptOptionValue(option: Option): Promise<string> {
     {
       type: 'input',
       name: 'value',
-      message: `请输入 ${label} 的值`,
-      validate: (input: string) => (input.trim().length > 0 ? true : '不能为空'),
+      message: `Enter a value for ${label}`,
+      validate: (input: string) => (input.trim().length > 0 ? true : 'Value is required'),
     },
   ])) as { value: string };
   return value.trim();
@@ -145,7 +145,7 @@ async function promptArgumentValue(arg: Argument, displayName: string): Promise<
       {
         type: 'list',
         name: 'value',
-        message: `请选择 ${displayName}`,
+        message: `Select ${displayName}`,
         choices: arg.argChoices,
       },
     ])) as { value: string };
@@ -153,15 +153,15 @@ async function promptArgumentValue(arg: Argument, displayName: string): Promise<
   }
 
   const message = arg.variadic
-    ? `请输入 ${displayName}（多个路径请用空格分隔）`
-    : `请输入 ${displayName}`;
+    ? `Enter ${displayName} (separate multiple values with spaces)`
+    : `Enter ${displayName}`;
 
   const { value } = (await prompt([
     {
       type: 'input',
       name: 'value',
       message,
-      validate: (input: string) => (input.trim().length > 0 ? true : '不能为空'),
+      validate: (input: string) => (input.trim().length > 0 ? true : 'Value is required'),
     },
   ])) as { value: string };
 
@@ -333,7 +333,7 @@ export async function parseWithInteractiveRepair(program: Command, argv: string[
     throw new CommanderError(
       1,
       'commander.interactiveRepairLimit',
-      'CLI 交互补全失败：重试次数过多'
+      'Interactive CLI repair failed: too many attempts'
     );
   } finally {
     resetOutput(program);
