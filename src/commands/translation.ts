@@ -2,7 +2,7 @@
  * Translation command
  */
 
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
@@ -11,10 +11,17 @@ import {
   SUPPORTED_SOURCE_LANGUAGES,
   SUPPORTED_TARGET_LANGUAGES,
   TRANSLATION_FILE_EXTENSIONS,
-  TRANSLATE_MODELS,
-  PDF_TRANSLATE_MODELS,
 } from '../utils/constants.js';
-import type { TranslateEngine } from '../types/tasks.js';
+
+const TRANSLATION_MODELS = ['Standard', 'Pro'] as const;
+type TranslationModel = (typeof TRANSLATION_MODELS)[number];
+
+function normalizeModel(value: string): TranslationModel {
+  const trimmed = value.trim();
+  if (trimmed.toLowerCase() === 'standard') return 'Standard';
+  if (trimmed.toLowerCase() === 'pro') return 'Pro';
+  throw new Error(`Invalid model: ${value}. Expected one of: ${TRANSLATION_MODELS.join(', ')}`);
+}
 
 function parseBooleanOption(value: string | boolean | undefined): boolean {
   if (value === undefined || value === true) {
@@ -47,8 +54,11 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
       `Source language (${SUPPORTED_SOURCE_LANGUAGES.join(', ')})`
     )
     .requiredOption('--to <language>', `Target language (${SUPPORTED_TARGET_LANGUAGES.join(', ')})`)
-    .option('--engine <engine>', 'Translation engine (gemini, openai, deepl)')
-    .option('--model <model>', 'Translation model')
+    .addOption(
+      new Option('--model <model>', `Translation model (${TRANSLATION_MODELS.join(', ')})`)
+        .choices([...TRANSLATION_MODELS])
+        .makeOptionMandatory(true)
+    )
     .option('--use-glossary [boolean]', 'Use glossary', parseBooleanOption, false)
     .option('--image-translate [boolean]', 'Translate images', parseBooleanOption, false)
     .option('--no-wait', 'Do not wait for task completion')
@@ -59,8 +69,7 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
         options: {
           from: string;
           to: string;
-          engine?: string;
-          model?: string;
+          model: string;
           useGlossary: boolean;
           imageTranslate: boolean;
           wait?: boolean;
@@ -99,49 +108,16 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
           }
 
           const ext = path.extname(inputFile).toLowerCase();
-          if (!TRANSLATION_FILE_EXTENSIONS.includes(ext as (typeof TRANSLATION_FILE_EXTENSIONS)[number])) {
+          if (
+            !TRANSLATION_FILE_EXTENSIONS.includes(ext as (typeof TRANSLATION_FILE_EXTENSIONS)[number])
+          ) {
             ctx.error(
               `Unsupported file type: ${ext}\nSupported: ${TRANSLATION_FILE_EXTENSIONS.join(', ')}`,
               'UNSUPPORTED_TYPE'
             );
           }
 
-          const resolvedEngine = (options.engine ?? 'gemini') as string;
-          if (!Object.hasOwn(TRANSLATE_MODELS, resolvedEngine)) {
-            ctx.error(
-              `Unsupported translation engine: ${resolvedEngine}\nSupported: ${Object.keys(TRANSLATE_MODELS).join(', ')}`,
-              'INVALID_TRANSLATE_ENGINE'
-            );
-          }
-
-          const engine = resolvedEngine as TranslateEngine;
-          let allowedModels: readonly string[];
-
-          if (ext === '.pdf') {
-            if (!Object.hasOwn(PDF_TRANSLATE_MODELS, engine)) {
-              ctx.error(
-                `${resolvedEngine} does not support ${ext} translation`,
-                'ENGINE_FILE_TYPE_NOT_SUPPORTED'
-              );
-            }
-            allowedModels = PDF_TRANSLATE_MODELS[engine as keyof typeof PDF_TRANSLATE_MODELS].models;
-          } else {
-            allowedModels = TRANSLATE_MODELS[engine].models;
-          }
-
-          const resolvedModel =
-            options.model ??
-            (options.engine ? allowedModels[0] : engine === 'gemini' ? 'gemini-flash' : allowedModels[0]);
-          if (!resolvedModel) {
-            ctx.error(`No available model for engine ${engine}`, 'NO_DEFAULT_TRANSLATE_MODEL');
-          }
-
-          if (!allowedModels.includes(resolvedModel)) {
-            ctx.error(
-              `Unsupported model ${resolvedModel} for engine ${engine}\nSupported: ${allowedModels.join(', ')}`,
-              'INVALID_TRANSLATE_MODEL'
-            );
-          }
+          const resolvedModel = normalizeModel(options.model);
 
           let spinner: any = ctx.createSpinner(`Uploading ${path.basename(inputFile)}...`);
 
@@ -159,7 +135,6 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
           const params = {
             from: options.from,
             to: options.to,
-            engine,
             model: resolvedModel,
             useGlossary: options.useGlossary,
             imageTranslate: options.imageTranslate,
