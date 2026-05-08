@@ -2,7 +2,7 @@
  * Convert command
  */
 
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
@@ -34,9 +34,10 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
   program
     .command('convert <input-files...>')
     .description('Convert file(s) to different format')
-    .requiredOption(
-      '--to <format>',
-      'Output format: image, pdf, video, html, png, pptx, webp'
+    .addOption(
+      new Option('--to <format>', 'Output format: image, pdf, video, html, png, pptx, webp')
+        .choices(Object.keys(RENDER_FORMATS))
+        .makeOptionMandatory(true)
     )
     .option(
       '--width <number>',

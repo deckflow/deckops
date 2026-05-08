@@ -4,7 +4,7 @@
  * Deckflow CLI - Main entry point
  */
 
-import { Command } from 'commander';
+import { Command, CommanderError } from 'commander';
 import { createRequire } from 'module';
 import { Context } from './context.js';
 import { registerConfigCommands } from './commands/config.js';
@@ -20,6 +20,7 @@ import { registerTranslationCommand } from './commands/translation.js';
 import { registerRunCommand } from './commands/run.js';
 import { registerReplCommand } from './commands/repl.js';
 import { ExitCode, outputError } from './utils/errors.js';
+import { parseWithInteractiveRepair } from './utils/interactive-parse.js';
 
 const require = createRequire(import.meta.url);
 const packageJson = require('../package.json') as { version?: string };
@@ -29,6 +30,9 @@ async function main() {
   // Create global context
   const ctx = new Context();
   await ctx.init();
+  if (process.argv.includes('--json')) {
+    ctx.jsonOutput = true;
+  }
 
   // Create Commander program
   const program = new Command();
@@ -60,8 +64,16 @@ async function main() {
 
   // Parse arguments
   try {
-    await program.parseAsync(process.argv);
+    await parseWithInteractiveRepair(program, process.argv);
   } catch (error) {
+    if (error instanceof CommanderError) {
+      if (error.code === 'commander.help' || error.code === 'commander.helpDisplayed') {
+        process.exit(error.exitCode ?? 1);
+      }
+      if (error.code === 'commander.version') {
+        process.exit(0);
+      }
+    }
     outputError(error as Error, ctx.jsonOutput);
     process.exit(ExitCode.ERROR);
   }

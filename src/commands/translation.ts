@@ -49,11 +49,16 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
   program
     .command('translate <input-file>')
     .description('Translate a document file')
-    .requiredOption(
-      '--from <language>',
-      `Source language (${SUPPORTED_SOURCE_LANGUAGES.join(', ')})`
+    .addOption(
+      new Option('--from <language>', `Source language (${SUPPORTED_SOURCE_LANGUAGES.join(', ')})`)
+        .choices([...SUPPORTED_SOURCE_LANGUAGES])
+        .makeOptionMandatory(true)
     )
-    .requiredOption('--to <language>', `Target language (${SUPPORTED_TARGET_LANGUAGES.join(', ')})`)
+    .addOption(
+      new Option('--to <language>', `Target language (${SUPPORTED_TARGET_LANGUAGES.join(', ')})`)
+        .choices([...SUPPORTED_TARGET_LANGUAGES])
+        .makeOptionMandatory(true)
+    )
     .addOption(
       new Option('--model <model>', `Translation model (${TRANSLATION_MODELS.join(', ')})`)
         .choices([...TRANSLATION_MODELS])
