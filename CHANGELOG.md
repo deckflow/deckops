@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Uses local callback server to receive token
   - Automatically saves token to configuration
   - Similar to npm/GitHub CLI login experience
-  - Example: `deckflow login`
+  - Example: `deckops login`
 
 ## [0.3.0] - 2026-03-20
 
@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New `ocr` command** for Optical Character Recognition
   - Dedicated command for extracting text from images
   - Supports 12 languages via `--language` parameter
-  - Example: `deckflow ocr image.jpg --language en`
+  - Example: `deckops ocr image.jpg --language en`
 
 ### Removed
 
@@ -63,10 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Users need to reconfigure or manually move their existing config file
 - **BREAKING CHANGE**: `render` command renamed to `convert`
   - `--format` parameter renamed to `--to`
-  - Example: `deckflow convert slides.pptx --to pdf` (previously `deckflow render slides.pptx --format pdf`)
+  - Example: `deckops convert slides.pptx --to pdf` (previously `deckflow render slides.pptx --format pdf`)
 - **BREAKING CHANGE**: OCR moved from `extract` to dedicated `ocr` command
   - Old: `deckflow extract image.jpg --type ocr --language en`
-  - New: `deckflow ocr image.jpg --language en`
+  - New: `deckops ocr image.jpg --language en`
   - `extract` command now only supports `fonts` and `text-shapes` types
 - **spaceId is now optional**
   - Only authentication token is required for configuration
@@ -80,8 +80,8 @@ If you have an existing configuration at `~/.tools-ui/config.json`, you can migr
 mv ~/.tools-ui ~/.deckops
 
 # Option 2: Reconfigure with the CLI
-deckflow config set-token YOUR_TOKEN
-deckflow config set-space YOUR_SPACE_ID
+deckops config set-token YOUR_TOKEN
+deckops config set-space YOUR_SPACE_ID
 ```
 
 ## [0.2.0] - 2024-03-20

@@ -1,8 +1,17 @@
-# Deckflow CLI - TypeScript Migration Project Summary
+# DeckOps TypeScript Migration Summary
 
-## 🎉 Project Complete!
+## Historical Snapshot
 
-This document summarizes the complete migration of the Python deckflow-cli to TypeScript/Node.js.
+This document summarizes the migration phase that moved the original Python CLI into the current TypeScript/Node.js codebase.
+
+Use this file as historical context, not as the canonical current-state product guide.
+
+For current developer-facing guidance, prefer:
+
+- [README.md](README.md)
+- [docs/README.md](docs/README.md)
+- [docs/CLOUD_AUTH_MODEL.md](docs/CLOUD_AUTH_MODEL.md)
+- [docs/CLOUD_VS_LOCAL.md](docs/CLOUD_VS_LOCAL.md)
 
 ## 📊 Final Statistics
 
@@ -62,7 +71,7 @@ This document summarizes the complete migration of the Python deckflow-cli to Ty
 
 ### Project Structure
 \`\`\`
-nodejs-deckflow-cli/
+deckops/
 ├── src/
 │   ├── core/                 ✅ 3 modules (100% tested)
 │   │   ├── config.ts         ✅ 8 tests
@@ -228,17 +237,17 @@ The project is ready for:
 
 \`\`\`bash
 # Install globally
-npm install -g deckflow
+npm install -g deckops
 
 # Or use without installing
-npx deckflow <command>
+npx deckops <command>
 \`\`\`
 
 ## 🎉 Conclusion
 
 **Mission Accomplished!**
 
-The Python deckflow-cli has been successfully migrated to TypeScript with:
+The original Python CLI was migrated to TypeScript with:
 - 100% feature parity
 - Enhanced type safety
 - Better developer experience

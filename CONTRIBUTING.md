@@ -1,267 +1,118 @@
-# Contributing to Deckflow CLI
+# Contributing to DeckOps
 
-Thank you for your interest in contributing to Deckflow CLI! This document provides guidelines and instructions for contributing.
+Thanks for helping improve `DeckOps`.
 
-## 🚀 Getting Started
+This repository is the cloud-first CLI in the DeckFlow ecosystem, so good contributions are not just about code quality. They also preserve clear authentication boundaries, automation safety, and developer trust.
 
-### Prerequisites
+## Before You Start
 
-- Node.js >= 18.0.0
-- npm or yarn
+- read [README.md](README.md) for product positioning
+- read [docs/CLOUD_VS_LOCAL.md](docs/CLOUD_VS_LOCAL.md) for the boundary between CLI work, hosted execution, and `DeckUse`
+- read [docs/CLOUD_AUTH_MODEL.md](docs/CLOUD_AUTH_MODEL.md) if your change touches keys, tokens, login, or authorization
+- open an issue first for large changes, new task families, or auth model changes
+
+## Local Setup
+
+Prerequisites:
+
+- Node.js `>=18`
+- npm
 - Git
 
-### Setup Development Environment
+Setup:
 
 ```bash
-# Clone the repository
 git clone <repository-url>
-cd nodejs-deckflow-cli
-
-# Install dependencies
+cd deckops
 npm install
-
-# Build the project
 npm run build
-
-# Run tests
 npm test
 ```
 
-## 📝 Development Workflow
+## Contribution Priorities
 
-### 1. Create a Branch
+High-value areas for this project:
+
+- better developer experience for CLI workflows
+- clearer task lifecycle behavior and error handling
+- stronger docs for cloud setup and automation usage
+- safer key, token, and permission handling
+- better examples for CI and scripting
+
+## Workflow
+
+1. Create a branch for your change.
+2. Make the smallest coherent change that solves the problem.
+3. Update docs when behavior, command shape, or auth expectations change.
+4. Run the relevant validation commands.
+5. Open a pull request with a clear summary and validation notes.
+
+## Validation
+
+Run the checks that fit your change:
 
 ```bash
-git checkout -b feature/your-feature-name
-# or
-git checkout -b fix/your-bug-fix
-```
-
-### 2. Make Changes
-
-- Write clean, readable code
-- Follow the existing code style
-- Add tests for new features
-- Update documentation as needed
-
-### 3. Test Your Changes
-
-```bash
-# Run all tests
-npm test
-
-# Run specific test file
-npm test -- tests/unit/your-test.test.ts
-
-# Run with coverage
-npm run test:coverage
-
-# Build to ensure no errors
 npm run build
-```
-
-### 4. Commit Your Changes
-
-We follow conventional commit messages:
-
-```bash
-git commit -m "feat: add new feature"
-git commit -m "fix: resolve bug in file upload"
-git commit -m "docs: update README"
-git commit -m "test: add tests for API client"
-```
-
-**Commit types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `test`: Adding or updating tests
-- `refactor`: Code refactoring
-- `perf`: Performance improvements
-- `chore`: Maintenance tasks
-
-### 5. Push and Create Pull Request
-
-```bash
-git push origin feature/your-feature-name
-```
-
-Then create a pull request on GitHub.
-
-## 🧪 Testing Guidelines
-
-### Writing Tests
-
-All new features should include tests:
-
-**Unit Tests** (`tests/unit/`):
-```typescript
-import { describe, it, expect } from 'vitest';
-import { YourModule } from '../../src/your-module.js';
-
-describe('YourModule', () => {
-  it('should do something', () => {
-    const result = YourModule.doSomething();
-    expect(result).toBe(expected);
-  });
-});
-```
-
-**E2E Tests** (`tests/e2e/`):
-```typescript
-import { runCLI } from './helpers.js';
-
-it('should handle command correctly', async () => {
-  const result = await runCLI(['your', 'command']);
-  expect(result.exitCode).toBe(0);
-});
-```
-
-### Test Coverage
-
-Aim for:
-- **100% coverage** for core modules (config, api-client, file-uploader)
-- **80%+ coverage** for command modules
-- **All critical paths** tested in E2E tests
-
-## 📐 Code Style
-
-### TypeScript
-
-- Use TypeScript strict mode
-- Define types for all parameters and return values
-- Use interfaces for complex types
-- Avoid `any` type when possible
-
-### Formatting
-
-We use Prettier for code formatting:
-
-```bash
-# Format code
-npm run format
-
-# Check formatting
+npm test
+npm run typecheck
 npm run lint
 ```
 
-**Key rules:**
-- 2 spaces for indentation
-- Single quotes for strings
-- Semicolons required
-- 100 character line length
+Useful targeted commands:
 
-### Naming Conventions
-
-- **Files**: kebab-case (`api-client.ts`, `file-uploader.ts`)
-- **Classes**: PascalCase (`APIClient`, `FileUploader`)
-- **Functions**: camelCase (`uploadFile`, `getTask`)
-- **Constants**: UPPER_SNAKE_CASE (`DEFAULT_TIMEOUT`, `CHUNK_SIZE`)
-- **Types/Interfaces**: PascalCase (`Task`, `UploadAuthResponse`)
-
-## 🏗️ Project Structure
-
-```
-src/
-├── core/           # Core business logic
-├── commands/       # CLI command implementations
-├── types/          # TypeScript type definitions
-├── utils/          # Utility functions
-├── context.ts      # Global CLI context
-└── cli.ts          # Main entry point
-
-tests/
-├── unit/           # Unit tests (match src/ structure)
-├── e2e/            # End-to-end tests
-└── fixtures/       # Test data
+```bash
+npm run test:unit
+npm run test:e2e
+npm run test:coverage
 ```
 
-## 🐛 Reporting Bugs
+## Auth And Security Changes
 
-When reporting bugs, please include:
+Be extra careful when a change touches:
 
-1. **Description**: Clear description of the bug
-2. **Steps to reproduce**: Numbered steps
-3. **Expected behavior**: What should happen
-4. **Actual behavior**: What actually happens
-5. **Environment**: Node.js version, OS, etc.
-6. **Logs**: Any error messages or logs
+- `login`
+- token storage
+- callback handling
+- task authorization
+- tenant or space boundaries
+- upload or download permissions
 
-**Example:**
-```markdown
-### Bug Description
-File upload fails for files > 20MB
+For these changes:
 
-### Steps to Reproduce
-1. Run `deckflow file upload large-file.mp4`
-2. File is 25MB
-3. Upload fails with timeout error
+- explain the threat model in the PR
+- document any new required scopes or permissions
+- verify that error semantics remain clear between `401`, `403`, and `402`
+- never include real tokens in code, tests, screenshots, or fixtures
 
-### Expected
-File should upload successfully
+## Documentation Expectations
 
-### Actual
-Error: "Task did not complete within 300s"
+Update documentation when you change:
 
-### Environment
-- Node.js: 18.0.0
-- OS: macOS 14.0
-- deckflow: 0.2.0
-```
+- CLI commands or flags
+- installation or setup flow
+- credential setup
+- required task permissions
+- project positioning versus `DeckUse`
 
-## 💡 Feature Requests
+Common places to update:
 
-We welcome feature requests! Please:
+- [README.md](README.md)
+- [docs/README.md](docs/README.md)
+- [docs/CLOUD_AUTH_MODEL.md](docs/CLOUD_AUTH_MODEL.md)
+- [docs/CLOUD_VS_LOCAL.md](docs/CLOUD_VS_LOCAL.md)
 
-1. Check existing issues first
-2. Describe the use case
-3. Explain why it's valuable
-4. Suggest implementation if possible
+## Pull Request Quality Bar
 
-## 📚 Documentation
+A strong PR usually includes:
 
-When contributing, update documentation:
+- one clear purpose
+- updated docs if user-facing behavior changed
+- tests for non-trivial behavior changes
+- explicit notes on auth or permission impact when relevant
 
-- **README.md**: For user-facing features
-- **Code comments**: For complex logic
-- **JSDoc**: For public APIs
-- **CHANGELOG.md**: For all changes
+## Community Guidelines
 
-## ✅ Pull Request Checklist
-
-Before submitting:
-
-- [ ] Code follows style guidelines
-- [ ] Tests added and passing
-- [ ] Documentation updated
-- [ ] Commit messages follow convention
-- [ ] No merge conflicts
-- [ ] Build succeeds (`npm run build`)
-- [ ] All tests pass (`npm test`)
-
-## 🤝 Code Review Process
-
-1. Maintainer reviews your PR
-2. Feedback provided (if needed)
-3. You address feedback
-4. PR approved and merged
-
-**Review criteria:**
-- Code quality and style
-- Test coverage
-- Documentation
-- Performance impact
-- Breaking changes
-
-## 📄 License
-
-By contributing, you agree that your contributions will be licensed under the MIT License.
-
-## ❓ Questions?
-
-Feel free to:
-- Open an issue for questions
-- Join our discussions
-- Reach out to maintainers
-
-Thank you for contributing! 🎉
+- be respectful and specific
+- prefer reproducible bug reports
+- separate product requests from implementation details when possible
+- assume contributors may be using either interactive login or automation tokens

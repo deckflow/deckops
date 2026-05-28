@@ -1,18 +1,45 @@
-# Deckops CLI
+# DeckOps
 
-Deckops CLI is a TypeScript command-line tool for Deckflow file processing workflows (create, translate, compress, convert, extract, OCR, and task management).
+Cloud-first CLI for DeckFlow processing tasks.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+
+DeckOps is the developer-facing command line for running DeckFlow tasks in the cloud: create, translate, compress, convert, extract, OCR, and task orchestration.
+
+It is designed for teams that want:
+
+- a scriptable CLI for backend document processing
+- asynchronous task management for large or long-running jobs
+- cloud credentials that can be rotated, scoped, and audited
+- a clear separation between local editing (`DeckUse`) and cloud execution (`DeckOps`)
+
+## Project Positioning
+
+`DeckOps` and `DeckUse` are sister projects with different responsibilities:
+
+- `DeckOps`: cloud runtime, remote task execution, account or key-based access, operational workflows
+- `DeckUse`: local runtime, open-source structural editing of PPTX workspaces, no cloud dependency by default
+
+Use `DeckOps` when you need hosted processing capacity or team-managed backend workflows.
+
+## Cloud vs Local
+
+The `deckops` CLI runs on a developer machine or in CI, but its main job is to create and manage jobs in DeckFlow Cloud. This repository is the developer trust, documentation, integration, and contribution entry for that workflow.
+
+The hosted rendering and conversion engine is delivered through DeckFlow Cloud. Use `DeckUse` when the job is local PPTX inspection, structural editing, or rebuilding without a cloud dependency.
+
+See [docs/CLOUD_VS_LOCAL.md](docs/CLOUD_VS_LOCAL.md) for the product boundary between `DeckOps`, `DeckUse`, and hosted DeckFlow services.
 
 ## Features
 
-- File upload + task creation for Deckflow backend
-- Built-in task polling with timeout and non-blocking mode
-- Browser-based login flow with local callback server
-- Auto re-login on 401 and checkout flow on 402
-- JSON output mode (`--json`) for automation scripts
-- Interactive REPL mode for repeated operations
+- Upload files and create DeckFlow backend tasks
+- Poll long-running jobs with timeout or non-blocking mode
+- Authenticate with browser login flow or service credentials
+- Return machine-readable JSON for automation scripts
+- Re-login automatically on `401` and guide checkout flow on `402`
+- Work interactively through a REPL for repeated operations
 
 ## Installation
 
@@ -22,7 +49,7 @@ Install globally:
 npm install -g deckops
 ```
 
-Or run from source in this repository:
+Run from source:
 
 ```bash
 npm install
@@ -30,41 +57,77 @@ npm run build
 node dist/cli.js --help
 ```
 
-> CLI executable name from this package is `deckops`.
+## Authentication Model
+
+DeckOps is intended for cloud usage. That means credentials are part of the product surface, not an optional afterthought.
+
+Supported CLI entry points today:
+
+```bash
+deckops login
+deckops config set-token <token>
+deckops config set-space <space-id>
+deckops config set-api-base <url>
+deckops config show
+```
+
+Recommended credential strategy:
+
+- use browser login for individual developers
+- use API keys or service tokens for CI, automation, and shared systems
+- keep keys scoped to the minimum required capability
+- rotate keys instead of sharing personal login credentials
+
+See [docs/CLOUD_AUTH_MODEL.md](docs/CLOUD_AUTH_MODEL.md) for the recommended permission model and validation direction for this project.
 
 ## Quick Start
 
-### 1) Login (recommended)
+### 1. Authenticate
+
+Interactive login:
 
 ```bash
 deckops login
 ```
 
-This command opens a browser, receives the callback at `http://localhost:3737`, and saves credentials into local config.
+This opens a browser, receives the callback at `http://localhost:3737`, and stores credentials locally.
 
-### 2) Basic usage
+Headless setup:
 
 ```bash
-# Compress
+deckops config set-token <token>
+deckops config set-space <space-id>
+```
+
+### 2. Run a task
+
+```bash
+# Compress a deck
 deckops compress presentation.pptx
 
-# OCR
+# OCR an image
 deckops ocr image.jpg --language en
 
 # Convert PPTX to PDF
 deckops convert slides.pptx --to pdf
 
-# Generate with text prompt only
+# Generate from a text prompt
 deckops create --input-text "请写一份产品发布会方案"
 
-# Translate document (model is required)
+# Translate a document
 deckops translate handbook.docx --from zh --to en --model Standard
 
-# Join multiple PPTX files in order
+# Merge multiple PPTX files
 deckops join part1.pptx part2.pptx part3.pptx
 
 # List recent tasks
 deckops task list --limit 10
+```
+
+### 3. Use JSON mode in automation
+
+```bash
+deckops --json task get <task-id>
 ```
 
 ## Commands
@@ -132,7 +195,7 @@ deckops extract <input-file> [--type <type>] [--no-wait] [--timeout <seconds>]
 - Extract types:
   - `fonts` -> `pptx.getFontInfo`
   - `text-shapes` -> `pptx.getTextShapes`
-- Auto-detection currently supports `.pptx` (defaults to `pptx.getFontInfo`)
+- Auto-detection currently supports `.pptx` and defaults to `pptx.getFontInfo`
 
 ### Convert
 
@@ -152,9 +215,9 @@ Supported output formats:
 
 Notes:
 
-- `--width` / `--height` only apply to **HTML -> PPTX** and **HTML -> PNG** conversion (`.html --to pptx` / `.html --to png`) and will be sent to the backend as task params.
-- `--need-embed-fonts` only applies to **HTML -> PPTX** conversion and maps to task param `needEmbedFonts` (default: `false`).
-- Multiple input files are currently supported only for **HTML -> PPTX** conversion.
+- `--width` and `--height` apply only to `HTML -> PPTX` and `HTML -> PNG`
+- `--need-embed-fonts` applies only to `HTML -> PPTX`
+- Multiple input files are currently supported only for `HTML -> PPTX`
 
 ### Create
 
@@ -164,16 +227,9 @@ deckops create [input-files...] [--input-text <text>] [--enable-search [boolean]
 
 Rules:
 
-- At least one of `--input-text` or input files is required.
-- Up to **2** reference files are allowed.
+- At least one of `--input-text` or input files is required
+- Up to `2` reference files are allowed
 - Supported file extensions: `.html`, `.pdf`, `.docx`, `.pptx`, `.txt`, `.md`, `.mm`, `.xmind`, `.ipynb`
-
-Example:
-
-```bash
-deckops create --input-text "写一份面向开发者的 API 设计文档"
-deckops create refs.md refs.pdf --input-text "根据参考资料输出总结" --audience "工程团队" --page-count 6
-```
 
 ### Translate
 
@@ -183,35 +239,19 @@ deckops translate <input-file> --from <language> --to <language> --model <Standa
 
 Rules:
 
-- Exactly one input file is required.
+- Exactly one input file is required
 - Supported file extensions: `.docx`, `.pptx`, `.pdf`, `.xlsx`, `.key`
-- `--model` is required and must be one of: `Standard`, `Pro`
+- `--model` is required and must be `Standard` or `Pro`
 
-Example:
-
-```bash
-deckops translate report.docx --from zh --to en --model Standard
-deckops translate slides.pdf --from ja --to zh-hans --model Pro
-```
-
-### Join (pptx)
+### Join
 
 ```bash
 deckops join <input-files...> [--name <name>] [--no-wait] [--timeout <seconds>]
 ```
 
-Merges multiple `.pptx` files into a single deck using the `pptx.join` task. Files are merged in the order given on the command line, so the first file becomes the start of the merged deck.
-
-- Requires at least **2** `.pptx` files
-- All inputs must have the `.pptx` extension
-- `--name` overrides the task name (defaults to the first input file's base name)
-
-Example:
-
-```bash
-deckops join cover.pptx chapter-1.pptx chapter-2.pptx appendix.pptx
-deckops join a.pptx b.pptx --name combined-deck --timeout 600
-```
+- Requires at least `2` `.pptx` files
+- Merges files in the order provided
+- `--name` overrides the task name
 
 ### Run explicit task type
 
@@ -219,91 +259,39 @@ deckops join a.pptx b.pptx --name combined-deck --timeout 600
 deckops run <task-type> <input-files...> [--param <key=value>] [--no-wait] [--timeout <seconds>]
 ```
 
-`--param` can be repeated and values are parsed as JSON when possible.
+## Repository Layout
 
-Example:
-
-```bash
-deckops run convertor.ppt2pdf demo.ppt --param quality="high"
-deckops run some.task input.pdf --param retries=3 --param debug=true
+```text
+src/          CLI source code
+tests/        Unit and e2e coverage
+docs/         Product and auth documentation
 ```
 
-### REPL
+Useful project documents:
 
-```bash
-deckops repl
-```
-
-Inside REPL:
-
-```bash
-deckflow> config show
-deckflow> task list
-deckflow> exit
-```
-
-## Authentication behavior
-
-- If `token` or `spaceId` is missing, most API commands will trigger login flow automatically.
-- On backend `401`, client will auto prompt login and retry.
-- On backend `402`, client will open browser checkout flow, then continue.
-
-## Configuration
-
-Config file path:
-
-- `~/.deckops/config.json`
-
-Common fields:
-
-- `token`: auth token
-- `spaceId`: workspace/space identifier
-- `apiBase`: API base URL (default: `https://app.deckflow.com/v1`)
-- `signURI`: optional sign-in URI field
-
-Example:
-
-```json
-{
-  "token": "your-auth-token",
-  "spaceId": "your-space-id",
-  "apiBase": "https://app.deckflow.com/v1"
-}
-```
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [LICENSE](LICENSE)
+- [SECURITY.md](SECURITY.md)
+- [docs/README.md](docs/README.md)
+- [docs/CLOUD_AUTH_MODEL.md](docs/CLOUD_AUTH_MODEL.md)
+- [docs/CLOUD_VS_LOCAL.md](docs/CLOUD_VS_LOCAL.md)
+- [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## Development
-
-Requirements:
-
-- Node.js >= 18
-
-Setup:
 
 ```bash
 npm install
 npm run build
-npm run typecheck
-npm run lint
 npm test
+npm run typecheck
 ```
 
-Useful scripts:
+## Roadmap
 
-- `npm run build`
-- `npm run dev`
-- `npm run test`
-- `npm run test:unit`
-- `npm run test:e2e`
-- `npm run test:coverage`
-- `npm run lint`
-- `npm run format`
-- `npm run typecheck`
+- clarify API key scope definitions for hosted task types
+- implement explicit server-side key validation and auditability guidance
+- improve CI and automation examples for non-interactive usage
+- expand examples for common developer workflows
 
-## License
-
-MIT
-
-## Links
-
-- [Changelog](./CHANGELOG.md)
-- [Contributing](./CONTRIBUTING.md)
+更新日期：2026-05
