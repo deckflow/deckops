@@ -21,7 +21,7 @@ export class Config {
    * @param configDir - Custom config directory (defaults to ~/.deckops)
    */
   constructor(configDir?: string) {
-    this.configDir = configDir || Config.DEFAULT_CONFIG_DIR;
+    this.configDir = configDir || process.env.DECKOPS_CONFIG_DIR || Config.DEFAULT_CONFIG_DIR;
     this.configPath = path.join(this.configDir, Config.CONFIG_FILE);
     this.data = ConfigSchema.parse({});
   }

@@ -44,13 +44,21 @@ async function runCLI(args: string[]): Promise<{
 
 describe('CLI E2E Tests', () => {
   let tempDir: string;
+  let previousConfigDir: string | undefined;
 
   beforeAll(async () => {
     // Create temp directory for test files
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cli-e2e-'));
+    previousConfigDir = process.env.DECKOPS_CONFIG_DIR;
+    process.env.DECKOPS_CONFIG_DIR = path.join(tempDir, '.deckops');
   });
 
   afterAll(async () => {
+    if (previousConfigDir === undefined) {
+      delete process.env.DECKOPS_CONFIG_DIR;
+    } else {
+      process.env.DECKOPS_CONFIG_DIR = previousConfigDir;
+    }
     // Cleanup
     await fs.rm(tempDir, { recursive: true, force: true });
   });

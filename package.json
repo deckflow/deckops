@@ -1,59 +1,19 @@
 {
-  "name": "deckops",
+  "name": "deckops-monorepo",
+  "private": true,
   "version": "0.4.2",
-  "description": "Deck operate CLI tool - File processing and conversion tools",
   "type": "module",
-  "main": "./dist/cli.js",
-  "types": "./dist/cli.d.ts",
-  "bin": {
-    "deckops": "dist/cli.js"
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
-    "test": "vitest",
-    "test:unit": "vitest run tests/unit",
-    "test:e2e": "vitest run tests/e2e",
-    "test:coverage": "vitest --coverage",
-    "lint": "eslint src --ext .ts",
-    "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
-    "typecheck": "tsc --noEmit"
-  },
-  "keywords": [
-    "cli",
-    "deckflow",
-    "file-processing",
-    "converter",
-    "tools"
-  ],
-  "author": "",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+ssh://git@github.com/deckflow/deckops.git"
-  },
-  "homepage": "https://github.com/deckflow/deckops#readme",
-  "bugs": {
-    "url": "https://github.com/deckflow/deckops/issues"
-  },
-  "dependencies": {
-    "axios": "^1.6.0",
-    "axios-retry": "^4.0.0",
-    "chalk": "^5.3.0",
-    "commander": "^11.1.0",
-    "eventsource-parser": "^1.1.0",
-    "form-data": "^4.0.5",
-    "inquirer": "^9.2.0",
-    "open": "^11.0.0",
-    "ora": "^7.0.0",
-    "p-limit": "^5.0.0",
-    "zod": "^3.22.0"
+    "build": "pnpm -r --sort build",
+    "dev": "pnpm --filter deckops dev",
+    "test": "pnpm -r --sort test",
+    "test:unit": "pnpm -r --sort test:unit",
+    "test:e2e": "pnpm --filter deckops test:e2e",
+    "typecheck": "pnpm -r --sort typecheck",
+    "lint": "pnpm -r --sort lint",
+    "format": "prettier --write 'apps/**/*.ts' 'sdks/**/*.ts'"
   },
   "devDependencies": {
-    "@types/form-data": "^2.2.1",
     "@types/inquirer": "^9.0.0",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
@@ -68,5 +28,6 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "packageManager": "pnpm@9.15.0"
 }

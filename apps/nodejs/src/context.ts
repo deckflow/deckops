@@ -3,10 +3,9 @@
  */
 
 import { Config } from './core/config.js';
-import { APIClient } from './core/api-client.js';
-import { FileUploader } from './core/file-uploader.js';
+import { createDeck, APIError, type DeckClient, type DeckTask, type TaskListResponse } from '@deckops/sdk';
 import { runCheckoutFlow, runLoginFlow } from './core/auth.js';
-import { APIError, formatResponseBody, outputError, ExitCode } from './utils/errors.js';
+import { formatResponseBody, outputError, ExitCode } from './utils/errors.js';
 import ora from 'ora';
 
 type SpinnerLike = {
@@ -18,14 +17,49 @@ type SpinnerLike = {
   fail: (text?: string) => void;
 };
 
+type LegacyClient = {
+  addTask: (
+    spaceId: string,
+    fileIds: string[],
+    taskType: string,
+    name?: string,
+    params?: Record<string, unknown>
+  ) => Promise<DeckTask>;
+  listTasks: (
+    spaceId: string,
+    taskType?: string,
+    startIndex?: number,
+    maxResults?: number
+  ) => Promise<TaskListResponse>;
+  getTask: (taskId: string, useEventStream?: boolean) => Promise<DeckTask>;
+  deleteTask: (taskId: string) => Promise<void>;
+  waitForTask: (
+    taskId: string,
+    timeout?: number,
+    useEventStream?: boolean,
+    progressCallback?: (task: DeckTask) => void
+  ) => Promise<DeckTask>;
+  setToken: (token: string) => void;
+  setSpaceId: (spaceId: string | undefined) => void;
+};
+
+type LegacyUploader = {
+  uploadFile: (
+    spaceId: string,
+    filePath: string,
+    progressCallback?: (percentage: number) => void
+  ) => Promise<string>;
+};
+
 /**
  * Global context for CLI commands
  */
 export class Context {
   public config: Config;
   public jsonOutput: boolean;
-  private _apiClient?: APIClient;
-  private _uploader?: FileUploader;
+  private _deck?: DeckClient;
+  private _apiClient?: LegacyClient;
+  private _uploader?: LegacyUploader;
   private _loginPromise?: Promise<string>;
   private _checkoutPromise?: Promise<void>;
   private activeSpinners = new Set<SpinnerLike>();
@@ -45,7 +79,7 @@ export class Context {
   /**
    * Get or create API client
    */
-  async getClient(): Promise<APIClient> {
+  async getClient(): Promise<LegacyClient> {
     // Token is the only hard requirement for authentication.
     // Some deployments may not return/provide spaceId during login.
     if (!this.config.token) {
@@ -57,15 +91,20 @@ export class Context {
     }
 
     if (!this._apiClient) {
-      this._apiClient = new APIClient(this.config.apiBase, this.config.token!, {
+      this._deck = createDeck({
+        root: this.config.apiBase,
+        token: this.config.token!,
+        spaceId: this.config.spaceId,
         onUnauthorized: async () => {
-          return await this.ensureLoggedIn();
+          const token = await this.ensureLoggedIn();
+          return { token, spaceId: this.config.spaceId };
         },
         onPaymentRequired: async () => {
           await this.ensureCheckout();
         },
-        getSpaceId: () => this.config.spaceId,
       });
+
+      this._apiClient = this.createLegacyClient(this._deck);
     }
 
     return this._apiClient;
@@ -74,14 +113,58 @@ export class Context {
   /**
    * Get or create file uploader
    */
-  async getUploader(): Promise<FileUploader> {
-    const client = await this.getClient();
+  async getUploader(): Promise<LegacyUploader> {
+    await this.getClient();
 
     if (!this._uploader) {
-      this._uploader = new FileUploader(client);
+      this._uploader = {
+        uploadFile: async (spaceId, filePath, progressCallback) => {
+          if (!this._deck) {
+            throw new Error('Deck SDK client is not initialized');
+          }
+          const result = await this._deck.files.upload(filePath, {
+            spaceId,
+            onProgress: progressCallback,
+          });
+          return result.id;
+        },
+      };
     }
 
     return this._uploader;
+  }
+
+  private createLegacyClient(deck: DeckClient): LegacyClient {
+    return {
+      addTask: async (spaceId, fileIds, taskType, name, params) =>
+        deck.tasks.create({
+          spaceId,
+          fileIds,
+          type: taskType as never,
+          name,
+          params: (params ?? {}) as never,
+        }),
+      listTasks: async (spaceId, taskType, startIndex = 0, maxResults = 50) =>
+        deck.tasks.list({
+          spaceId,
+          type: taskType as never,
+          startIndex,
+          maxResults,
+        }),
+      getTask: async (taskId, useEventStream = false) =>
+        deck.tasks.get(taskId, {
+          useEventStream,
+        }),
+      deleteTask: async (taskId) => deck.tasks.delete(taskId),
+      waitForTask: async (taskId, timeout = 300, useEventStream = true, progressCallback) =>
+        deck.tasks.wait(taskId, {
+          timeout,
+          useEventStream,
+          onProgress: progressCallback,
+        }),
+      setToken: (token) => deck.setToken(token),
+      setSpaceId: (spaceId) => deck.setSpaceId(spaceId),
+    };
   }
 
   /**
@@ -115,6 +198,8 @@ export class Context {
           this._apiClient.setToken(token);
           this._apiClient.setSpaceId(this.config.spaceId);
         }
+        this._deck?.setToken(token);
+        this._deck?.setSpaceId(this.config.spaceId);
 
         return token;
       } finally {

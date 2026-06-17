@@ -1,309 +1,74 @@
-# Deckops CLI
+# Deckops
 
-Deckops CLI is a TypeScript command-line tool for Deckflow file processing workflows (create, translate, compress, convert, extract, OCR, and task management).
+Deckops is a pnpm monorepo for Deckflow task automation.
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
-[![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+## Packages
 
-## Features
+- `sdks/nodejs` - `@deckops/sdk`, a Node.js/browser-compatible SDK for file upload and task APIs.
+- `apps/nodejs` - `deckops`, the existing Node.js CLI. The command surface is unchanged and now calls `@deckops/sdk` internally.
 
-- File upload + task creation for Deckflow backend
-- Built-in task polling with timeout and non-blocking mode
-- Browser-based login flow with local callback server
-- Auto re-login on 401 and checkout flow on 402
-- JSON output mode (`--json`) for automation scripts
-- Interactive REPL mode for repeated operations
-
-## Installation
-
-Install globally:
+## Install and Build
 
 ```bash
-npm install -g deckops
+pnpm install
+pnpm build
+pnpm typecheck
+pnpm test
 ```
 
-Or run from source in this repository:
+## CLI
+
+The CLI package keeps the `deckops` package name and bin name.
 
 ```bash
-npm install
-npm run build
-node dist/cli.js --help
+pnpm --filter deckops build
+node apps/nodejs/dist/cli.js --help
 ```
 
-> CLI executable name from this package is `deckops`.
-
-## Quick Start
-
-### 1) Login (recommended)
+Common commands:
 
 ```bash
 deckops login
-```
-
-This command opens a browser, receives the callback at `http://localhost:3737`, and saves credentials into local config.
-
-### 2) Basic usage
-
-```bash
-# Compress
-deckops compress presentation.pptx
-
-# OCR
-deckops ocr image.jpg --language en
-
-# Convert PPTX to PDF
-deckops convert slides.pptx --to pdf
-
-# Generate with text prompt only
-deckops create --input-text "请写一份产品发布会方案"
-
-# Translate document (model is required)
-deckops translate handbook.docx --from zh --to en --model Standard
-
-# Join multiple PPTX files in order
-deckops join part1.pptx part2.pptx part3.pptx
-
-# List recent tasks
-deckops task list --limit 10
-```
-
-## Commands
-
-### Global options
-
-```bash
-deckops --json <command>
-```
-
-- `--json`: machine-readable JSON output
-
-### Login
-
-```bash
-deckops login [--port <port>]
-```
-
-- Default callback port: `3737`
-
-### Config
-
-```bash
-deckops config set-token <token>
-deckops config set-space <space-id>
-deckops config set-api-base <url>
 deckops config show
+deckops compress presentation.pptx
+deckops ocr image.jpg --language en
+deckops convert slides.pptx --to pdf
+deckops create --input-text "请写一份产品发布会方案"
+deckops translate handbook.docx --from zh --to en --model Standard
+deckops join part1.pptx part2.pptx
+deckops task list --limit 10
+deckops run convertor.ppt2pdf demo.ppt
 ```
 
-### Task management
+The CLI config file still defaults to `~/.deckops/config.json`. For tests or isolated runs, set `DECKOPS_CONFIG_DIR`.
 
-```bash
-deckops task list [--type <type>] [--limit <n>] [--offset <n>]
-deckops task get <task-id>
-deckops task delete <task-id>
+## SDK
+
+See [sdks/nodejs/README.md](sdks/nodejs/README.md) for the `@deckops/sdk` API.
+
+Basic example:
+
+```ts
+import { createDeck } from '@deckops/sdk';
+
+const deck = createDeck({
+  token: process.env.DECKOPS_TOKEN,
+  spaceId: process.env.DECKOPS_SPACE_ID,
+});
+
+const uploaded = await deck.files.upload('./slides.pptx');
+const task = await deck.convertPptToPdf({
+  fileIds: [uploaded.id],
+  name: 'slides',
+});
+
+const done = await deck.tasks.wait(task.id);
+console.log(done.result);
 ```
 
-### Compress
+## Workspace Notes
 
-```bash
-deckops compress <input-file> [--no-wait] [--timeout <seconds>]
-```
-
-Supported input extensions:
-
-- Document/archive: `.zip`, `.pptx`, `.key`, `.docx`, `.xlsx`
-- Video: `.mp4`, `.avi`, `.mov`, `.mkv`
-
-### OCR
-
-```bash
-deckops ocr <input-file> [--language <lang>] [--no-wait] [--timeout <seconds>]
-```
-
-- Default language: `zh-hans`
-- Supported languages: `zh-hans`, `zh-hant`, `en`, `ja`, `ko`, `ar`, `de`, `es`, `fr`, `it`, `pt`, `ru`
-- Supported input extensions: `.jpg`, `.jpeg`, `.png`
-
-### Extract
-
-```bash
-deckops extract <input-file> [--type <type>] [--no-wait] [--timeout <seconds>]
-```
-
-- Extract types:
-  - `fonts` -> `pptx.getFontInfo`
-  - `text-shapes` -> `pptx.getTextShapes`
-- Auto-detection currently supports `.pptx` (defaults to `pptx.getFontInfo`)
-
-### Convert
-
-```bash
-deckops convert <input-files...> --to <format> [--width <number>] [--height <number>] [--need-embed-fonts [boolean]] [--no-wait] [--timeout <seconds>]
-```
-
-Supported output formats:
-
-- `image`: `.ppt`, `.pptx`, `.pdf`, `.key`
-- `pdf`: `.ppt`, `.pptx`, `.doc`, `.docx`, `.key`
-- `video`: `.ppt`, `.pptx`
-- `html`: `.key`
-- `png`: `.html`, `.md`
-- `pptx`: `.ppt`, `.html`
-- `webp`: `.jpg`, `.jpeg`, `.png`
-
-Notes:
-
-- `--width` / `--height` only apply to **HTML -> PPTX** and **HTML -> PNG** conversion (`.html --to pptx` / `.html --to png`) and will be sent to the backend as task params.
-- `--need-embed-fonts` only applies to **HTML -> PPTX** conversion and maps to task param `needEmbedFonts` (default: `false`).
-- Multiple input files are currently supported only for **HTML -> PPTX** conversion.
-
-### Create
-
-```bash
-deckops create [input-files...] [--input-text <text>] [--enable-search [boolean]] [--advanced-model [boolean]] [--fast-mode [boolean]] [--intent <intent>] [--audience <audience>] [--page-count <number>] [--author <name>] [--no-wait] [--timeout <seconds>]
-```
-
-Rules:
-
-- At least one of `--input-text` or input files is required.
-- Up to **2** reference files are allowed.
-- Supported file extensions: `.html`, `.pdf`, `.docx`, `.pptx`, `.txt`, `.md`, `.mm`, `.xmind`, `.ipynb`
-
-Example:
-
-```bash
-deckops create --input-text "写一份面向开发者的 API 设计文档"
-deckops create refs.md refs.pdf --input-text "根据参考资料输出总结" --audience "工程团队" --page-count 6
-```
-
-### Translate
-
-```bash
-deckops translate <input-file> --from <language> --to <language> --model <Standard|Pro> [--use-glossary [boolean]] [--image-translate [boolean]] [--no-wait] [--timeout <seconds>]
-```
-
-Rules:
-
-- Exactly one input file is required.
-- Supported file extensions: `.docx`, `.pptx`, `.pdf`, `.xlsx`, `.key`
-- `--model` is required and must be one of: `Standard`, `Pro`
-
-Example:
-
-```bash
-deckops translate report.docx --from zh --to en --model Standard
-deckops translate slides.pdf --from ja --to zh-hans --model Pro
-```
-
-### Join (pptx)
-
-```bash
-deckops join <input-files...> [--name <name>] [--no-wait] [--timeout <seconds>]
-```
-
-Merges multiple `.pptx` files into a single deck using the `pptx.join` task. Files are merged in the order given on the command line, so the first file becomes the start of the merged deck.
-
-- Requires at least **2** `.pptx` files
-- All inputs must have the `.pptx` extension
-- `--name` overrides the task name (defaults to the first input file's base name)
-
-Example:
-
-```bash
-deckops join cover.pptx chapter-1.pptx chapter-2.pptx appendix.pptx
-deckops join a.pptx b.pptx --name combined-deck --timeout 600
-```
-
-### Run explicit task type
-
-```bash
-deckops run <task-type> <input-files...> [--param <key=value>] [--no-wait] [--timeout <seconds>]
-```
-
-`--param` can be repeated and values are parsed as JSON when possible.
-
-Example:
-
-```bash
-deckops run convertor.ppt2pdf demo.ppt --param quality="high"
-deckops run some.task input.pdf --param retries=3 --param debug=true
-```
-
-### REPL
-
-```bash
-deckops repl
-```
-
-Inside REPL:
-
-```bash
-deckflow> config show
-deckflow> task list
-deckflow> exit
-```
-
-## Authentication behavior
-
-- If `token` or `spaceId` is missing, most API commands will trigger login flow automatically.
-- On backend `401`, client will auto prompt login and retry.
-- On backend `402`, client will open browser checkout flow, then continue.
-
-## Configuration
-
-Config file path:
-
-- `~/.deckops/config.json`
-
-Common fields:
-
-- `token`: auth token
-- `spaceId`: workspace/space identifier
-- `apiBase`: API base URL (default: `https://app.deckflow.com/v1`)
-- `signURI`: optional sign-in URI field
-
-Example:
-
-```json
-{
-  "token": "your-auth-token",
-  "spaceId": "your-space-id",
-  "apiBase": "https://app.deckflow.com/v1"
-}
-```
-
-## Development
-
-Requirements:
-
-- Node.js >= 18
-
-Setup:
-
-```bash
-npm install
-npm run build
-npm run typecheck
-npm run lint
-npm test
-```
-
-Useful scripts:
-
-- `npm run build`
-- `npm run dev`
-- `npm run test`
-- `npm run test:unit`
-- `npm run test:e2e`
-- `npm run test:coverage`
-- `npm run lint`
-- `npm run format`
-- `npm run typecheck`
-
-## License
-
-MIT
-
-## Links
-
-- [Changelog](./CHANGELOG.md)
-- [Contributing](./CONTRIBUTING.md)
+- `root` in `createDeck({ root })` is the API root address and defaults to `https://app.deckflow.com/v1`.
+- `token` is sent as `X-Auth-Token`.
+- `apiKey` is sent as `Authorization: Bearer {apiKey}`.
+- Future SDKs can be added under `sdks/go`, `sdks/python`, `sdks/java`, or `sdks/rust`.

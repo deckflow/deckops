@@ -213,6 +213,10 @@ export class APIError extends Error {
   }
 }
 
+function isAPIErrorLike(error: Error | APIError): error is APIError {
+  return error instanceof APIError || error.name === 'APIError';
+}
+
 /**
  * Output error message in JSON or human-readable format
  */
@@ -223,7 +227,7 @@ export function outputError(error: Error | APIError, jsonMode: boolean): void {
       code: error.name,
     };
 
-    if (error instanceof APIError) {
+    if (isAPIErrorLike(error)) {
       if (error.requestId) {
         errorObj.requestId = error.requestId;
       }
@@ -237,7 +241,7 @@ export function outputError(error: Error | APIError, jsonMode: boolean): void {
   } else {
     console.error(chalk.red(`Error: ${error.message}`));
 
-    if (error instanceof APIError && error.responseData !== undefined) {
+    if (isAPIErrorLike(error) && error.responseData !== undefined) {
       console.error(chalk.gray('Response body:'));
       console.error(formatResponseBody(error.responseData));
     }

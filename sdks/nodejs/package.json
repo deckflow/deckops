@@ -1,0 +1,48 @@
+{
+  "name": "@deckops/sdk",
+  "version": "0.4.2",
+  "description": "Deckops Node.js and browser SDK",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "axios-retry": "^4.0.0",
+    "eventsource-parser": "^1.1.0",
+    "form-data": "^4.0.5",
+    "p-limit": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "axios-mock-adapter": "^1.22.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
