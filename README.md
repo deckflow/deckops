@@ -56,9 +56,8 @@ const deck = createDeck({
   spaceId: process.env.DECKOPS_SPACE_ID,
 });
 
-const uploaded = await deck.files.upload('./slides.pptx');
 const task = await deck.convertPptToPdf({
-  fileIds: [uploaded.id],
+  files: ['./slides.pptx'],
   name: 'slides',
 });
 

@@ -1,4 +1,5 @@
 import type { AxiosError } from 'axios';
+import type { MetadataValue } from './types.js';
 
 function tryHeaderValue(v: unknown): string | undefined {
   if (typeof v === 'string' && v.trim()) {
@@ -110,7 +111,7 @@ export class APIError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public responseData?: unknown,
+    public responseData?: MetadataValue,
     public readonly requestId?: string
   ) {
     super(message);
@@ -139,6 +140,11 @@ export class APIError extends Error {
     }
 
     const base = `API Error (${status || 'unknown'}): ${errorMessage}`;
-    return new APIError(requestId ? `${base} [X-RequestId: ${requestId}]` : base, status, data, requestId);
+    return new APIError(
+      requestId ? `${base} [X-RequestId: ${requestId}]` : base,
+      status,
+      data as MetadataValue | undefined,
+      requestId
+    );
   }
 }

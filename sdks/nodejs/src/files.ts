@@ -101,14 +101,11 @@ export class FilesApi {
       if (!name) {
         throw new Error('name is required when uploading a Blob without a name');
       }
-      const hash = options.hash;
-      if (!hash) {
-        throw new Error('hash is required when uploading Blob/File input');
-      }
+      const bytes = new Uint8Array(await input.arrayBuffer());
       return {
         name,
         bytes: input.size,
-        hash,
+        hash: options.hash ?? this.calculateMD5(bytes),
         data: input,
         chunkSize,
       };
@@ -123,7 +120,7 @@ export class FilesApi {
     return {
       name,
       bytes: data.byteLength,
-      hash: options.hash ?? (await this.calculateMD5(data)),
+      hash: options.hash ?? this.calculateMD5(data),
       data,
       chunkSize,
     };
@@ -133,9 +130,81 @@ export class FilesApi {
     return typeof Blob !== 'undefined' && input instanceof Blob;
   }
 
-  private async calculateMD5(data: Uint8Array): Promise<string> {
-    const crypto = await import('node:crypto');
-    return crypto.createHash('md5').update(data).digest('hex');
+  private calculateMD5(data: Uint8Array): string {
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+    const originalLength = bytes.byteLength;
+    const bitLength = originalLength * 8;
+    const paddedLength = (((originalLength + 8) >>> 6) + 1) * 64;
+    const padded = new Uint8Array(paddedLength);
+    padded.set(bytes);
+    padded[originalLength] = 0x80;
+
+    const view = new DataView(padded.buffer);
+    view.setUint32(paddedLength - 8, bitLength >>> 0, true);
+    view.setUint32(paddedLength - 4, Math.floor(bitLength / 0x100000000), true);
+
+    let a0 = 0x67452301;
+    let b0 = 0xefcdab89;
+    let c0 = 0x98badcfe;
+    let d0 = 0x10325476;
+
+    const s = [
+      7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+      5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+      4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+      6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    ];
+    const k = Array.from({ length: 64 }, (_, i) => Math.floor(Math.abs(Math.sin(i + 1)) * 0x100000000));
+
+    for (let offset = 0; offset < paddedLength; offset += 64) {
+      const m = Array.from({ length: 16 }, (_, i) => view.getUint32(offset + i * 4, true));
+      let a = a0;
+      let b = b0;
+      let c = c0;
+      let d = d0;
+
+      for (let i = 0; i < 64; i += 1) {
+        let f: number;
+        let g: number;
+        if (i < 16) {
+          f = (b & c) | (~b & d);
+          g = i;
+        } else if (i < 32) {
+          f = (d & b) | (~d & c);
+          g = (5 * i + 1) % 16;
+        } else if (i < 48) {
+          f = b ^ c ^ d;
+          g = (3 * i + 5) % 16;
+        } else {
+          f = c ^ (b | ~d);
+          g = (7 * i) % 16;
+        }
+
+        const temp = d;
+        const sum = (a + f + k[i]! + m[g]!) >>> 0;
+        d = c;
+        c = b;
+        b = (b + this.leftRotate(sum, s[i]!)) >>> 0;
+        a = temp;
+      }
+
+      a0 = (a0 + a) >>> 0;
+      b0 = (b0 + b) >>> 0;
+      c0 = (c0 + c) >>> 0;
+      d0 = (d0 + d) >>> 0;
+    }
+
+    return [a0, b0, c0, d0].map((word) => this.wordToHex(word)).join('');
+  }
+
+  private leftRotate(value: number, shift: number): number {
+    return ((value << shift) | (value >>> (32 - shift))) >>> 0;
+  }
+
+  private wordToHex(word: number): string {
+    return [0, 8, 16, 24]
+      .map((shift) => ((word >>> shift) & 0xff).toString(16).padStart(2, '0'))
+      .join('');
   }
 
   private async uploadSingle(

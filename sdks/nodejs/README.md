@@ -36,50 +36,50 @@ Options:
 - `onUnauthorized?: () => Promise<{ token: string; spaceId?: string } | string>` - called once after a 401, then the request is retried.
 - `onPaymentRequired?: () => Promise<void>` - called once after a 402, then the request is retried.
 
-## Upload Files
+## Create Tasks With Files
 
-Task methods use `fileIds` as their main input model. Upload files separately first:
+Pass user-selected files directly to task methods. The SDK uploads them internally and sends the resulting file ids to the task API:
 
 ```ts
-const file = await deck.files.upload('./slides.pptx', {
-  spaceId: 'space-id',
-  onProgress: (p) => console.log(`${Math.round(p * 100)}%`),
+const task = await deck.convertPptToPdf({
+  files: ['./slides.pptx'],
+  upload: {
+    onProgress: (p) => console.log(`${Math.round(p * 100)}%`),
+  },
 });
-
-await deck.convertPptToPdf({ fileIds: [file.id] });
 ```
 
-Upload input supports:
+`files` supports:
 
-- Node.js file path: `deck.files.upload('./a.pptx')`
+- Node.js file path: `'./a.pptx'`
 - Node.js/browser binary data: `Uint8Array` or `ArrayBuffer`
 - Browser `Blob`/`File`
 
-For Node.js paths and binary data, the SDK calculates MD5. For browser `Blob`/`File`, pass `hash` because browsers do not provide MD5:
+For browser file pickers, pass the selected `File` object:
 
 ```ts
-await deck.files.upload(file, {
-  name: file.name,
-  hash: 'md5-hash',
+await deck.convertPptToPdf({
+  files: [file],
 });
 ```
 
-Low-level upload auth is also available:
+For binary data without a file name, include per-file upload options:
 
 ```ts
-await deck.files.requestUpload({
-  name: 'slides.pptx',
-  bytes: 123,
-  hash: 'md5-hash',
+await deck.imageOcr({
+  files: [{ input: bytes, name: 'image.png' }],
+  params: { language: 'en' },
 });
 ```
+
+For compatibility with existing integrations, `fileIds` is still accepted and can be combined with `files`.
 
 ## Generic Task API
 
 ```ts
 const task = await deck.tasks.create({
   type: 'convertor.ppt2pdf',
-  fileIds: ['file-id'],
+  files: ['./slides.pptx'],
   name: 'slides',
   params: {},
 });
@@ -87,6 +87,7 @@ const task = await deck.tasks.create({
 await deck.tasks.list({ type: 'convertor.ppt2pdf', startIndex: 0, maxResults: 50 });
 await deck.tasks.get(task.id);
 await deck.tasks.wait(task.id, { timeout: 300, useEventStream: true });
+await deck.tasks.down<'convertor.ppt2pdf'>(task.id);
 await deck.tasks.delete(task.id);
 
 const cancel = await deck.tasks.subscribe(task.id, {
@@ -96,31 +97,70 @@ const cancel = await deck.tasks.subscribe(task.id, {
 cancel();
 ```
 
+Task detail responses are for status/progress metadata. Task results should be read through `deck.tasks.down(...)` or the backend-name alias `deck.ttask.down(...)`.
+
+```ts
+const result = await deck.ttask.down<'convertor.ppt2pdf'>(task.id);
+const generationDownload = await deck.ttask.down<'generation'>(task.id, { type: 'pptx' });
+console.log(generationDownload.downloadUrl);
+```
+
+## Result Types
+
+The SDK exports concrete result types for every task type through `DeckTaskTypeResult`.
+
+Most file-producing tasks return tuple-shaped file results because that is the backend contract:
+
+```ts
+type FileResult = [
+  path: string,
+  bytes: number,
+  hash: string,
+];
+
+type ConvertFileResult = [
+  path: string,
+  bytes: number,
+  hash: string,
+  bounds?: { w?: number; h?: number; total?: number } | null,
+];
+```
+
+`path` is the storage key or relative path in raw backend data. When the task detail API expands downloadable results, it may already be a signed/access URL.
+
+Examples:
+
+- `deck.convertPptToPdf(...)` returns `ConvertFileResult[]`.
+- `deck.convertHtmlToPptx(...)` returns `{ target: FileResult; usedFonts: string[] }`.
+- `deck.pptxSplit(...)` returns `{ ppt, sections, slides }` with typed slide file metadata.
+- `deck.pptxGetFontInfo(...)` returns `{ fonts, embeddedFont, subsetFont }`.
+- `deck.pptxGetTextShapes(...)` returns typed page/shape/text/image metadata.
+
 ## Typed Task Helpers
 
-Every helper accepts `{ spaceId?, fileIds?, name?, params? }`, sets the backend task `type`, and returns a typed `DeckTask`.
+Every helper accepts `{ spaceId?, files?, fileIds?, name?, params?, upload? }`, sets the backend task `type`, uploads files when needed, and returns a typed `DeckTask`.
 
 ### File and Image
 
 ```ts
-await deck.fileCompress({ fileIds: ['file-id'] });
-await deck.imageOcr({ fileIds: ['file-id'], params: { language: 'en' } });
-await deck.imageConvertWebp({ fileIds: ['file-id'] });
-await deck.imageResize({ fileIds: ['file-id'], params: { maxWidth: 1024 } });
+await deck.fileCompress({ files: ['./document.pdf'] });
+await deck.imageOcr({ files: [file], params: { language: 'en' } });
+await deck.imageConvertWebp({ files: [file] });
+await deck.imageResize({ files: [file], params: { maxWidth: 1024 } });
 ```
 
 ### PPTX
 
 ```ts
-await deck.pptxSplit({ fileIds: ['file-id'], params: { indexes: [0, 1] } });
-await deck.pptxJoin({ fileIds: ['a', 'b'], name: 'merged' });
-await deck.pptxGetFontInfo({ fileIds: ['file-id'] });
+await deck.pptxSplit({ files: ['./slides.pptx'], params: { indexes: [0, 1] } });
+await deck.pptxJoin({ files: ['./part1.pptx', './part2.pptx'], name: 'merged' });
+await deck.pptxGetFontInfo({ files: ['./slides.pptx'] });
 await deck.pptxGetTextShapes({
-  fileIds: ['file-id'],
+  files: ['./slides.pptx'],
   params: { includeNotes: true, ignoreEmptyText: true },
 });
 await deck.pptxEmbedFonts({
-  fileIds: ['file-id'],
+  files: ['./slides.pptx'],
   params: { usedFonts: ['Arial'] },
 });
 ```
@@ -129,27 +169,27 @@ await deck.pptxEmbedFonts({
 
 ```ts
 await deck.convertPptToImage({
-  fileIds: ['file-id'],
+  files: ['./slides.pptx'],
   params: { resolution: 1920, format: 'jpg' },
 });
-await deck.convertPptToPptx({ fileIds: ['file-id'] });
-await deck.convertPptToPdf({ fileIds: ['file-id'] });
-await deck.convertDocToPdf({ fileIds: ['file-id'] });
-await deck.convertPptToVideo({ fileIds: ['file-id'] });
-await deck.convertPdfToImage({ fileIds: ['file-id'] });
-await deck.convertKeynoteToImage({ fileIds: ['file-id'] });
-await deck.convertKeynoteToHtml({ fileIds: ['file-id'] });
-await deck.convertKeynoteToPdf({ fileIds: ['file-id'] });
+await deck.convertPptToPptx({ files: ['./slides.ppt'] });
+await deck.convertPptToPdf({ files: ['./slides.pptx'] });
+await deck.convertDocToPdf({ files: ['./handbook.docx'] });
+await deck.convertPptToVideo({ files: ['./slides.pptx'] });
+await deck.convertPdfToImage({ files: ['./document.pdf'] });
+await deck.convertKeynoteToImage({ files: ['./deck.key'] });
+await deck.convertKeynoteToHtml({ files: ['./deck.key'] });
+await deck.convertKeynoteToPdf({ files: ['./deck.key'] });
 await deck.convertHtmlToPng({
-  fileIds: ['file-id'],
+  files: [{ input: htmlBytes, name: 'page.html' }],
   params: { width: 1280, height: 720, fullPage: true },
 });
 await deck.convertMarkdownToPng({
-  fileIds: ['file-id'],
+  files: [{ input: markdownBytes, name: 'page.md' }],
   params: { theme: 'dark', pageWidth: 960 },
 });
 await deck.convertHtmlToPptx({
-  fileIds: ['file-id'],
+  files: [{ input: htmlBytes, name: 'deck.html' }],
   params: { width: 1280, height: 720, needEmbedFonts: false },
 });
 ```
@@ -169,7 +209,7 @@ await deck.htmlBuildPlayer({
 });
 
 await deck.generation({
-  fileIds: ['reference-file-id'],
+  files: [referenceFile],
   params: {
     inputText: '写一份产品发布会方案',
     enableSearch: true,
@@ -178,7 +218,7 @@ await deck.generation({
 });
 
 await deck.translation({
-  fileIds: ['file-id'],
+  files: [file],
   params: {
     from: 'zh',
     to: 'en',
@@ -189,14 +229,14 @@ await deck.translation({
 });
 
 await deck.revamp({
-  fileIds: ['file-id'],
+  files: [file],
   params: { lang: 'zh' },
 });
 ```
 
 ## Browser and Node.js Notes
 
-- Task creation is environment-neutral because it uses `fileIds`.
+- Task helpers accept files directly and upload them before task creation.
 - Node.js uploads can read a path and calculate MD5.
-- Browser uploads must provide a file name and MD5 hash when the input is `Blob`/`File`.
+- Browser uploads can use `Blob`/`File`; the SDK reads the file name and calculates MD5.
 - Server-Sent Event subscription is primarily intended for Node.js streams. Browser polling via `deck.tasks.wait(taskId, { useEventStream: false })` is the most portable option.

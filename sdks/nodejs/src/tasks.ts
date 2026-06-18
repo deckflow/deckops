@@ -8,18 +8,31 @@ import {
   type DeckTaskType,
   type ListTasksParams,
   type SubscribeTaskHandlers,
+  type TaskDownloadOptions,
+  type TaskDownResult,
   type TaskListResponse,
+  type TaskUploadInput,
+  type TaskUploadOptions,
+  type UploadInput,
   type WaitForTaskOptions,
 } from './types.js';
 
+type FilesLike = {
+  upload(input: UploadInput, options?: TaskUploadOptions & { spaceId?: string }): Promise<{ id: string }>;
+};
+
 export class TasksApi {
-  constructor(private readonly http: HttpClient) {}
+  constructor(
+    private readonly http: HttpClient,
+    private readonly files?: FilesLike
+  ) {}
 
   async create<T extends DeckTaskType>(params: CreateTaskParams<T>): Promise<DeckTask<T>> {
     const spaceId = this.requireSpaceId(params.spaceId);
+    const fileIds = await this.resolveFileIds(spaceId, params);
     const payload: Record<string, unknown> = {
       spaceId,
-      fileIds: params.fileIds ?? [],
+      fileIds,
       type: params.type,
       params: params.params ?? {},
     };
@@ -30,6 +43,54 @@ export class TasksApi {
 
     const res = await this.http.post<DeckTask<T>>('/tools/tasks', payload);
     return res.data;
+  }
+
+  private async resolveFileIds<T extends DeckTaskType>(spaceId: string, params: CreateTaskParams<T>): Promise<string[]> {
+    const fileIds = [...(params.fileIds ?? [])];
+    if (!params.files?.length) {
+      return fileIds;
+    }
+    if (!this.files) {
+      throw new Error('File upload is not available for this task client');
+    }
+
+    const uploaded = await Promise.all(
+      params.files.map(async (file) => {
+        const { input, options } = this.normalizeTaskUpload(file, params.upload);
+        const result = await this.files!.upload(input, {
+          ...options,
+          spaceId,
+        });
+        return result.id;
+      })
+    );
+    return [...fileIds, ...uploaded];
+  }
+
+  private normalizeTaskUpload(
+    file: TaskUploadInput,
+    defaults: TaskUploadOptions = {}
+  ): { input: UploadInput; options: TaskUploadOptions } {
+    if (this.isTaskUploadObject(file)) {
+      const { input, ...options } = file;
+      return {
+        input,
+        options: {
+          ...defaults,
+          ...options,
+        },
+      };
+    }
+
+    return { input: file, options: defaults };
+  }
+
+  private isTaskUploadObject(file: TaskUploadInput): file is Extract<TaskUploadInput, { input: unknown }> {
+    return typeof file === 'object' && file !== null && 'input' in file && !this.isBlob(file);
+  }
+
+  private isBlob(value: unknown): value is Blob {
+    return typeof Blob !== 'undefined' && value instanceof Blob;
   }
 
   async list<T extends DeckTaskType = DeckTaskType>(params: ListTasksParams<T> = {}): Promise<TaskListResponse<T>> {
@@ -87,6 +148,22 @@ export class TasksApi {
     await this.http.delete(`/tools/tasks/${encodeURIComponent(taskId)}`, {
       params: this.taskQueryParams(),
     });
+  }
+
+  async down<T extends DeckTaskType = DeckTaskType>(
+    taskId: string,
+    options: TaskDownloadOptions = {}
+  ): Promise<TaskDownResult<T>> {
+    const params: Record<string, string> = {};
+    if (options.type) {
+      params._type = options.type;
+    }
+
+    const res = await this.http.get<TaskDownResult<T>>(
+      `/tools/tasks/${encodeURIComponent(taskId)}/download`,
+      Object.keys(params).length ? { params } : undefined
+    );
+    return res.data;
   }
 
   async wait<T extends DeckTaskType = DeckTaskType>(

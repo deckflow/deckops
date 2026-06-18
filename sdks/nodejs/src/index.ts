@@ -3,21 +3,59 @@ import { HttpClient } from './http-client.js';
 import { TasksApi } from './tasks.js';
 import type {
   CreateDeckOptions,
+  CreateTaskParams,
   DeckTask,
   DeckTaskType,
+  FileUploadResult,
+  ListTasksParams,
+  RequestUploadParams,
+  SubscribeTaskHandlers,
+  TaskDownloadOptions,
+  TaskDownResult,
+  TaskListResponse,
   TaskShortcutParams,
+  UploadInput,
+  UploadOptions,
+  UploadAuthResponse,
+  WaitForTaskOptions,
 } from './types.js';
 
 export * from './errors.js';
 export * from './types.js';
 
+export interface TasksClient {
+  create<T extends DeckTaskType>(params: CreateTaskParams<T>): Promise<DeckTask<T>>;
+  list<T extends DeckTaskType = DeckTaskType>(params?: ListTasksParams<T>): Promise<TaskListResponse<T>>;
+  get<T extends DeckTaskType = DeckTaskType>(
+    taskId: string,
+    options?: { useEventStream?: boolean }
+  ): Promise<DeckTask<T>>;
+  delete(taskId: string): Promise<void>;
+  down<T extends DeckTaskType = DeckTaskType>(
+    taskId: string,
+    options?: TaskDownloadOptions
+  ): Promise<TaskDownResult<T>>;
+  wait<T extends DeckTaskType = DeckTaskType>(taskId: string, options?: WaitForTaskOptions): Promise<DeckTask<T>>;
+  subscribe<T extends DeckTaskType = DeckTaskType>(
+    taskId: string,
+    handlers: SubscribeTaskHandlers<T>
+  ): Promise<() => void>;
+}
+
+export interface FilesClient {
+  requestUpload(params: RequestUploadParams): Promise<UploadAuthResponse>;
+  upload(input: UploadInput, options?: UploadOptions): Promise<FileUploadResult>;
+}
+
 export interface DeckClient {
   /** API root address used by this client. */
   readonly root: string;
   /** Task APIs. */
-  readonly tasks: TasksApi;
+  readonly tasks: TasksClient;
+  /** Alias for backend ttask APIs. */
+  readonly ttask: TasksClient;
   /** File upload APIs. */
-  readonly files: FilesApi;
+  readonly files: FilesClient;
   /** Update X-Auth-Token for future requests. */
   setToken(token: string | undefined): void;
   /** Update Authorization Bearer api key for future requests. */
@@ -61,8 +99,8 @@ export interface DeckClient {
 
 export function createDeck(options: CreateDeckOptions = {}): DeckClient {
   const http = new HttpClient(options);
-  const tasks = new TasksApi(http);
   const files = new FilesApi(http);
+  const tasks = new TasksApi(http, files);
 
   const shortcut = <T extends DeckTaskType>(type: T) => {
     return (params: TaskShortcutParams<T>) =>
@@ -76,6 +114,7 @@ export function createDeck(options: CreateDeckOptions = {}): DeckClient {
   return {
     root: http.root,
     tasks,
+    ttask: tasks,
     files,
     setToken: (token) => http.setToken(token),
     setApiKey: (apiKey) => http.setApiKey(apiKey),

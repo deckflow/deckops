@@ -80,6 +80,30 @@ describe('@deckops/sdk', () => {
     await expect(deck.tasks.delete('task-1')).resolves.toBeUndefined();
   });
 
+  it('downloads task results through ttask.down', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1/download').reply(200, [
+      ['https://cdn.example.com/out.pdf', 1024, 'hash-1', { total: 12, w: 1920, h: 1080 }],
+    ]);
+
+    const result = await deck.ttask.down<'convertor.ppt2pdf'>('task-1');
+    expect(result[0]?.[0]).toBe('https://cdn.example.com/out.pdf');
+    expect(result[0]?.[3]?.total).toBe(12);
+  });
+
+  it('passes download type for generation-style task downloads', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-gen/download').reply((config) => {
+      expect(config.params).toEqual({ _type: 'pptx' });
+      return [200, { downloadUrl: 'https://cdn.example.com/deck.pptx' }];
+    });
+
+    const result = await deck.tasks.down<'generation'>('task-gen', { type: 'pptx' });
+    expect(result.downloadUrl).toContain('deck.pptx');
+  });
+
   it('requests upload auth and returns deduplicated file ids', async () => {
     const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
 
@@ -104,6 +128,77 @@ describe('@deckops/sdk', () => {
       name: 'a.txt',
     });
     expect(result.id).toBe('file-1');
+  });
+
+  it('uploads files inside task helpers before creating tasks', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+
+    mock.onPost('http://localhost:3000/api/spaces/space-1/file/auth').reply((config) => {
+      const body = JSON.parse(String(config.data));
+      expect(body.name).toBe('slides.pptx');
+      expect(body.bytes).toBe(3);
+      expect(body.hash).toBe('900150983cd24fb0d6963f7d28e17f72');
+      return [
+        200,
+        {
+          id: 'uploaded-file-1',
+          key: 'files/slides.pptx',
+          hash: body.hash,
+          platform: 'oss',
+          multipart: false,
+        },
+      ];
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(JSON.parse(String(config.data))).toMatchObject({
+        spaceId: 'space-1',
+        fileIds: ['existing-file', 'uploaded-file-1'],
+        type: 'convertor.ppt2pdf',
+      });
+      return [
+        200,
+        {
+          id: 'task-1',
+          spaceId: 'space-1',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+          fileIds: ['existing-file', 'uploaded-file-1'],
+        },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({
+      fileIds: ['existing-file'],
+      files: [{ input: new Uint8Array([97, 98, 99]), name: 'slides.pptx' }],
+    });
+
+    expect(task.fileIds).toEqual(['existing-file', 'uploaded-file-1']);
+  });
+
+  it('calculates hashes for Blob uploads', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    const file = new File([new Uint8Array([97, 98, 99])], 'browser.txt');
+
+    mock.onPost('http://localhost:3000/api/spaces/space-1/file/auth').reply((config) => {
+      const body = JSON.parse(String(config.data));
+      expect(body.name).toBe('browser.txt');
+      expect(body.bytes).toBe(3);
+      expect(body.hash).toBe('900150983cd24fb0d6963f7d28e17f72');
+      return [
+        200,
+        {
+          id: 'browser-file-1',
+          key: 'files/browser.txt',
+          hash: body.hash,
+          platform: 'oss',
+          multipart: false,
+        },
+      ];
+    });
+
+    const result = await deck.files.upload(file);
+    expect(result.id).toBe('browser-file-1');
   });
 
   it('retries once after onUnauthorized updates credentials', async () => {
