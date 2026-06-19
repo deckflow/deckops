@@ -11,6 +11,7 @@ import {
   writeTaskOutput,
   type TaskOutputWriteResult,
 } from './utils/output.js';
+import chalk from 'chalk';
 import ora from 'ora';
 
 type SpinnerLike = {
@@ -186,14 +187,30 @@ export class Context {
     }
 
     const spinner = this.createSpinner('Downloading result...');
-    try {
-      const result = await this.writeTaskOutput(task, outPath);
-      this.succeedSpinner(spinner, 'Result saved');
-      return result;
-    } catch {
-      this.stopSpinner(spinner);
-      return undefined;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        if (spinner) {
+          spinner.text = attempt === 1 ? 'Downloading result...' : `Downloading result... retry ${attempt}/3`;
+        }
+        const result = await this.writeTaskOutput(task, outPath);
+        this.succeedSpinner(spinner, 'Result saved');
+        return result;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          if (spinner) {
+            spinner.text = `Download failed, retrying in 10s... (${attempt}/3)`;
+          }
+          await this.delay(10_000);
+        }
+      }
     }
+
+    this.stopSpinner(spinner);
+    this.warnOutputSaveFailed(outPath, lastError);
+    return undefined;
   }
 
   outputTaskSaved(result: TaskOutputWriteResult): void {
@@ -201,6 +218,27 @@ export class Context {
       { output: result.path },
       () => formatTaskOutputWriteResult(result)
     );
+  }
+
+  private warnOutputSaveFailed(outPath: string, error: unknown): void {
+    const message =
+      `Task completed, but --out result could not be saved to ${outPath} after 3 attempts. ` +
+      'The task result will be printed below; you can manually download the file from the target/result JSON.';
+    const errorMessage = error instanceof Error ? error.message : String(error ?? 'Unknown error');
+
+    if (this.jsonOutput) {
+      console.error(JSON.stringify({ warning: message, error: errorMessage }));
+      return;
+    }
+
+    console.error(chalk.yellow(`Warning: ${message}`));
+    if (errorMessage) {
+      console.error(chalk.dim(`Last error: ${errorMessage}`));
+    }
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
