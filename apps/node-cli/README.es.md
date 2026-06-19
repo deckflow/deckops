@@ -2,7 +2,7 @@
 
 # deckops CLI
 
-Deckops es la herramienta de línea de comandos de [Deckflow](https://app.deckflow.com). Permite subir archivos, crear tareas asíncronas y gestionar la configuración y el estado de las tareas. Llama a la API de Deckflow mediante `@deckops/sdk` internamente.
+Deckops es la herramienta de línea de comandos de [Deckflow](https://app.deckflow.com). Permite subir archivos, crear tareas asíncronas y consultar el estado de las tareas.
 
 ## Requisitos
 
@@ -11,36 +11,12 @@ Deckops es la herramienta de línea de comandos de [Deckflow](https://app.deckfl
 
 ## Instalación
 
-### Uso dentro del monorepo
-
-```bash
-pnpm install
-pnpm --filter deckops build
-node apps/node-cli/dist/cli.js --help
-```
-
-### Instalación global (tras publicación)
-
 ```bash
 npm install -g deckops
 deckops --help
 ```
 
 ## Inicio rápido
-
-1. Inicia sesión y guarda el token:
-
-```bash
-deckops login
-```
-
-2. Consulta la configuración actual:
-
-```bash
-deckops config show
-```
-
-3. Realiza una conversión de archivo:
 
 ```bash
 deckops convert slides.pptx --to pdf
@@ -57,100 +33,14 @@ deckops convert slides.pptx --to pdf
 Ejemplos:
 
 ```bash
-# Ver configuración en modo JSON
-deckops --json config show
+# Listar tareas en modo JSON
+deckops --json task list --limit 5
 
 # Ver versión
 deckops --version
 
 # Ver ayuda de un subcomando
 deckops convert --help
-```
-
-## Configuración
-
-El archivo de configuración se guarda por defecto en `~/.deckops/config.json`. Para pruebas o entornos aislados, especifica el directorio mediante una variable de entorno:
-
-```bash
-export DECKOPS_CONFIG_DIR=/tmp/my-deckops-config
-deckops config show
-```
-
-### `config set-token`
-
-Establecer manualmente el token de autenticación (normalmente se hace automáticamente con `login`).
-
-```bash
-# Establecer token directamente
-deckops config set-token "your-auth-token"
-
-# Modo JSON
-deckops --json config set-token "your-auth-token"
-
-# Uso con variables de entorno en CI
-deckops config set-token "$DECKOPS_TOKEN"
-```
-
-### `config set-space`
-
-Establecer el ID del workspace / space. Algunos comandos requieren un space para crear tareas.
-
-```bash
-# Establecer ID del workspace
-deckops config set-space "your-space-id"
-
-# Verificar que surtió efecto
-deckops config show
-
-# Salida JSON
-deckops --json config show
-```
-
-### `config set-api-base`
-
-Personalizar la URL base de la API (por defecto `https://app.deckflow.com/v1`).
-
-```bash
-# Apuntar a un endpoint API personalizado
-deckops config set-api-base "https://staging.example.com/v1"
-
-# Restaurar valor por defecto (volver a establecer)
-deckops config set-api-base "https://app.deckflow.com/v1"
-
-# Usar con login
-deckops config set-api-base "https://app.deckflow.com/v1" && deckops login
-```
-
-### `config show`
-
-Ver la configuración actual. En modo legible, el token se enmascara parcialmente.
-
-```bash
-# Salida legible
-deckops config show
-
-# Salida JSON (token completo)
-deckops --json config show
-
-# Comprobar si falta el space
-deckops config show | grep spaceId
-```
-
-## Inicio de sesión
-
-### `login`
-
-Iniciar sesión mediante el flujo OAuth del navegador y escribir el token en la configuración local.
-
-```bash
-# Puerto por defecto 3737
-deckops login
-
-# Especificar puerto de callback local
-deckops login --port 8080
-
-# Modo JSON
-deckops --json login
 ```
 
 ## Compresión de archivos
@@ -439,7 +329,6 @@ deckops repl
 En el REPL puedes introducir los mismos comandos que el CLI normal, por ejemplo:
 
 ```
-deckflow> config show
 deckflow> convert slides.pptx --to pdf
 deckflow> task list --limit 5
 ```
@@ -463,25 +352,11 @@ Cuando se especifica `-o`, se esperará la tarea aunque no se pase explícitamen
 
 ## Preguntas frecuentes
 
-**P: ¿Space ID missing?**
-
-Ejecuta primero `deckops login`, o configura manualmente con `deckops config set-space <space-id>`.
-
-**P: ¿Cómo usar en CI?**
-
-```bash
-export DECKOPS_CONFIG_DIR=/tmp/deckops-ci
-deckops config set-token "$DECKOPS_TOKEN"
-deckops config set-space "$DECKOPS_SPACE_ID"
-deckops --json convert input.pptx --to pdf -o output.pdf
-```
-
 **P: ¿Cuándo es válida la entrada multi-archivo?**
 
 Solo algunas tareas admiten múltiples fuentes ordenadas: `convert` para `html → pptx`, `join`, `create` (hasta 2 archivos de referencia), y `run` para `pptx.join` / `convertor.html2pptx`, etc.
 
 ## Enlaces relacionados
 
-- Raíz del monorepo: [README.md](../../README.es.md)
-- Documentación del SDK: [@deckops/sdk](../../sdks/nodejs/README.es.md)
+- [Deckflow](https://app.deckflow.com)
 - Reportar problemas: [GitHub Issues](https://github.com/deckflow/deckops/issues)

@@ -2,7 +2,7 @@
 
 # deckops CLI
 
-Deckops — это инструмент командной строки для [Deckflow](https://app.deckflow.com). Он позволяет загружать файлы, создавать асинхронные задачи и управлять конфигурацией и статусом задач. Внутри он вызывает API Deckflow через `@deckops/sdk`.
+Deckops — это инструмент командной строки для [Deckflow](https://app.deckflow.com). Он позволяет загружать файлы, создавать асинхронные задачи и просматривать статус задач.
 
 ## Требования
 
@@ -11,36 +11,12 @@ Deckops — это инструмент командной строки для [
 
 ## Установка
 
-### Использование в monorepo
-
-```bash
-pnpm install
-pnpm --filter deckops build
-node apps/node-cli/dist/cli.js --help
-```
-
-### Глобальная установка (после публикации)
-
 ```bash
 npm install -g deckops
 deckops --help
 ```
 
 ## Быстрый старт
-
-1. Войдите и сохраните token:
-
-```bash
-deckops login
-```
-
-2. Просмотрите текущую конфигурацию:
-
-```bash
-deckops config show
-```
-
-3. Выполните конвертацию файла:
 
 ```bash
 deckops convert slides.pptx --to pdf
@@ -57,100 +33,14 @@ deckops convert slides.pptx --to pdf
 Примеры:
 
 ```bash
-# Просмотр конфигурации в режиме JSON
-deckops --json config show
+# Список задач в режиме JSON
+deckops --json task list --limit 5
 
 # Просмотр версии
 deckops --version
 
 # Справка по подкоманде
 deckops convert --help
-```
-
-## Конфигурация
-
-Файл конфигурации по умолчанию сохраняется в `~/.deckops/config.json`. Для тестирования или изолированных сред укажите каталог через переменную окружения:
-
-```bash
-export DECKOPS_CONFIG_DIR=/tmp/my-deckops-config
-deckops config show
-```
-
-### `config set-token`
-
-Вручную установить токен аутентификации (обычно выполняется автоматически через `login`).
-
-```bash
-# Установить token напрямую
-deckops config set-token "your-auth-token"
-
-# Режим JSON
-deckops --json config set-token "your-auth-token"
-
-# Использование с переменными окружения в CI
-deckops config set-token "$DECKOPS_TOKEN"
-```
-
-### `config set-space`
-
-Установить ID workspace / space. Некоторым командам нужен space для создания задач.
-
-```bash
-# Установить ID workspace
-deckops config set-space "your-space-id"
-
-# Проверить, что применилось
-deckops config show
-
-# Вывод JSON
-deckops --json config show
-```
-
-### `config set-api-base`
-
-Настроить базовый URL API (по умолчанию `https://app.deckflow.com/v1`).
-
-```bash
-# Указать пользовательскую конечную точку API
-deckops config set-api-base "https://staging.example.com/v1"
-
-# Восстановить значение по умолчанию (установить снова)
-deckops config set-api-base "https://app.deckflow.com/v1"
-
-# Использовать с login
-deckops config set-api-base "https://app.deckflow.com/v1" && deckops login
-```
-
-### `config show`
-
-Просмотреть текущую конфигурацию. В читаемом режиме token частично маскируется.
-
-```bash
-# Читаемый вывод
-deckops config show
-
-# Вывод JSON (полный token)
-deckops --json config show
-
-# Проверить, отсутствует ли space
-deckops config show | grep spaceId
-```
-
-## Вход
-
-### `login`
-
-Войти через OAuth в браузере и записать token в локальную конфигурацию.
-
-```bash
-# Порт по умолчанию 3737
-deckops login
-
-# Указать локальный порт обратного вызова
-deckops login --port 8080
-
-# Режим JSON
-deckops --json login
 ```
 
 ## Сжатие файлов
@@ -439,7 +329,6 @@ deckops repl
 В REPL можно вводить те же команды, что и в обычном CLI, например:
 
 ```
-deckflow> config show
 deckflow> convert slides.pptx --to pdf
 deckflow> task list --limit 5
 ```
@@ -463,25 +352,11 @@ deckflow> task list --limit 5
 
 ## Частые вопросы
 
-**В: Space ID missing?**
-
-Сначала выполните `deckops login` или установите вручную через `deckops config set-space <space-id>`.
-
-**В: Как использовать в CI?**
-
-```bash
-export DECKOPS_CONFIG_DIR=/tmp/deckops-ci
-deckops config set-token "$DECKOPS_TOKEN"
-deckops config set-space "$DECKOPS_SPACE_ID"
-deckops --json convert input.pptx --to pdf -o output.pdf
-```
-
 **В: Когда допустим ввод нескольких файлов?**
 
 Только некоторые задачи поддерживают упорядоченные несколько источников: `convert` для `html → pptx`, `join`, `create` (до 2 справочных файлов), и `run` для `pptx.join` / `convertor.html2pptx` и т.д.
 
 ## Связанные ссылки
 
-- Корень monorepo: [README.md](../../README.ru.md)
-- Документация SDK: [@deckops/sdk](../../sdks/nodejs/README.ru.md)
+- [Deckflow](https://app.deckflow.com)
 - Сообщить о проблеме: [GitHub Issues](https://github.com/deckflow/deckops/issues)

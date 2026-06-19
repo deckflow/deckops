@@ -2,7 +2,7 @@
 
 # deckops CLI
 
-Deckops est l'outil en ligne de commande de [Deckflow](https://app.deckflow.com). Il permet de téléverser des fichiers, de créer des tâches asynchrones et de gérer la configuration et l'état des tâches. Il appelle l'API Deckflow via `@deckops/sdk` en arrière-plan.
+Deckops est l'outil en ligne de commande de [Deckflow](https://app.deckflow.com). Il permet de téléverser des fichiers, de créer des tâches asynchrones et de consulter l'état des tâches.
 
 ## Prérequis
 
@@ -11,36 +11,12 @@ Deckops est l'outil en ligne de commande de [Deckflow](https://app.deckflow.com)
 
 ## Installation
 
-### Utilisation dans le monorepo
-
-```bash
-pnpm install
-pnpm --filter deckops build
-node apps/node-cli/dist/cli.js --help
-```
-
-### Installation globale (après publication)
-
 ```bash
 npm install -g deckops
 deckops --help
 ```
 
 ## Démarrage rapide
-
-1. Connectez-vous et enregistrez le token :
-
-```bash
-deckops login
-```
-
-2. Affichez la configuration actuelle :
-
-```bash
-deckops config show
-```
-
-3. Effectuez une conversion de fichier :
 
 ```bash
 deckops convert slides.pptx --to pdf
@@ -57,100 +33,14 @@ deckops convert slides.pptx --to pdf
 Exemples :
 
 ```bash
-# Afficher la config en mode JSON
-deckops --json config show
+# Lister les tâches en mode JSON
+deckops --json task list --limit 5
 
 # Afficher la version
 deckops --version
 
 # Afficher l'aide d'une sous-commande
 deckops convert --help
-```
-
-## Configuration
-
-Le fichier de configuration est enregistré par défaut dans `~/.deckops/config.json`. Pour les tests ou les environnements isolés, spécifiez le répertoire via une variable d'environnement :
-
-```bash
-export DECKOPS_CONFIG_DIR=/tmp/my-deckops-config
-deckops config show
-```
-
-### `config set-token`
-
-Définir manuellement le token d'authentification (généralement fait automatiquement via `login`).
-
-```bash
-# Définir le token directement
-deckops config set-token "your-auth-token"
-
-# Mode JSON
-deckops --json config set-token "your-auth-token"
-
-# Utilisation avec des variables d'environnement en CI
-deckops config set-token "$DECKOPS_TOKEN"
-```
-
-### `config set-space`
-
-Définir l'ID du workspace / space. Certaines commandes nécessitent un space pour créer des tâches.
-
-```bash
-# Définir l'ID du workspace
-deckops config set-space "your-space-id"
-
-# Vérifier que c'est effectif
-deckops config show
-
-# Sortie JSON
-deckops --json config show
-```
-
-### `config set-api-base`
-
-Personnaliser l'URL de base de l'API (par défaut `https://app.deckflow.com/v1`).
-
-```bash
-# Pointer vers un point de terminaison API personnalisé
-deckops config set-api-base "https://staging.example.com/v1"
-
-# Restaurer la valeur par défaut (redéfinir)
-deckops config set-api-base "https://app.deckflow.com/v1"
-
-# Utiliser avec login
-deckops config set-api-base "https://app.deckflow.com/v1" && deckops login
-```
-
-### `config show`
-
-Afficher la configuration actuelle. En mode lisible, le token est partiellement masqué.
-
-```bash
-# Sortie lisible
-deckops config show
-
-# Sortie JSON (token complet)
-deckops --json config show
-
-# Vérifier si le space est manquant
-deckops config show | grep spaceId
-```
-
-## Connexion
-
-### `login`
-
-Se connecter via le flux OAuth du navigateur et écrire le token dans la configuration locale.
-
-```bash
-# Port par défaut 3737
-deckops login
-
-# Spécifier le port de rappel local
-deckops login --port 8080
-
-# Mode JSON
-deckops --json login
 ```
 
 ## Compression de fichiers
@@ -439,7 +329,6 @@ deckops repl
 Dans le REPL, vous pouvez saisir les mêmes commandes que le CLI classique, par exemple :
 
 ```
-deckflow> config show
 deckflow> convert slides.pptx --to pdf
 deckflow> task list --limit 5
 ```
@@ -463,25 +352,11 @@ Lorsque `-o` est spécifié, la tâche sera attendue même si `--wait` n'est pas
 
 ## FAQ
 
-**Q : Space ID missing ?**
-
-Exécutez d'abord `deckops login`, ou définissez manuellement via `deckops config set-space <space-id>`.
-
-**Q : Comment utiliser en CI ?**
-
-```bash
-export DECKOPS_CONFIG_DIR=/tmp/deckops-ci
-deckops config set-token "$DECKOPS_TOKEN"
-deckops config set-space "$DECKOPS_SPACE_ID"
-deckops --json convert input.pptx --to pdf -o output.pdf
-```
-
 **Q : Quand l'entrée multi-fichiers est-elle valide ?**
 
 Seules certaines tâches prennent en charge les sources multiples ordonnées : `convert` pour `html → pptx`, `join`, `create` (jusqu'à 2 fichiers de référence), et `run` pour `pptx.join` / `convertor.html2pptx`, etc.
 
 ## Liens connexes
 
-- Racine du monorepo : [README.md](../../README.fr.md)
-- Documentation SDK : [@deckops/sdk](../../sdks/nodejs/README.fr.md)
+- [Deckflow](https://app.deckflow.com)
 - Signaler un problème : [GitHub Issues](https://github.com/deckflow/deckops/issues)

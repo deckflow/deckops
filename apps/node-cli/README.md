@@ -2,7 +2,7 @@
 
 # deckops CLI
 
-Deckops is the command-line tool for [Deckflow](https://app.deckflow.com). Use it to upload files, create async tasks, and manage configuration and task status. It calls the Deckflow API via `@deckops/sdk` under the hood.
+Deckops is the command-line tool for [Deckflow](https://app.deckflow.com). Use it to upload files, create async tasks, and check task status.
 
 ## Requirements
 
@@ -11,36 +11,12 @@ Deckops is the command-line tool for [Deckflow](https://app.deckflow.com). Use i
 
 ## Installation
 
-### Use within the monorepo
-
-```bash
-pnpm install
-pnpm --filter deckops build
-node apps/node-cli/dist/cli.js --help
-```
-
-### Global install (after publish)
-
 ```bash
 npm install -g deckops
 deckops --help
 ```
 
 ## Quick start
-
-1. Log in and save your token:
-
-```bash
-deckops login
-```
-
-2. View current configuration:
-
-```bash
-deckops config show
-```
-
-3. Run a file conversion:
 
 ```bash
 deckops convert slides.pptx --to pdf
@@ -57,100 +33,14 @@ deckops convert slides.pptx --to pdf
 Examples:
 
 ```bash
-# View config in JSON mode
-deckops --json config show
+# List tasks in JSON mode
+deckops --json task list --limit 5
 
 # View version
 deckops --version
 
 # View help for a subcommand
 deckops convert --help
-```
-
-## Configuration
-
-The config file is saved by default at `~/.deckops/config.json`. For testing or isolated environments, set the directory via an environment variable:
-
-```bash
-export DECKOPS_CONFIG_DIR=/tmp/my-deckops-config
-deckops config show
-```
-
-### `config set-token`
-
-Manually set the auth token (usually done automatically via `login`).
-
-```bash
-# Set token directly
-deckops config set-token "your-auth-token"
-
-# JSON mode
-deckops --json config set-token "your-auth-token"
-
-# Use with environment variables in CI
-deckops config set-token "$DECKOPS_TOKEN"
-```
-
-### `config set-space`
-
-Set the workspace / space ID. Some commands require a space to create tasks.
-
-```bash
-# Set workspace ID
-deckops config set-space "your-space-id"
-
-# Verify it took effect
-deckops config show
-
-# JSON output
-deckops --json config show
-```
-
-### `config set-api-base`
-
-Customize the API base URL (default `https://app.deckflow.com/v1`).
-
-```bash
-# Point to a custom API endpoint
-deckops config set-api-base "https://staging.example.com/v1"
-
-# Restore default (set again)
-deckops config set-api-base "https://app.deckflow.com/v1"
-
-# Use with login
-deckops config set-api-base "https://app.deckflow.com/v1" && deckops login
-```
-
-### `config show`
-
-View current configuration. In human-readable mode, the token is partially masked.
-
-```bash
-# Human-readable output
-deckops config show
-
-# JSON output (full token)
-deckops --json config show
-
-# Check if space is missing
-deckops config show | grep spaceId
-```
-
-## Login
-
-### `login`
-
-Log in via browser OAuth flow and write the token to local config.
-
-```bash
-# Default port 3737
-deckops login
-
-# Specify local callback port
-deckops login --port 8080
-
-# JSON mode
-deckops --json login
 ```
 
 ## File compression
@@ -439,7 +329,6 @@ deckops repl
 In the REPL you can enter the same commands as the regular CLI, for example:
 
 ```
-deckflow> config show
 deckflow> convert slides.pptx --to pdf
 deckflow> task list --limit 5
 ```
@@ -463,25 +352,11 @@ When `-o` is specified, the task will be waited for even if `--wait` is not expl
 
 ## FAQ
 
-**Q: Space ID missing?**
-
-Run `deckops login` first, or set manually via `deckops config set-space <space-id>`.
-
-**Q: How to use in CI?**
-
-```bash
-export DECKOPS_CONFIG_DIR=/tmp/deckops-ci
-deckops config set-token "$DECKOPS_TOKEN"
-deckops config set-space "$DECKOPS_SPACE_ID"
-deckops --json convert input.pptx --to pdf -o output.pdf
-```
-
 **Q: When is multi-file input valid?**
 
 Only some tasks support ordered multi-source: `convert` for `html → pptx`, `join`, `create` (up to 2 reference files), and `run` for `pptx.join` / `convertor.html2pptx`, etc.
 
 ## Related links
 
-- Monorepo root: [README.md](../../README.md)
-- SDK docs: [@deckops/sdk](../../sdks/nodejs/README.md)
+- [Deckflow](https://app.deckflow.com)
 - Issue tracker: [GitHub Issues](https://github.com/deckflow/deckops/issues)
