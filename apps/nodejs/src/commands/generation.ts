@@ -147,17 +147,15 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
             }
           }
 
-          let outputResult: unknown;
           if (options.out) {
-            if (task.status !== 'completed') {
-              ctx.error('Cannot write --out because the task did not complete.', 'TASK_NOT_COMPLETED');
+            const outputResult = await ctx.tryWriteTaskOutput(task, options.out);
+            if (outputResult) {
+              ctx.outputTaskSaved(outputResult);
+              return;
             }
-            spinner = ctx.createSpinner('Downloading result...');
-            outputResult = await ctx.writeTaskOutput(task, options.out);
-            ctx.succeedSpinner(spinner, 'Result saved');
           }
 
-          ctx.output(outputResult ? { ...task, output: outputResult } : task, (t) => {
+          ctx.output(task, (t) => {
             const lines = [
               `${chalk.bold('Generation Task:')}`,
               `  Task ID: ${chalk.cyan(t.id)}`,

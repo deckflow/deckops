@@ -6,7 +6,11 @@ import { Config } from './core/config.js';
 import { createDeck, APIError, type DeckClient, type DeckTask, type TaskListResponse } from '@deckops/sdk';
 import { runCheckoutFlow, runLoginFlow } from './core/auth.js';
 import { formatResponseBody, outputError, ExitCode } from './utils/errors.js';
-import { writeTaskOutput, type TaskOutputWriteResult } from './utils/output.js';
+import {
+  formatTaskOutputWriteResult,
+  writeTaskOutput,
+  type TaskOutputWriteResult,
+} from './utils/output.js';
 import ora from 'ora';
 
 type SpinnerLike = {
@@ -174,6 +178,29 @@ export class Context {
     const client = await this.getClient();
     const downloadResult = await client.downTask(task.id);
     return await writeTaskOutput(task, outPath, downloadResult);
+  }
+
+  async tryWriteTaskOutput(task: DeckTask, outPath: string): Promise<TaskOutputWriteResult | undefined> {
+    if (task.status !== 'completed') {
+      return undefined;
+    }
+
+    const spinner = this.createSpinner('Downloading result...');
+    try {
+      const result = await this.writeTaskOutput(task, outPath);
+      this.succeedSpinner(spinner, 'Result saved');
+      return result;
+    } catch {
+      this.stopSpinner(spinner);
+      return undefined;
+    }
+  }
+
+  outputTaskSaved(result: TaskOutputWriteResult): void {
+    this.output(
+      { output: result.path },
+      () => formatTaskOutputWriteResult(result)
+    );
   }
 
   /**

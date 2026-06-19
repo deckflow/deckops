@@ -73,17 +73,15 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
         const client = await ctx.getClient();
         const taskData = await client.getTask(taskId);
 
-        let outputResult: unknown;
         if (options.out) {
-          if (taskData.status !== 'completed') {
-            ctx.error('Cannot write --out because the task did not complete.', 'TASK_NOT_COMPLETED');
+          const outputResult = await ctx.tryWriteTaskOutput(taskData, options.out);
+          if (outputResult) {
+            ctx.outputTaskSaved(outputResult);
+            return;
           }
-          const spinner = ctx.createSpinner('Downloading result...');
-          outputResult = await ctx.writeTaskOutput(taskData, options.out);
-          ctx.succeedSpinner(spinner, 'Result saved');
         }
 
-        ctx.output(outputResult ? { ...taskData, output: outputResult } : taskData, (task) => {
+        ctx.output(taskData, (task) => {
           const statusColor =
             task.status === 'completed'
               ? chalk.green

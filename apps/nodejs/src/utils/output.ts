@@ -28,7 +28,7 @@ export async function writeTaskOutput(
     const target = await resolveSingleOutputPath(outPath, task.id, '.json');
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, `${JSON.stringify(downloadResult ?? task.result ?? task, null, 2)}\n`);
-    return { kind: 'json', path: target };
+    return { kind: 'json', path: path.resolve(target) };
   }
 
   if (files.length === 1) {
@@ -37,7 +37,7 @@ export async function writeTaskOutput(
     const bytes = await downloadFile(file.url);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, bytes);
-    return { kind: 'file', path: target };
+    return { kind: 'file', path: path.resolve(target) };
   }
 
   const outExt = path.extname(outPath).toLowerCase();
@@ -60,7 +60,7 @@ export async function writeTaskOutput(
         }))
       )
     );
-    return { kind: 'zip', path: outPath };
+    return { kind: 'zip', path: path.resolve(outPath) };
   }
 
   await fs.mkdir(outPath, { recursive: true });
@@ -70,19 +70,16 @@ export async function writeTaskOutput(
     if (!item) continue;
     const target = path.join(outPath, orderedFileName(i, files.length, item.file.ext));
     await fs.writeFile(target, item.bytes);
-    written.push(target);
+    written.push(path.resolve(target));
   }
-  return { kind: 'directory', path: outPath, files: written };
+  return { kind: 'directory', path: path.resolve(outPath), files: written };
 }
 
 export function formatTaskOutputWriteResult(result: TaskOutputWriteResult): string {
   if (result.kind === 'directory') {
-    return `Saved ${result.files.length} file(s) to ${result.path}`;
+    return `Result saved to ${result.path}`;
   }
-  if (result.kind === 'json') {
-    return `Saved JSON to ${result.path}`;
-  }
-  return `Saved result to ${result.path}`;
+  return `Result saved to ${result.path}`;
 }
 
 function collectOutputFiles(value: unknown): OutputFile[] {
