@@ -12,7 +12,11 @@
     "typecheck": "pnpm -r --sort typecheck",
     "lint": "pnpm -r --sort lint",
     "format": "prettier --write 'apps/**/*.ts' 'sdks/**/*.ts'",
-    "install:global": "pnpm --filter deckops... build && npm install -g ./apps/node-cli"
+    "install:global": "pnpm --filter deckops... build && npm install -g ./apps/node-cli",
+    "release:check": "pnpm typecheck && pnpm test && pnpm build",
+    "release:sdk": "pnpm --filter @deckops/sdk publish --access public",
+    "release:cli": "pnpm --filter deckops publish --access public",
+    "release": "pnpm release:check && pnpm release:sdk && pnpm release:cli"
   },
   "devDependencies": {
     "@types/inquirer": "^9.0.0",
