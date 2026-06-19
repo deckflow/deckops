@@ -207,6 +207,16 @@ describe('CLI E2E Tests', () => {
       const result = await runCLI(['convert', '--help']);
 
       expect(result.stdout).toContain('--to');
+      expect(result.stdout).toContain('page1.html page2.html --to pptx');
+      expect(result.stdout).toContain('Multiple input files create one ordered conversion task');
+    });
+
+    it('should describe multi-source explicit run tasks', async () => {
+      const result = await runCLI(['run', '--help']);
+
+      expect(result.stdout).toContain('pptx.join part1.pptx part2.pptx');
+      expect(result.stdout).toContain('convertor.html2pptx page1.html page2.html');
+      expect(result.stdout).toContain('Multiple input files are passed as one ordered source set');
     });
 
     it('should accept create options', async () => {

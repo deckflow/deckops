@@ -11,7 +11,8 @@
     "test:e2e": "pnpm --filter deckops test:e2e",
     "typecheck": "pnpm -r --sort typecheck",
     "lint": "pnpm -r --sort lint",
-    "format": "prettier --write 'apps/**/*.ts' 'sdks/**/*.ts'"
+    "format": "prettier --write 'apps/**/*.ts' 'sdks/**/*.ts'",
+    "install:global": "pnpm --filter deckops... build && npm install -g ./apps/nodejs"
   },
   "devDependencies": {
     "@types/inquirer": "^9.0.0",

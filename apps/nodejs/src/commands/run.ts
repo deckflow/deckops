@@ -6,7 +6,11 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
-import { DEFAULT_TIMEOUT } from '../utils/constants.js';
+import {
+  DEFAULT_TIMEOUT,
+  MULTI_SOURCE_TASK_TYPES,
+  supportsMultipleSourceFiles,
+} from '../utils/constants.js';
 
 /**
  * Collect multiple values
@@ -25,6 +29,16 @@ export function registerRunCommand(program: Command, ctx: Context): void {
     .option('--param <key=value>', 'Task parameters (can be used multiple times)', collect, [])
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
+    .addHelpText(
+      'after',
+      `
+Examples:
+  $ deckops run convertor.ppt2pdf demo.ppt
+  $ deckops run pptx.join part1.pptx part2.pptx
+  $ deckops run convertor.html2pptx page1.html page2.html
+
+Multiple input files are passed as one ordered source set only for: ${MULTI_SOURCE_TASK_TYPES.join(', ')}.`
+    )
     .action(
       async (
         taskType: string,
@@ -33,6 +47,13 @@ export function registerRunCommand(program: Command, ctx: Context): void {
       ) => {
         const wait = options.wait !== false;
         try {
+          if (inputFiles.length > 1 && !supportsMultipleSourceFiles(taskType)) {
+            ctx.error(
+              `Task ${taskType} does not support multiple source files. Supported multi-source task types: ${MULTI_SOURCE_TASK_TYPES.join(', ')}`,
+              'MULTI_INPUT_NOT_SUPPORTED'
+            );
+          }
+
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
           const spaceId = ctx.config.spaceId;

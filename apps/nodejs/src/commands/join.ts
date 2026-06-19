@@ -21,6 +21,14 @@ export function registerJoinCommand(program: Command, ctx: Context): void {
     .option('--name <name>', 'Output task name (defaults to first input file name)')
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
+    .addHelpText(
+      'after',
+      `
+Example:
+  $ deckops join intro.pptx body.pptx appendix.pptx
+
+Files are merged into one task in the order provided.`
+    )
     .action(
       async (
         inputFiles: string[],

@@ -68,6 +68,35 @@ export const RENDER_FORMATS: Record<string, Record<string, string>> = {
 };
 
 /**
+ * Task types that intentionally consume multiple input files as one ordered source set.
+ *
+ * Most backend tasks accept an array at the transport layer but only read the first file
+ * into `key`/`file`. These tasks map the whole ordered array into business parameters.
+ */
+export const MULTI_SOURCE_TASK_TYPES = [
+  'pptx.join',
+  'convertor.html2pptx',
+  'html.buildPlayer',
+  'generation',
+] as const;
+
+export type MultiSourceTaskType = (typeof MULTI_SOURCE_TASK_TYPES)[number];
+
+export function supportsMultipleSourceFiles(taskType: string): taskType is MultiSourceTaskType {
+  return MULTI_SOURCE_TASK_TYPES.includes(taskType as MultiSourceTaskType);
+}
+
+export const MULTI_SOURCE_CONVERT_TASK_TYPES = ['convertor.html2pptx'] as const;
+
+export type MultiSourceConvertTaskType = (typeof MULTI_SOURCE_CONVERT_TASK_TYPES)[number];
+
+export function supportsMultipleConvertSourceFiles(
+  taskType: string
+): taskType is MultiSourceConvertTaskType {
+  return MULTI_SOURCE_CONVERT_TASK_TYPES.includes(taskType as MultiSourceConvertTaskType);
+}
+
+/**
  * Supported OCR languages
  */
 export const OCR_LANGUAGES = [

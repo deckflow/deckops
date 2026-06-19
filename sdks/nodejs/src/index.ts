@@ -22,6 +22,7 @@ import type {
 
 export * from './errors.js';
 export * from './types.js';
+export { generateAuthUuid, isValidAuthUuid, resolveAuthUuid } from './auth-uuid.js';
 
 export interface TasksClient {
   create<T extends DeckTaskType>(params: CreateTaskParams<T>): Promise<DeckTask<T>>;
@@ -62,6 +63,8 @@ export interface DeckClient {
   setApiKey(apiKey: string | undefined): void;
   /** Update default space id for future requests. */
   setSpaceId(spaceId: string | undefined): void;
+  /** Returns the client UUID sent as X-Auth-UUID on each request. */
+  getAuthUuid(): Promise<string>;
   fileCompress(params: TaskShortcutParams<'file.compress'>): Promise<DeckTask<'file.compress'>>;
   imageOcr(params: TaskShortcutParams<'image.ocr'>): Promise<DeckTask<'image.ocr'>>;
   imageConvertWebp(params: TaskShortcutParams<'image.convertWebp'>): Promise<DeckTask<'image.convertWebp'>>;
@@ -98,7 +101,7 @@ export interface DeckClient {
 }
 
 export function createDeck(options: CreateDeckOptions = {}): DeckClient {
-  const http = new HttpClient(options);
+  const http: HttpClient = new HttpClient(options);
   const files = new FilesApi(http);
   const tasks = new TasksApi(http, files);
 
@@ -119,6 +122,7 @@ export function createDeck(options: CreateDeckOptions = {}): DeckClient {
     setToken: (token) => http.setToken(token),
     setApiKey: (apiKey) => http.setApiKey(apiKey),
     setSpaceId: (spaceId) => http.setSpaceId(spaceId),
+    getAuthUuid: (): Promise<string> => http.getAuthUuid(),
     fileCompress: shortcut('file.compress'),
     imageOcr: shortcut('image.ocr'),
     imageConvertWebp: shortcut('image.convertWebp'),

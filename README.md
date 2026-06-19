@@ -33,12 +33,18 @@ deckops config show
 deckops compress presentation.pptx
 deckops ocr image.jpg --language en
 deckops convert slides.pptx --to pdf
+deckops convert page1.html page2.html --to pptx
 deckops create --input-text "请写一份产品发布会方案"
 deckops translate handbook.docx --from zh --to en --model Standard
 deckops join part1.pptx part2.pptx
 deckops task list --limit 10
 deckops run convertor.ppt2pdf demo.ppt
+deckops run pptx.join part1.pptx part2.pptx
 ```
+
+Multiple input files are treated as one ordered source set only for task types that
+consume ordered sources, such as `convertor.html2pptx`, `pptx.join`,
+`html.buildPlayer`, and `generation`. Other task types use a single source file.
 
 The CLI config file still defaults to `~/.deckops/config.json`. For tests or isolated runs, set `DECKOPS_CONFIG_DIR`.
 

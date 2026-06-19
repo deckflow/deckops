@@ -14,6 +14,10 @@ export {
   TRANSLATION_FILE_EXTENSIONS,
   TRANSLATE_MODELS,
   PDF_TRANSLATE_MODELS,
+  MULTI_SOURCE_TASK_TYPES,
+  supportsMultipleSourceFiles,
+  MULTI_SOURCE_CONVERT_TASK_TYPES,
+  supportsMultipleConvertSourceFiles,
 } from '../types/tasks.js';
 
 /**

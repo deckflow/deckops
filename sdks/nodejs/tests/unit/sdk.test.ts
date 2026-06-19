@@ -1,13 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
-import { createDeck, DEFAULT_ROOT } from '../../src/index.js';
+import { resetAuthUuidCacheForTests } from '../../src/auth-uuid.js';
+import { createDeck, DEFAULT_ROOT, isValidAuthUuid } from '../../src/index.js';
+
+const TEST_AUTH_UUID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 describe('@deckops/sdk', () => {
   let mock: MockAdapter;
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
+    resetAuthUuidCacheForTests();
   });
 
   afterEach(() => {
@@ -206,12 +211,14 @@ describe('@deckops/sdk', () => {
       root: 'http://localhost:3000/api',
       token: 'old-token',
       spaceId: 'space-old',
+      authUuid: TEST_AUTH_UUID,
       onUnauthorized: async () => ({ token: 'new-token', spaceId: 'space-new' }),
     });
 
     mock.onGet('http://localhost:3000/api/tools/tasks/task-1').replyOnce(401, { message: 'expired' });
     mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply((config) => {
       expect(config.headers?.['X-Auth-Token']).toBe('new-token');
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
       expect(config.params).toEqual({ spaceId: 'space-new' });
       return [
         200,
@@ -222,5 +229,99 @@ describe('@deckops/sdk', () => {
 
     const task = await deck.tasks.get('task-1');
     expect(task.spaceId).toBe('space-new');
+  });
+
+  it('sends explicit authUuid as X-Auth-UUID header', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
+      return [
+        200,
+        {
+          id: 'task-1',
+          spaceId: 'space-1',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+        },
+      ];
+    });
+
+    await deck.convertPptToPdf({ fileIds: ['file-1'] });
+    await expect(deck.getAuthUuid()).resolves.toBe(TEST_AUTH_UUID);
+  });
+
+  it('reads authUuid from custom storage and persists newly generated values', async () => {
+    let stored: string | undefined;
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuidStorage: {
+        get: () => stored,
+        set: (value) => {
+          stored = value;
+        },
+      },
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(config.headers?.['X-Auth-UUID']).toMatch(UUID_V4_RE);
+      return [
+        200,
+        {
+          id: 'task-1',
+          spaceId: 'space-1',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+        },
+      ];
+    });
+
+    await deck.convertPptToPdf({ fileIds: ['file-1'] });
+    expect(stored).toMatch(UUID_V4_RE);
+    expect(isValidAuthUuid(stored)).toBe(true);
+
+    const deckAgain = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuidStorage: {
+        get: () => stored,
+        set: (value) => {
+          stored = value;
+        },
+      },
+    });
+    await expect(deckAgain.getAuthUuid()).resolves.toBe(stored);
+  });
+
+  it('reuses authUuid from custom storage when already persisted', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuidStorage: {
+        get: () => TEST_AUTH_UUID,
+        set: () => {},
+      },
+    });
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply((config) => {
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
+      return [
+        200,
+        { id: 'task-1', spaceId: 'space-1', type: 'image.ocr', status: 'pending' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    await deck.tasks.get('task-1');
+    await expect(deck.getAuthUuid()).resolves.toBe(TEST_AUTH_UUID);
   });
 });

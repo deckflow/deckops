@@ -33,8 +33,21 @@ Options:
 - `token?: string` - sent as `X-Auth-Token`.
 - `apiKey?: string` - sent as `Authorization: Bearer {apiKey}`.
 - `spaceId?: string` - default space id for task and file calls.
+- `authUuid?: string` - explicit client UUID (UUID v4) sent as `X-Auth-UUID`. Skips automatic persistence.
+- `authUuidStorage?: { get(), set(value) }` - custom storage for client UUID (SSR, tests, embedded apps).
 - `onUnauthorized?: () => Promise<{ token: string; spaceId?: string } | string>` - called once after a 401, then the request is retried.
 - `onPaymentRequired?: () => Promise<void>` - called once after a 402, then the request is retried.
+
+Every Deckops API request automatically includes `X-Auth-UUID`, a stable UUID v4 used to track the client across sessions.
+
+- **Browser**: persisted in `localStorage` under `df_uuid`.
+- **Node.js**: persisted in `~/.deckops/auth-uuid` (override the directory with `DECKOPS_CONFIG_DIR`).
+- **Explicit override**: pass `authUuid` or set `DECKOPS_AUTH_UUID` (Node only) for fixed IDs in CI, containers, or multi-tenant servers.
+
+```ts
+const uuid = await deck.getAuthUuid();
+console.log('Client UUID:', uuid);
+```
 
 ## Create Tasks With Files
 
@@ -192,7 +205,16 @@ await deck.convertHtmlToPptx({
   files: [{ input: htmlBytes, name: 'deck.html' }],
   params: { width: 1280, height: 720, needEmbedFonts: false },
 });
+await deck.convertHtmlToPptx({
+  files: ['./page1.html', './page2.html'],
+  params: { width: 1280, height: 720 },
+});
 ```
+
+Ordered multi-source files are meaningful for task types that map the whole file
+array into backend parameters, including `pptx.join`, `convertor.html2pptx`,
+`html.buildPlayer`, and `generation`. Most other task types read one source file;
+pass one file per task for those.
 
 ### HTML Player, Generation, Translation, Revamp
 

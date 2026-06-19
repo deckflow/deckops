@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
+import { resolveAuthUuid } from './auth-uuid.js';
 import { APIError } from './errors.js';
 import { DEFAULT_ROOT, type CreateDeckOptions } from './types.js';
 
@@ -14,6 +15,7 @@ type RetriableConfig = Record<string, unknown> & {
 
 export class HttpClient {
   private client: AxiosInstance;
+  private readonly authUuidPromise: Promise<string>;
   public readonly root: string;
   public token?: string;
   public apiKey?: string;
@@ -24,11 +26,18 @@ export class HttpClient {
     this.token = options.token;
     this.apiKey = options.apiKey;
     this.spaceId = options.spaceId;
+    this.authUuidPromise = resolveAuthUuid(options);
 
     this.client = axios.create({
       baseURL: this.root,
       headers: this.buildAuthHeaders(),
       timeout: 30000,
+    });
+
+    this.client.interceptors.request.use(async (config) => {
+      config.headers = config.headers ?? {};
+      config.headers['X-Auth-UUID'] = await this.authUuidPromise;
+      return config;
     });
 
     this.client.interceptors.response.use(
@@ -89,6 +98,10 @@ export class HttpClient {
 
   setSpaceId(spaceId: string | undefined): void {
     this.spaceId = spaceId;
+  }
+
+  getAuthUuid(): Promise<string> {
+    return this.authUuidPromise;
   }
 
   url(path: string): string {

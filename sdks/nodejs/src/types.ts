@@ -104,6 +104,11 @@ export interface TaskListResponse<T extends DeckTaskType = DeckTaskType> {
   total?: number;
 }
 
+export interface AuthUuidStorage {
+  get(): string | null | undefined | Promise<string | null | undefined>;
+  set(value: string): void | Promise<void>;
+}
+
 export interface CreateDeckOptions {
   /** API root address. Defaults to https://app.deckflow.com/v1. */
   root?: string;
@@ -113,6 +118,10 @@ export interface CreateDeckOptions {
   apiKey?: string;
   /** Default space id used by task and upload calls. */
   spaceId?: string;
+  /** Explicit client UUID (UUID v4) sent as X-Auth-UUID. Skips automatic persistence. */
+  authUuid?: string;
+  /** Custom UUID storage for SSR, tests, or embedded integrations. */
+  authUuidStorage?: AuthUuidStorage;
   /** Called once after a 401 response; returned token is saved and request is retried. */
   onUnauthorized?: () => Promise<{ token: string; spaceId?: string } | string>;
   /** Called once after a 402 response; request is retried after this resolves. */

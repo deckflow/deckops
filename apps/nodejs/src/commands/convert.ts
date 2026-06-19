@@ -6,7 +6,12 @@ import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
-import { RENDER_FORMATS, DEFAULT_TIMEOUT } from '../utils/constants.js';
+import {
+  RENDER_FORMATS,
+  DEFAULT_TIMEOUT,
+  MULTI_SOURCE_CONVERT_TASK_TYPES,
+  supportsMultipleConvertSourceFiles,
+} from '../utils/constants.js';
 
 function parseBooleanOption(value: string | boolean | undefined): boolean {
   if (value === undefined || value === true) {
@@ -33,7 +38,7 @@ function parseBooleanOption(value: string | boolean | undefined): boolean {
 export function registerConvertCommand(program: Command, ctx: Context): void {
   program
     .command('convert <input-files...>')
-    .description('Convert file(s) to different format')
+    .description('Convert file(s) to a different format')
     .addOption(
       new Option('--to <format>', 'Output format: image, pdf, video, html, png, pptx, webp')
         .choices(Object.keys(RENDER_FORMATS))
@@ -55,6 +60,15 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
     )
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
+    .addHelpText(
+      'after',
+      `
+Examples:
+  $ deckops convert slides.pptx --to pdf
+  $ deckops convert page1.html page2.html --to pptx
+
+Multiple input files create one ordered conversion task only for html -> pptx.`
+    )
     .action(
       async (
         inputFiles: string[],
@@ -112,9 +126,9 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
             ctx.error('Failed to determine conversion task type.', 'UNKNOWN_TASK_TYPE');
           }
 
-          if (taskType !== 'convertor.html2pptx' && inputFiles.length > 1) {
+          if (inputFiles.length > 1 && !supportsMultipleConvertSourceFiles(taskType)) {
             ctx.error(
-              'Multiple input files are currently only supported for html -> pptx conversion.',
+              `Multiple input files for one conversion task are only supported by: ${MULTI_SOURCE_CONVERT_TASK_TYPES.join(', ')}`,
               'MULTI_INPUT_NOT_SUPPORTED'
             );
           }
