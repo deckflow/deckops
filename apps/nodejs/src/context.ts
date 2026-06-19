@@ -6,6 +6,7 @@ import { Config } from './core/config.js';
 import { createDeck, APIError, type DeckClient, type DeckTask, type TaskListResponse } from '@deckops/sdk';
 import { runCheckoutFlow, runLoginFlow } from './core/auth.js';
 import { formatResponseBody, outputError, ExitCode } from './utils/errors.js';
+import { writeTaskOutput, type TaskOutputWriteResult } from './utils/output.js';
 import ora from 'ora';
 
 type SpinnerLike = {
@@ -33,6 +34,7 @@ type LegacyClient = {
   ) => Promise<TaskListResponse>;
   getTask: (taskId: string, useEventStream?: boolean) => Promise<DeckTask>;
   deleteTask: (taskId: string) => Promise<void>;
+  downTask: (taskId: string) => Promise<unknown>;
   waitForTask: (
     taskId: string,
     timeout?: number,
@@ -156,6 +158,7 @@ export class Context {
           useEventStream,
         }),
       deleteTask: async (taskId) => deck.tasks.delete(taskId),
+      downTask: async (taskId) => deck.tasks.down(taskId),
       waitForTask: async (taskId, timeout = 300, useEventStream = true, progressCallback) =>
         deck.tasks.wait(taskId, {
           timeout,
@@ -165,6 +168,12 @@ export class Context {
       setToken: (token) => deck.setToken(token),
       setSpaceId: (spaceId) => deck.setSpaceId(spaceId),
     };
+  }
+
+  async writeTaskOutput(task: DeckTask, outPath: string): Promise<TaskOutputWriteResult> {
+    const client = await this.getClient();
+    const downloadResult = await client.downTask(task.id);
+    return await writeTaskOutput(task, outPath, downloadResult);
   }
 
   /**

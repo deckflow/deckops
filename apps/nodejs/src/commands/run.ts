@@ -27,6 +27,7 @@ export function registerRunCommand(program: Command, ctx: Context): void {
     .command('run <task-type> <input-files...>')
     .description('Run a task with explicit type')
     .option('--param <key=value>', 'Task parameters (can be used multiple times)', collect, [])
+    .option('-o, --out <path>', 'Write completed task output to a file or directory')
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
     .addHelpText(
@@ -43,9 +44,9 @@ Multiple input files are passed as one ordered source set only for: ${MULTI_SOUR
       async (
         taskType: string,
         inputFiles: string[],
-        options: { param?: string[]; wait?: boolean; timeout: string }
+        options: { param?: string[]; out?: string; wait?: boolean; timeout: string }
       ) => {
-        const wait = options.wait !== false;
+        const wait = options.wait !== false || Boolean(options.out);
         try {
           if (inputFiles.length > 1 && !supportsMultipleSourceFiles(taskType)) {
             ctx.error(
@@ -122,7 +123,17 @@ Multiple input files are passed as one ordered source set only for: ${MULTI_SOUR
             }
           }
 
-          ctx.output(task, (t) => {
+          let outputResult: unknown;
+          if (options.out) {
+            if (task.status !== 'completed') {
+              ctx.error('Cannot write --out because the task did not complete.', 'TASK_NOT_COMPLETED');
+            }
+            spinner = ctx.createSpinner('Downloading result...');
+            outputResult = await ctx.writeTaskOutput(task, options.out);
+            ctx.succeedSpinner(spinner, 'Result saved');
+          }
+
+          ctx.output(outputResult ? { ...task, output: outputResult } : task, (t) => {
             const lines = [
               `${chalk.bold('Task:')}`,
               `  Task ID: ${chalk.cyan(t.id)}`,

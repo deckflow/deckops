@@ -16,14 +16,15 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
     .command('ocr <input-file>')
     .description('Extract text from images using OCR')
     .option('--language <lang>', `OCR language (${OCR_LANGUAGES.join(', ')})`, DEFAULT_OCR_LANGUAGE)
+    .option('-o, --out <path>', 'Write completed task output to a file or directory')
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
     .action(
       async (
         inputFile: string,
-        options: { language: string; wait?: boolean; timeout: string }
+        options: { language: string; out?: string; wait?: boolean; timeout: string }
       ) => {
-        const wait = options.wait !== false;
+        const wait = options.wait !== false || Boolean(options.out);
         try {
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
@@ -86,7 +87,17 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
             }
           }
 
-          ctx.output(task, (t) => {
+          let outputResult: unknown;
+          if (options.out) {
+            if (task.status !== 'completed') {
+              ctx.error('Cannot write --out because the task did not complete.', 'TASK_NOT_COMPLETED');
+            }
+            spinner = ctx.createSpinner('Downloading result...');
+            outputResult = await ctx.writeTaskOutput(task, options.out);
+            ctx.succeedSpinner(spinner, 'Result saved');
+          }
+
+          ctx.output(outputResult ? { ...task, output: outputResult } : task, (t) => {
             const lines = [
               `${chalk.bold('OCR Task:')}`,
               `  Task ID: ${chalk.cyan(t.id)}`,

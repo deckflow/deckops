@@ -16,14 +16,15 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
     .command('extract <input-file>')
     .description('Extract information from a file (fonts, text-shapes)')
     .option('--type <type>', 'Extract type: fonts, text-shapes')
+    .option('-o, --out <path>', 'Write completed task output to a file or directory')
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
     .action(
       async (
         inputFile: string,
-        options: { type?: string; wait?: boolean; timeout: string }
+        options: { type?: string; out?: string; wait?: boolean; timeout: string }
       ) => {
-        const wait = options.wait !== false;
+        const wait = options.wait !== false || Boolean(options.out);
         try {
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
@@ -90,7 +91,17 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
             }
           }
 
-          ctx.output(task, (t) => {
+          let outputResult: unknown;
+          if (options.out) {
+            if (task.status !== 'completed') {
+              ctx.error('Cannot write --out because the task did not complete.', 'TASK_NOT_COMPLETED');
+            }
+            spinner = ctx.createSpinner('Downloading result...');
+            outputResult = await ctx.writeTaskOutput(task, options.out);
+            ctx.succeedSpinner(spinner, 'Result saved');
+          }
+
+          ctx.output(outputResult ? { ...task, output: outputResult } : task, (t) => {
             const lines = [
               `${chalk.bold('Extraction Task:')}`,
               `  Task ID: ${chalk.cyan(t.id)}`,

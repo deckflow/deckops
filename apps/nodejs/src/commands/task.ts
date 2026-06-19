@@ -67,12 +67,23 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
   task
     .command('get <task-id>')
     .description('Get task details')
-    .action(async (taskId: string) => {
+    .option('-o, --out <path>', 'Write completed task output to a file or directory')
+    .action(async (taskId: string, options: { out?: string }) => {
       try {
         const client = await ctx.getClient();
         const taskData = await client.getTask(taskId);
 
-        ctx.output(taskData, (task) => {
+        let outputResult: unknown;
+        if (options.out) {
+          if (taskData.status !== 'completed') {
+            ctx.error('Cannot write --out because the task did not complete.', 'TASK_NOT_COMPLETED');
+          }
+          const spinner = ctx.createSpinner('Downloading result...');
+          outputResult = await ctx.writeTaskOutput(taskData, options.out);
+          ctx.succeedSpinner(spinner, 'Result saved');
+        }
+
+        ctx.output(outputResult ? { ...taskData, output: outputResult } : taskData, (task) => {
           const statusColor =
             task.status === 'completed'
               ? chalk.green

@@ -58,6 +58,7 @@ export function registerConvertCommand(program: Command, ctx: Context): void {
       parseBooleanOption,
       false
     )
+    .option('-o, --out <path>', 'Write completed task output to a file or directory')
     .option('--no-wait', 'Do not wait for task completion')
     .option('--timeout <seconds>', 'Timeout in seconds', String(DEFAULT_TIMEOUT))
     .addHelpText(
@@ -79,9 +80,10 @@ Multiple input files create one ordered conversion task only for html -> pptx.`
           width?: string;
           height?: string;
           needEmbedFonts: boolean;
+          out?: string;
         }
       ) => {
-        const wait = options.wait !== false;
+        const wait = options.wait !== false || Boolean(options.out);
         try {
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
@@ -205,7 +207,17 @@ Multiple input files create one ordered conversion task only for html -> pptx.`
             }
           }
 
-          ctx.output(task, (t) => {
+          let outputResult: unknown;
+          if (options.out) {
+            if (task.status !== 'completed') {
+              ctx.error('Cannot write --out because the task did not complete.', 'TASK_NOT_COMPLETED');
+            }
+            spinner = ctx.createSpinner('Downloading result...');
+            outputResult = await ctx.writeTaskOutput(task, options.out);
+            ctx.succeedSpinner(spinner, 'Result saved');
+          }
+
+          ctx.output(outputResult ? { ...task, output: outputResult } : task, (t) => {
             const lines = [
               `${chalk.bold('Conversion Task:')}`,
               `  Task ID: ${chalk.cyan(t.id)}`,

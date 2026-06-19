@@ -5,6 +5,11 @@ export const AUTH_UUID_FILENAME = 'auth-uuid';
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+type BrowserStorage = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+};
+
 export function isValidAuthUuid(value: string | null | undefined): value is string {
   return typeof value === 'string' && UUID_V4_RE.test(value);
 }
@@ -19,10 +24,14 @@ function isNode(): boolean {
 
 function isBrowserWithLocalStorage(): boolean {
   try {
-    return typeof localStorage !== 'undefined';
+    return getBrowserStorage() !== undefined;
   } catch {
     return false;
   }
+}
+
+function getBrowserStorage(): BrowserStorage | undefined {
+  return (globalThis as typeof globalThis & { localStorage?: BrowserStorage }).localStorage;
 }
 
 let memoryFallback: string | undefined;
@@ -33,7 +42,7 @@ function readBrowserStorage(): string | null {
     return null;
   }
   try {
-    const value = localStorage.getItem(AUTH_UUID_STORAGE_KEY);
+    const value = getBrowserStorage()?.getItem(AUTH_UUID_STORAGE_KEY) ?? null;
     return isValidAuthUuid(value) ? value : null;
   } catch {
     return null;
@@ -45,7 +54,7 @@ function writeBrowserStorage(value: string): void {
     return;
   }
   try {
-    localStorage.setItem(AUTH_UUID_STORAGE_KEY, value);
+    getBrowserStorage()?.setItem(AUTH_UUID_STORAGE_KEY, value);
   } catch {
     // Storage may be unavailable in private browsing mode.
   }
