@@ -1,6 +1,6 @@
 {
   "name": "@deckops/sdk",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Deckops Node.js and browser SDK",
   "type": "module",
   "main": "./dist/index.js",
@@ -44,5 +44,14 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/deckflow/deckops.git",
+    "directory": "sdks/nodejs"
+  },
+  "homepage": "https://github.com/deckflow/deckops/tree/master/sdks/nodejs#readme",
+  "bugs": {
+    "url": "https://github.com/deckflow/deckops/issues"
   }
 }

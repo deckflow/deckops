@@ -1,6 +1,6 @@
 {
   "name": "deckops",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Deck operate CLI tool - File processing and conversion tools",
   "type": "module",
   "main": "./dist/cli.js",
@@ -33,9 +33,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/deckflow/deckops.git"
+    "url": "git+ssh://git@github.com/deckflow/deckops.git",
+    "directory": "apps/node-cli"
   },
-  "homepage": "https://github.com/deckflow/deckops#readme",
+  "homepage": "https://github.com/deckflow/deckops/tree/master/apps/node-cli#readme",
   "bugs": {
     "url": "https://github.com/deckflow/deckops/issues"
   },
