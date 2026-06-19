@@ -1,3 +1,5 @@
+**Languages:** English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Français](README.fr.md) | [Español](README.es.md) | [Русский](README.ru.md) | [日本語](README.ja.md)
+
 # Deckops
 
 Deckops is a pnpm monorepo for Deckflow task automation.

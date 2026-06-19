@@ -1,15 +1,17 @@
+**Languages:** English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Français](README.fr.md) | [Español](README.es.md) | [Русский](README.ru.md) | [日本語](README.ja.md)
+
 # deckops CLI
 
-Deckops 是 [Deckflow](https://app.deckflow.com) 的命令行工具，用于上传文件、创建异步任务，以及管理配置与任务状态。底层通过 `@deckops/sdk` 调用 Deckflow API。
+Deckops is the command-line tool for [Deckflow](https://app.deckflow.com). Use it to upload files, create async tasks, and manage configuration and task status. It calls the Deckflow API via `@deckops/sdk` under the hood.
 
-## 环境要求
+## Requirements
 
 - Node.js >= 18
-- 有效的 Deckflow 账号与 workspace（space）
+- A valid Deckflow account and workspace (space)
 
-## 安装
+## Installation
 
-### 在 monorepo 内使用
+### Use within the monorepo
 
 ```bash
 pnpm install
@@ -17,57 +19,57 @@ pnpm --filter deckops build
 node apps/node-cli/dist/cli.js --help
 ```
 
-### 全局安装（发布后）
+### Global install (after publish)
 
 ```bash
 npm install -g deckops
 deckops --help
 ```
 
-## 快速开始
+## Quick start
 
-1. 登录并保存 token：
+1. Log in and save your token:
 
 ```bash
 deckops login
 ```
 
-2. 查看当前配置：
+2. View current configuration:
 
 ```bash
 deckops config show
 ```
 
-3. 执行一次文件转换：
+3. Run a file conversion:
 
 ```bash
 deckops convert slides.pptx --to pdf
 ```
 
-## 全局选项
+## Global options
 
-| 选项 | 说明 |
-|------|------|
-| `--json` | 以 JSON 格式输出结果（适合脚本集成） |
-| `--version` | 显示版本号 |
-| `--help` | 显示帮助信息 |
+| Option | Description |
+|--------|-------------|
+| `--json` | Output results as JSON (ideal for scripting) |
+| `--version` | Show version number |
+| `--help` | Show help information |
 
-示例：
+Examples:
 
 ```bash
-# JSON 模式查看配置
+# View config in JSON mode
 deckops --json config show
 
-# 查看版本
+# View version
 deckops --version
 
-# 查看某子命令帮助
+# View help for a subcommand
 deckops convert --help
 ```
 
-## 配置
+## Configuration
 
-配置文件默认保存在 `~/.deckops/config.json`。测试或隔离环境可通过环境变量指定目录：
+The config file is saved by default at `~/.deckops/config.json`. For testing or isolated environments, set the directory via an environment variable:
 
 ```bash
 export DECKOPS_CONFIG_DIR=/tmp/my-deckops-config
@@ -76,365 +78,365 @@ deckops config show
 
 ### `config set-token`
 
-手动设置认证 token（通常通过 `login` 自动完成）。
+Manually set the auth token (usually done automatically via `login`).
 
 ```bash
-# 直接设置 token
+# Set token directly
 deckops config set-token "your-auth-token"
 
-# JSON 模式
+# JSON mode
 deckops --json config set-token "your-auth-token"
 
-# CI 环境通过环境变量配合使用
+# Use with environment variables in CI
 deckops config set-token "$DECKOPS_TOKEN"
 ```
 
 ### `config set-space`
 
-设置 workspace / space ID。部分命令需要 space 才能创建任务。
+Set the workspace / space ID. Some commands require a space to create tasks.
 
 ```bash
-# 设置 workspace ID
+# Set workspace ID
 deckops config set-space "your-space-id"
 
-# 查看是否生效
+# Verify it took effect
 deckops config show
 
-# JSON 输出
+# JSON output
 deckops --json config show
 ```
 
 ### `config set-api-base`
 
-自定义 API 根地址（默认 `https://app.deckflow.com/v1`）。
+Customize the API base URL (default `https://app.deckflow.com/v1`).
 
 ```bash
-# 指向自定义 API 端点
+# Point to a custom API endpoint
 deckops config set-api-base "https://staging.example.com/v1"
 
-# 恢复默认（重新设置）
+# Restore default (set again)
 deckops config set-api-base "https://app.deckflow.com/v1"
 
-# 配合 login 使用
+# Use with login
 deckops config set-api-base "https://app.deckflow.com/v1" && deckops login
 ```
 
 ### `config show`
 
-查看当前配置。人类可读模式下 token 会部分脱敏。
+View current configuration. In human-readable mode, the token is partially masked.
 
 ```bash
-# 人类可读输出
+# Human-readable output
 deckops config show
 
-# JSON 输出（完整 token）
+# JSON output (full token)
 deckops --json config show
 
-# 检查是否缺少 space
+# Check if space is missing
 deckops config show | grep spaceId
 ```
 
-## 登录
+## Login
 
 ### `login`
 
-通过浏览器 OAuth 流程登录，并将 token 写入本地配置。
+Log in via browser OAuth flow and write the token to local config.
 
 ```bash
-# 默认端口 3737
+# Default port 3737
 deckops login
 
-# 指定本地回调端口
+# Specify local callback port
 deckops login --port 8080
 
-# JSON 模式
+# JSON mode
 deckops --json login
 ```
 
-## 文件压缩
+## File compression
 
 ### `compress <input-file>`
 
-压缩 Office 文档、视频或 zip 文件。根据扩展名自动选择任务类型。
+Compress Office documents, videos, or zip files. Task type is selected automatically based on file extension.
 
-支持格式：`.zip`、`.pptx`、`.key`、`.docx`、`.xlsx`、`.mp4`、`.avi`、`.mov`、`.mkv`
+Supported formats: `.zip`, `.pptx`, `.key`, `.docx`, `.xlsx`, `.mp4`, `.avi`, `.mov`, `.mkv`
 
-| 选项 | 说明 |
-|------|------|
-| `-o, --out <path>` | 将任务结果写入文件或目录 |
-| `--no-wait` | 创建任务后不等待完成 |
-| `--timeout <seconds>` | 等待超时（默认 300 秒） |
+| Option | Description |
+|--------|-------------|
+| `-o, --out <path>` | Write task result to a file or directory |
+| `--no-wait` | Do not wait for completion after creating the task |
+| `--timeout <seconds>` | Wait timeout (default 300 seconds) |
 
 ```bash
-# 压缩 PPT 演示文稿
+# Compress a PPT presentation
 deckops compress presentation.pptx
 
-# 压缩视频并保存结果
+# Compress video and save result
 deckops compress demo.mp4 -o ./output/compressed.mp4
 
-# 仅创建任务，不等待完成
+# Create task only, do not wait
 deckops compress large.pptx --no-wait
 ```
 
-## 信息提取
+## Information extraction
 
 ### `extract <input-file>`
 
-从文件中提取字体、文本形状等信息。
+Extract fonts, text shapes, and other information from a file.
 
-| 选项 | 说明 |
-|------|------|
-| `--type <type>` | 提取类型：`fonts`、`text-shapes` |
-| `-o, --out <path>` | 保存结果 |
-| `--no-wait` | 不等待完成 |
-| `--timeout <seconds>` | 超时秒数 |
+| Option | Description |
+|--------|-------------|
+| `--type <type>` | Extraction type: `fonts`, `text-shapes` |
+| `-o, --out <path>` | Save result |
+| `--no-wait` | Do not wait for completion |
+| `--timeout <seconds>` | Timeout in seconds |
 
 ```bash
-# 从 pptx 自动提取字体信息
+# Auto-extract font info from pptx
 deckops extract slides.pptx
 
-# 显式指定提取文本形状
+# Explicitly extract text shapes
 deckops extract slides.pptx --type text-shapes
 
-# 提取并保存到目录
+# Extract and save to directory
 deckops extract slides.pptx --type fonts -o ./extracted/
 ```
 
-## OCR 文字识别
+## OCR text recognition
 
 ### `ocr <input-file>`
 
-对图片进行 OCR。支持 `.jpg`、`.jpeg`、`.png`。
+Perform OCR on images. Supports `.jpg`, `.jpeg`, `.png`.
 
-| 选项 | 说明 |
-|------|------|
-| `--language <lang>` | 语言（默认 `zh-hans`） |
-| `-o, --out <path>` | 保存结果 |
-| `--no-wait` | 不等待完成 |
-| `--timeout <seconds>` | 超时秒数 |
+| Option | Description |
+|--------|-------------|
+| `--language <lang>` | Language (default `zh-hans`) |
+| `-o, --out <path>` | Save result |
+| `--no-wait` | Do not wait for completion |
+| `--timeout <seconds>` | Timeout in seconds |
 
-支持语言：`zh-hans`、`zh-hant`、`en`、`ja`、`ko`、`ar`、`de`、`es`、`fr`、`it`、`pt`、`ru`
+Supported languages: `zh-hans`, `zh-hant`, `en`, `ja`, `ko`, `ar`, `de`, `es`, `fr`, `it`, `pt`, `ru`
 
 ```bash
-# 识别中文图片（默认语言）
+# Recognize Chinese image (default language)
 deckops ocr scan.jpg
 
-# 识别英文图片
+# Recognize English image
 deckops ocr document.png --language en
 
-# 识别日文并保存
+# Recognize Japanese and save
 deckops ocr receipt.jpg --language ja -o ./ocr-result.json
 ```
 
-## 格式转换
+## Format conversion
 
 ### `convert <input-files...> --to <format>`
 
-将文件转换为指定格式。
+Convert files to the specified format.
 
-| 选项 | 说明 |
-|------|------|
-| `--to <format>` | 输出格式（必填）：`image`、`pdf`、`video`、`html`、`png`、`pptx`、`webp` |
-| `--width <number>` | HTML → PPT/PNG 时的宽度 |
-| `--height <number>` | HTML → PPT/PNG 时的高度 |
-| `--need-embed-fonts [boolean]` | HTML → PPTX 是否嵌入字体（默认 false） |
-| `-o, --out <path>` | 保存结果 |
-| `--no-wait` | 不等待完成 |
-| `--timeout <seconds>` | 超时秒数 |
+| Option | Description |
+|--------|-------------|
+| `--to <format>` | Output format (required): `image`, `pdf`, `video`, `html`, `png`, `pptx`, `webp` |
+| `--width <number>` | Width for HTML → PPT/PNG |
+| `--height <number>` | Height for HTML → PPT/PNG |
+| `--need-embed-fonts [boolean]` | Whether to embed fonts for HTML → PPTX (default false) |
+| `-o, --out <path>` | Save result |
+| `--no-wait` | Do not wait for completion |
+| `--timeout <seconds>` | Timeout in seconds |
 
-**多文件说明**：仅 `html → pptx` 支持多个输入文件，按顺序合并为一个转换任务。
+**Multi-file note**: Only `html → pptx` supports multiple input files, merged in order into a single conversion task.
 
 ```bash
-# PPT 转 PDF
+# PPT to PDF
 deckops convert slides.pptx --to pdf
 
-# 多个 HTML 合并转 PPTX
+# Merge multiple HTML files into PPTX
 deckops convert page1.html page2.html page3.html --to pptx
 
-# HTML 转 PNG，指定尺寸并保存
+# HTML to PNG with dimensions and save
 deckops convert slide.html --to png --width 1920 --height 1080 -o ./slide.png
 ```
 
-## PPT 合并
+## PPT merge
 
 ### `join <input-files...>`
 
-按给定顺序将多个 `.pptx` 合并为一个（对应任务类型 `pptx.join`）。至少需要 2 个文件。
+Merge multiple `.pptx` files in the given order into one (task type `pptx.join`). At least 2 files required.
 
-| 选项 | 说明 |
-|------|------|
-| `--name <name>` | 任务名称 |
-| `-o, --out <path>` | 保存结果 |
-| `--no-wait` | 不等待完成 |
-| `--timeout <seconds>` | 超时秒数 |
+| Option | Description |
+|--------|-------------|
+| `--name <name>` | Task name |
+| `-o, --out <path>` | Save result |
+| `--no-wait` | Do not wait for completion |
+| `--timeout <seconds>` | Timeout in seconds |
 
 ```bash
-# 合并三段演示文稿
+# Merge three presentations
 deckops join intro.pptx body.pptx appendix.pptx
 
-# 指定输出任务名并保存
+# Specify output task name and save
 deckops join part1.pptx part2.pptx --name merged-deck -o ./merged.pptx
 
-# 仅创建任务
+# Create task only
 deckops join a.pptx b.pptx --no-wait
 ```
 
-## AI 内容生成
+## AI content generation
 
 ### `create [input-files...]`
 
-根据文本或参考文件生成文档内容（API 任务类型为 `generation`）。
+Generate document content from text or reference files (API task type `generation`).
 
-| 选项 | 说明 |
-|------|------|
-| `--input-text <text>` | 输入文本 |
-| `--enable-search [boolean]` | 启用搜索 |
-| `--advanced-model [boolean]` | 使用高级模型 |
-| `--fast-mode [boolean]` | 快速模式 |
-| `--intent <intent>` | 生成意图 |
-| `--audience <audience>` | 目标受众 |
-| `--page-count <number>` | 预期页数 |
-| `--author <name>` | 文档作者 |
-| `-o, --out <path>` | 保存结果 |
-| `--no-wait` | 不等待完成 |
-| `--timeout <seconds>` | 超时秒数 |
+| Option | Description |
+|--------|-------------|
+| `--input-text <text>` | Input text |
+| `--enable-search [boolean]` | Enable search |
+| `--advanced-model [boolean]` | Use advanced model |
+| `--fast-mode [boolean]` | Fast mode |
+| `--intent <intent>` | Generation intent |
+| `--audience <audience>` | Target audience |
+| `--page-count <number>` | Expected page count |
+| `--author <name>` | Document author |
+| `-o, --out <path>` | Save result |
+| `--no-wait` | Do not wait for completion |
+| `--timeout <seconds>` | Timeout in seconds |
 
-参考文件最多 2 个，支持：`.html`、`.pdf`、`.docx`、`.pptx`、`.txt`、`.md`、`.mm`、`.xmind`、`.ipynb`
+Up to 2 reference files supported: `.html`, `.pdf`, `.docx`, `.pptx`, `.txt`, `.md`, `.mm`, `.xmind`, `.ipynb`
 
 ```bash
-# 纯文本生成
-deckops create --input-text "请写一份产品发布会方案"
+# Pure text generation
+deckops create --input-text "Write a product launch plan"
 
-# 带参考文件和页数限制
-deckops create outline.md --input-text "扩展为完整演讲稿" --page-count 20
+# With reference file and page limit
+deckops create outline.md --input-text "Expand into a full speech" --page-count 20
 
-# 高级模型 + 搜索，并保存结果
-deckops create brief.pdf --input-text "生成详细报告" --advanced-model --enable-search -o ./report/
+# Advanced model + search, and save result
+deckops create brief.pdf --input-text "Generate a detailed report" --advanced-model --enable-search -o ./report/
 ```
 
-## 文档翻译
+## Document translation
 
 ### `translate <input-file>`
 
-翻译文档文件。支持 `.docx`、`.pptx`、`.pdf`、`.xlsx`、`.key`。
+Translate document files. Supports `.docx`, `.pptx`, `.pdf`, `.xlsx`, `.key`.
 
-| 选项 | 说明 |
-|------|------|
-| `--from <language>` | 源语言（必填） |
-| `--to <language>` | 目标语言（必填） |
-| `--model <model>` | 模型（必填）：`Standard` 或 `Pro` |
-| `--use-glossary [boolean]` | 使用术语表 |
-| `--image-translate [boolean]` | 翻译图片内文字 |
-| `-o, --out <path>` | 保存结果 |
-| `--no-wait` | 不等待完成 |
-| `--timeout <seconds>` | 超时秒数 |
+| Option | Description |
+|--------|-------------|
+| `--from <language>` | Source language (required) |
+| `--to <language>` | Target language (required) |
+| `--model <model>` | Model (required): `Standard` or `Pro` |
+| `--use-glossary [boolean]` | Use glossary |
+| `--image-translate [boolean]` | Translate text in images |
+| `-o, --out <path>` | Save result |
+| `--no-wait` | Do not wait for completion |
+| `--timeout <seconds>` | Timeout in seconds |
 
 ```bash
-# 中译英（Standard 模型）
+# Chinese to English (Standard model)
 deckops translate handbook.docx --from zh --to en --model Standard
 
-# 英译中，Pro 模型
+# English to Chinese, Pro model
 deckops translate slides.pptx --from en --to zh --model Pro
 
-# 自动检测源语言，启用术语表并保存
+# Auto-detect source language, enable glossary and save
 deckops translate manual.pdf --from auto --to ja --model Pro --use-glossary -o ./translated.pdf
 ```
 
-## 通用任务执行
+## Generic task execution
 
 ### `run <task-type> <input-files...>`
 
-显式指定任务类型执行，适合高级用法或 CLI 未封装的任务。
+Execute with an explicit task type. Suitable for advanced usage or tasks not wrapped by the CLI.
 
-| 选项 | 说明 |
-|------|------|
-| `--param <key=value>` | 任务参数（可多次使用，值支持 JSON） |
-| `-o, --out <path>` | 保存结果 |
-| `--no-wait` | 不等待完成 |
-| `--timeout <seconds>` | 超时秒数 |
+| Option | Description |
+|--------|-------------|
+| `--param <key=value>` | Task parameters (repeatable; values support JSON) |
+| `-o, --out <path>` | Save result |
+| `--no-wait` | Do not wait for completion |
+| `--timeout <seconds>` | Timeout in seconds |
 
-**多文件说明**：以下任务类型支持多个输入文件作为有序源集合：`pptx.join`、`convertor.html2pptx`、`html.buildPlayer`、`generation`。
+**Multi-file note**: The following task types support multiple input files as an ordered source set: `pptx.join`, `convertor.html2pptx`, `html.buildPlayer`, `generation`.
 
 ```bash
-# PPT 转 PDF（显式任务类型）
+# PPT to PDF (explicit task type)
 deckops run convertor.ppt2pdf demo.ppt
 
-# 合并 PPT
+# Merge PPT
 deckops run pptx.join part1.pptx part2.pptx
 
-# HTML 转 PPTX 并传参
+# HTML to PPTX with parameters
 deckops run convertor.html2pptx page1.html page2.html --param width=1920 --param needEmbedFonts=true
 ```
 
-## 任务管理
+## Task management
 
 ### `task list`
 
-列出 workspace 中的任务。
+List tasks in the workspace.
 
-| 选项 | 说明 |
-|------|------|
-| `--type <type>` | 按任务类型过滤 |
-| `--limit <n>` | 最大条数（默认 50） |
-| `--offset <n>` | 分页偏移（默认 0） |
+| Option | Description |
+|--------|-------------|
+| `--type <type>` | Filter by task type |
+| `--limit <n>` | Maximum count (default 50) |
+| `--offset <n>` | Pagination offset (default 0) |
 
 ```bash
-# 列出最近 10 条任务
+# List 10 most recent tasks
 deckops task list --limit 10
 
-# 只看转换类任务
+# Conversion tasks only
 deckops task list --type convertor.ppt2pdf --limit 20
 
-# JSON 分页查询
+# Paginated JSON query
 deckops --json task list --offset 50 --limit 50
 ```
 
 ### `task get <task-id>`
 
-获取单个任务详情。
+Get details for a single task.
 
-| 选项 | 说明 |
-|------|------|
-| `-o, --out <path>` | 下载并保存已完成任务的结果 |
+| Option | Description |
+|--------|-------------|
+| `-o, --out <path>` | Download and save result of completed task |
 
 ```bash
-# 查看任务详情
+# View task details
 deckops task get abc123-task-id
 
-# 下载任务结果到文件
+# Download task result to file
 deckops task get abc123-task-id -o ./result.pdf
 
-# JSON 模式
+# JSON mode
 deckops --json task get abc123-task-id
 ```
 
 ### `task delete <task-id>`
 
-删除指定任务。
+Delete a specified task.
 
 ```bash
-# 删除任务
+# Delete task
 deckops task delete abc123-task-id
 
-# JSON 模式
+# JSON mode
 deckops --json task delete abc123-task-id
 
-# 删除后确认列表
+# Confirm list after deletion
 deckops task delete abc123-task-id && deckops task list --limit 5
 ```
 
-## 交互式 REPL
+## Interactive REPL
 
 ### `repl`
 
-进入交互式命令行，可逐条输入子命令，无需重复启动进程。
+Enter an interactive command line to run subcommands one at a time without restarting the process.
 
 ```bash
-# 启动 REPL
+# Start REPL
 deckops repl
 ```
 
-在 REPL 中可输入与普通 CLI 相同的命令，例如：
+In the REPL you can enter the same commands as the regular CLI, for example:
 
 ```
 deckflow> config show
@@ -442,30 +444,30 @@ deckflow> convert slides.pptx --to pdf
 deckflow> task list --limit 5
 ```
 
-输入 `exit` 或 `quit` 退出。
+Type `exit` or `quit` to leave.
 
-## 交互式补全
+## Interactive completion
 
-在 TTY 环境下，若缺少必填参数或选项，CLI 会尝试交互式提示补全（使用 `--json` 时不会触发）。例如缺少 `--to` 时，`convert` 会引导你选择输出格式。
+In a TTY environment, if required arguments or options are missing, the CLI will attempt interactive prompts (not triggered when using `--json`). For example, when `--to` is missing, `convert` will guide you to choose an output format.
 
-## 输出与 `-o` 行为
+## Output and `-o` behavior
 
-- 默认：人类可读文本 + 进度 spinner
-- `--json`：结构化 JSON，便于脚本解析
-- `-o, --out`：任务完成后自动下载结果
-  - 单文件 → 写入指定路径
-  - 多文件 → 写入目录；若路径以 `.zip` 结尾则打包为 zip
-  - 无文件结果 → 写入 JSON
+- Default: human-readable text + progress spinner
+- `--json`: structured JSON for script parsing
+- `-o, --out`: automatically download result after task completion
+  - Single file → write to specified path
+  - Multiple files → write to directory; if path ends with `.zip`, pack as zip
+  - No file result → write JSON
 
-指定 `-o` 时，即使未显式传 `--wait`，也会等待任务完成。
+When `-o` is specified, the task will be waited for even if `--wait` is not explicitly passed.
 
-## 常见问题
+## FAQ
 
-**Q: 提示 Space ID missing？**
+**Q: Space ID missing?**
 
-先运行 `deckops login`，或通过 `deckops config set-space <space-id>` 手动设置。
+Run `deckops login` first, or set manually via `deckops config set-space <space-id>`.
 
-**Q: 如何在 CI 中使用？**
+**Q: How to use in CI?**
 
 ```bash
 export DECKOPS_CONFIG_DIR=/tmp/deckops-ci
@@ -474,12 +476,12 @@ deckops config set-space "$DECKOPS_SPACE_ID"
 deckops --json convert input.pptx --to pdf -o output.pdf
 ```
 
-**Q: 多文件输入何时有效？**
+**Q: When is multi-file input valid?**
 
-仅部分任务支持有序多源：`convert` 的 `html → pptx`、`join`、`create`（最多 2 个参考文件）、以及 `run` 中的 `pptx.join` / `convertor.html2pptx` 等。
+Only some tasks support ordered multi-source: `convert` for `html → pptx`, `join`, `create` (up to 2 reference files), and `run` for `pptx.join` / `convertor.html2pptx`, etc.
 
-## 相关链接
+## Related links
 
-- Monorepo 根目录：[README.md](../../README.md)
-- SDK 文档：[@deckops/sdk](../../sdks/nodejs/README.md)
-- 问题反馈：[GitHub Issues](https://github.com/deckflow/deckops/issues)
+- Monorepo root: [README.md](../../README.md)
+- SDK docs: [@deckops/sdk](../../sdks/nodejs/README.md)
+- Issue tracker: [GitHub Issues](https://github.com/deckflow/deckops/issues)

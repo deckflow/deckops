@@ -1,22 +1,22 @@
-**Languages:** English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Français](README.fr.md) | [Español](README.es.md) | [Русский](README.ru.md) | [日本語](README.ja.md)
+**語言：** [English](README.md) | [简体中文](README.zh-CN.md) | **繁體中文** | [Français](README.fr.md) | [Español](README.es.md) | [Русский](README.ru.md) | [日本語](README.ja.md)
 
 # @deckops/sdk
 
-Node.js and browser-compatible SDK for Deckops/Deckflow task APIs.
+用於 Deckops/Deckflow 任務 API 的 Node.js/瀏覽器相容 SDK。
 
-## Install
+## 安裝
 
 ```bash
 pnpm add @deckops/sdk
 ```
 
-In this monorepo:
+在本 monorepo 中：
 
 ```bash
 pnpm --filter @deckops/sdk build
 ```
 
-## Create a Client
+## 建立客戶端
 
 ```ts
 import { createDeck } from '@deckops/sdk';
@@ -29,31 +29,31 @@ const deck = createDeck({
 });
 ```
 
-Options:
+選項：
 
-- `root?: string` - API root address. Defaults to `https://app.deckflow.com/v1`.
-- `token?: string` - sent as `X-Auth-Token`.
-- `apiKey?: string` - sent as `Authorization: Bearer {apiKey}`.
-- `spaceId?: string` - default space id for task and file calls.
-- `authUuid?: string` - explicit client UUID (UUID v4) sent as `X-Auth-UUID`. Skips automatic persistence.
-- `authUuidStorage?: { get(), set(value) }` - custom storage for client UUID (SSR, tests, embedded apps).
-- `onUnauthorized?: () => Promise<{ token: string; spaceId?: string } | string>` - called once after a 401, then the request is retried.
-- `onPaymentRequired?: () => Promise<void>` - called once after a 402, then the request is retried.
+- `root?: string` - API 根位址，預設為 `https://app.deckflow.com/v1`。
+- `token?: string` - 透過 `X-Auth-Token` 標頭傳送。
+- `apiKey?: string` - 透過 `Authorization: Bearer {apiKey}` 標頭傳送。
+- `spaceId?: string` - 任務與檔案呼叫的預設 space id。
+- `authUuid?: string` - 顯式客戶端 UUID（UUID v4），透過 `X-Auth-UUID` 傳送，跳過自動持久化。
+- `authUuidStorage?: { get(), set(value) }` - 客戶端 UUID 的自訂儲存（SSR、測試、嵌入式應用）。
+- `onUnauthorized?: () => Promise<{ token: string; spaceId?: string } | string>` - 401 後呼叫一次，然後重試請求。
+- `onPaymentRequired?: () => Promise<void>` - 402 後呼叫一次，然後重試請求。
 
-Every Deckops API request automatically includes `X-Auth-UUID`, a stable UUID v4 used to track the client across sessions.
+每個 Deckops API 請求會自動包含 `X-Auth-UUID`，即用於跨工作階段追蹤客戶端的穩定 UUID v4。
 
-- **Browser**: persisted in `localStorage` under `df_uuid`.
-- **Node.js**: persisted in `~/.deckops/auth-uuid` (override the directory with `DECKOPS_CONFIG_DIR`).
-- **Explicit override**: pass `authUuid` or set `DECKOPS_AUTH_UUID` (Node only) for fixed IDs in CI, containers, or multi-tenant servers.
+- **瀏覽器**：持久化在 `localStorage` 的 `df_uuid` 鍵下。
+- **Node.js**：持久化在 `~/.deckops/auth-uuid`（可透過 `DECKOPS_CONFIG_DIR` 覆寫目錄）。
+- **顯式覆寫**：傳入 `authUuid` 或設定 `DECKOPS_AUTH_UUID`（僅 Node）用於 CI、容器或多租戶伺服器的固定 ID。
 
 ```ts
 const uuid = await deck.getAuthUuid();
 console.log('Client UUID:', uuid);
 ```
 
-## Create Tasks With Files
+## 透過檔案建立任務
 
-Pass user-selected files directly to task methods. The SDK uploads them internally and sends the resulting file ids to the task API:
+將使用者選擇的檔案直接傳給任務方法。SDK 會在內部上傳並將得到的 file id 傳送給任務 API：
 
 ```ts
 const task = await deck.convertPptToPdf({
@@ -64,13 +64,13 @@ const task = await deck.convertPptToPdf({
 });
 ```
 
-`files` supports:
+`files` 支援：
 
-- Node.js file path: `'./a.pptx'`
-- Node.js/browser binary data: `Uint8Array` or `ArrayBuffer`
-- Browser `Blob`/`File`
+- Node.js 檔案路徑：`'./a.pptx'`
+- Node.js/瀏覽器二進位資料：`Uint8Array` 或 `ArrayBuffer`
+- 瀏覽器 `Blob`/`File`
 
-For browser file pickers, pass the selected `File` object:
+瀏覽器檔案選擇器可直接傳入選中的 `File` 物件：
 
 ```ts
 await deck.convertPptToPdf({
@@ -78,7 +78,7 @@ await deck.convertPptToPdf({
 });
 ```
 
-For binary data without a file name, include per-file upload options:
+無檔名的二進位資料需包含逐檔上傳選項：
 
 ```ts
 await deck.imageOcr({
@@ -87,9 +87,9 @@ await deck.imageOcr({
 });
 ```
 
-For compatibility with existing integrations, `fileIds` is still accepted and can be combined with `files`.
+為相容現有整合，仍接受 `fileIds`，可與 `files` 組合使用。
 
-## Generic Task API
+## 通用任務 API
 
 ```ts
 const task = await deck.tasks.create({
@@ -112,7 +112,7 @@ const cancel = await deck.tasks.subscribe(task.id, {
 cancel();
 ```
 
-Task detail responses are for status/progress metadata. Task results should be read through `deck.tasks.down(...)` or the backend-name alias `deck.ttask.down(...)`.
+任務詳情回應用於狀態/進度中繼資料。任務結果應透過 `deck.tasks.down(...)` 或後端別名 `deck.ttask.down(...)` 讀取。
 
 ```ts
 const result = await deck.ttask.down<'convertor.ppt2pdf'>(task.id);
@@ -120,11 +120,11 @@ const generationDownload = await deck.ttask.down<'generation'>(task.id, { type: 
 console.log(generationDownload.downloadUrl);
 ```
 
-## Result Types
+## 結果類型
 
-The SDK exports concrete result types for every task type through `DeckTaskTypeResult`.
+SDK 透過 `DeckTaskTypeResult` 為每種任務類型匯出具體結果類型。
 
-Most file-producing tasks return tuple-shaped file results because that is the backend contract:
+大多數產出檔案的任務回傳元組形檔案結果，這是後端約定：
 
 ```ts
 type FileResult = [
@@ -141,21 +141,21 @@ type ConvertFileResult = [
 ];
 ```
 
-`path` is the storage key or relative path in raw backend data. When the task detail API expands downloadable results, it may already be a signed/access URL.
+`path` 是原始後端資料中的儲存鍵或相對路徑。當任務詳情 API 展開可下載結果時，可能已是簽名/存取 URL。
 
-Examples:
+範例：
 
-- `deck.convertPptToPdf(...)` returns `ConvertFileResult[]`.
-- `deck.convertHtmlToPptx(...)` returns `{ target: FileResult; usedFonts: string[] }`.
-- `deck.pptxSplit(...)` returns `{ ppt, sections, slides }` with typed slide file metadata.
-- `deck.pptxGetFontInfo(...)` returns `{ fonts, embeddedFont, subsetFont }`.
-- `deck.pptxGetTextShapes(...)` returns typed page/shape/text/image metadata.
+- `deck.convertPptToPdf(...)` 回傳 `ConvertFileResult[]`。
+- `deck.convertHtmlToPptx(...)` 回傳 `{ target: FileResult; usedFonts: string[] }`。
+- `deck.pptxSplit(...)` 回傳帶型別化幻燈片檔案中繼資料的 `{ ppt, sections, slides }`。
+- `deck.pptxGetFontInfo(...)` 回傳 `{ fonts, embeddedFont, subsetFont }`。
+- `deck.pptxGetTextShapes(...)` 回傳型別化的頁面/形狀/文字/圖片中繼資料。
 
-## Typed Task Helpers
+## 型別化任務輔助方法
 
-Every helper accepts `{ spaceId?, files?, fileIds?, name?, params?, upload? }`, sets the backend task `type`, uploads files when needed, and returns a typed `DeckTask`.
+每個輔助方法接受 `{ spaceId?, files?, fileIds?, name?, params?, upload? }`，設定後端任務 `type`，按需上傳檔案，並回傳型別化的 `DeckTask`。
 
-### File and Image
+### 檔案與圖片
 
 ```ts
 await deck.fileCompress({ files: ['./document.pdf'] });
@@ -180,7 +180,7 @@ await deck.pptxEmbedFonts({
 });
 ```
 
-### Converters
+### 轉換器
 
 ```ts
 await deck.convertPptToImage({
@@ -213,12 +213,9 @@ await deck.convertHtmlToPptx({
 });
 ```
 
-Ordered multi-source files are meaningful for task types that map the whole file
-array into backend parameters, including `pptx.join`, `convertor.html2pptx`,
-`html.buildPlayer`, and `generation`. Most other task types read one source file;
-pass one file per task for those.
+有序多來源檔案對將整個檔案陣列對應到後端參數的任務類型有意義，包括 `pptx.join`、`convertor.html2pptx`、`html.buildPlayer` 和 `generation`。大多數其他任務類型只讀取一個來源檔案；此類任務每次傳一個檔案。
 
-### HTML Player, Generation, Translation, Revamp
+### HTML 播放器、生成、翻譯、改版
 
 ```ts
 await deck.htmlBuildPlayer({
@@ -235,7 +232,7 @@ await deck.htmlBuildPlayer({
 await deck.generation({
   files: [referenceFile],
   params: {
-    inputText: 'Write a product launch plan',
+    inputText: '請撰寫一份產品發表會方案',
     enableSearch: true,
     pageCount: 8,
   },
@@ -258,9 +255,9 @@ await deck.revamp({
 });
 ```
 
-## Browser and Node.js Notes
+## 瀏覽器與 Node.js 說明
 
-- Task helpers accept files directly and upload them before task creation.
-- Node.js uploads can read a path and calculate MD5.
-- Browser uploads can use `Blob`/`File`; the SDK reads the file name and calculates MD5.
-- Server-Sent Event subscription is primarily intended for Node.js streams. Browser polling via `deck.tasks.wait(taskId, { useEventStream: false })` is the most portable option.
+- 任務輔助方法直接接受檔案，在建立任務前上傳。
+- Node.js 上傳可讀取路徑並計算 MD5。
+- 瀏覽器上傳可使用 `Blob`/`File`；SDK 讀取檔名並計算 MD5。
+- Server-Sent Event 訂閱主要面向 Node.js 串流。瀏覽器最可攜的方式是透過 `deck.tasks.wait(taskId, { useEventStream: false })` 輪詢。
