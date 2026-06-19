@@ -1,6 +1,6 @@
 {
   "name": "@deckops/sdk",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Deckops Node.js and browser SDK",
   "type": "module",
   "main": "./dist/index.js",
