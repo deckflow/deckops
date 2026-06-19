@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
 import { DEFAULT_TIMEOUT, DEFAULT_OCR_LANGUAGE, OCR_LANGUAGES } from '../utils/constants.js';
+import { parsePositiveInteger } from '../utils/parse.js';
 
 /**
  * Register OCR command
@@ -78,7 +79,7 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
           if (wait) {
             spinner = ctx.createSpinner('Processing OCR...');
 
-            task = await client.waitForTask(task.id, parseInt(options.timeout, 10));
+            task = await client.waitForTask(task.id, parsePositiveInteger(options.timeout, '--timeout'));
 
             if (task.status === 'completed') {
               ctx.succeedSpinner(spinner, 'OCR completed');

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { Readable } from 'node:stream';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { resetAuthUuidCacheForTests } from '../../src/auth-uuid.js';
@@ -16,6 +17,7 @@ describe('@deckops/sdk', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     mock.restore();
   });
 
@@ -57,6 +59,34 @@ describe('@deckops/sdk', () => {
     expect(task.id).toBe('task-1');
   });
 
+  it('sends schema-aligned task params unchanged', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(JSON.parse(String(config.data))).toMatchObject({
+        spaceId: 'space-1',
+        fileIds: ['file-1'],
+        type: 'convertor.ppt2image',
+        params: { resolution: 1920, format: 'jpg' },
+      });
+      return [
+        200,
+        {
+          id: 'task-1',
+          spaceId: 'space-1',
+          type: 'convertor.ppt2image',
+          status: 'pending',
+        },
+      ];
+    });
+
+    const task = await deck.convertPptToImage({
+      fileIds: ['file-1'],
+      params: { resolution: 1920, format: 'jpg' },
+    });
+    expect(task.type).toBe('convertor.ppt2image');
+  });
+
   it('lists, gets, deletes, and waits for tasks', async () => {
     const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
 
@@ -83,6 +113,90 @@ describe('@deckops/sdk', () => {
     expect(waited.status).toBe('completed');
 
     await expect(deck.tasks.delete('task-1')).resolves.toBeUndefined();
+  });
+
+  it('falls back to polling when event stream wait is unavailable', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-stream').reply((config) => {
+      if (config.headers?.['response-event-stream'] === 'yes') {
+        return [503, { message: 'stream unavailable' }];
+      }
+
+      return [
+        200,
+        { id: 'task-stream', spaceId: 'space-1', type: 'image.ocr', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    const task = await deck.tasks.wait('task-stream', { timeout: 5 });
+    expect(task.status).toBe('completed');
+  });
+
+  it('retries event-stream task detail requests after network failures', async () => {
+    vi.useFakeTimers();
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+    const url = 'http://localhost:3000/api/tools/tasks/task-retry';
+
+    mock.onGet(url).networkErrorOnce();
+    mock.onGet(url).reply((config) => {
+      expect(config.headers?.['response-event-stream']).toBe('yes');
+      return [
+        200,
+        Readable.from([
+          `data: ${JSON.stringify({
+            id: 'task-retry',
+            spaceId: 'space-1',
+            type: 'image.ocr',
+            status: 'completed',
+          })}\n\n`,
+        ]),
+        { 'content-type': 'text/event-stream' },
+      ];
+    });
+
+    const waiting = deck.tasks.wait('task-retry', { timeout: 30 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mock.history.get.filter((request) => request.url === url)).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(mock.history.get.filter((request) => request.url === url)).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const task = await waiting;
+
+    expect(task.status).toBe('completed');
+    expect(mock.history.get.filter((request) => request.url === url)).toHaveLength(2);
+  });
+
+  it('stops event-stream network retries after 100 attempts', async () => {
+    vi.useFakeTimers();
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+    const url = 'http://localhost:3000/api/tools/tasks/task-down';
+    const onError = vi.fn();
+
+    mock.onGet(url).networkError();
+
+    await deck.tasks.subscribe('task-down', {
+      onUpdate: () => {},
+      onError,
+    });
+
+    await vi.advanceTimersByTimeAsync(5000 * 100);
+
+    expect(mock.history.get.filter((request) => request.url === url)).toHaveLength(101);
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 
   it('downloads task results through ttask.down', async () => {

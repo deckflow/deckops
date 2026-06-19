@@ -441,7 +441,7 @@ export interface PptxEmbedFontsParams {
 
 export interface ConvertPptToImageParams {
   /** Output image width/resolution. */
-  resolution?: number;
+  resolution?: 1080 | 1920 | 2560;
   /** Output image format. */
   format?: 'png' | 'jpg';
 }

@@ -6,6 +6,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { Context } from '../context.js';
 import type { Task } from '../types/api.js';
+import { parseNonNegativeInteger, parsePositiveInteger } from '../utils/parse.js';
 
 /**
  * Register task commands
@@ -32,8 +33,8 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
         const result = await client.listTasks(
           spaceId,
           options.type,
-          parseInt(options.offset, 10),
-          parseInt(options.limit, 10)
+          parseNonNegativeInteger(options.offset, '--offset'),
+          parsePositiveInteger(options.limit, '--limit')
         );
 
         ctx.output(result, (data) => {

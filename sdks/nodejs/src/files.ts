@@ -86,7 +86,7 @@ export class FilesApi {
       const fs = await import('node:fs/promises');
       const path = await import('node:path');
       const data = await fs.readFile(input);
-      const hash = options.hash ?? (await this.calculateMD5(data));
+      const hash = options.hash ?? this.calculateMD5(data);
       return {
         name: options.name ?? path.basename(input),
         bytes: data.byteLength,

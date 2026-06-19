@@ -5,7 +5,7 @@ Deckops is a pnpm monorepo for Deckflow task automation.
 ## Packages
 
 - `sdks/nodejs` - `@deckops/sdk`, a Node.js/browser-compatible SDK for file upload and task APIs.
-- `apps/nodejs` - `deckops`, the existing Node.js CLI. The command surface is unchanged and now calls `@deckops/sdk` internally.
+- `apps/node-cli` - `deckops`, the existing Node.js CLI. The command surface is unchanged and now calls `@deckops/sdk` internally.
 
 ## Install and Build
 
@@ -22,7 +22,7 @@ The CLI package keeps the `deckops` package name and bin name.
 
 ```bash
 pnpm --filter deckops build
-node apps/nodejs/dist/cli.js --help
+node apps/node-cli/dist/cli.js --help
 ```
 
 Common commands:

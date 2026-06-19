@@ -12,6 +12,7 @@ import {
   MULTI_SOURCE_CONVERT_TASK_TYPES,
   supportsMultipleConvertSourceFiles,
 } from '../utils/constants.js';
+import { parsePositiveInteger } from '../utils/parse.js';
 
 function parseBooleanOption(value: string | boolean | undefined): boolean {
   if (value === undefined || value === true) {
@@ -198,7 +199,7 @@ Multiple input files create one ordered conversion task only for html -> pptx.`
           if (wait) {
             spinner = ctx.createSpinner('Converting...');
 
-            task = await client.waitForTask(task.id, parseInt(options.timeout, 10));
+            task = await client.waitForTask(task.id, parsePositiveInteger(options.timeout, '--timeout'));
 
             if (task.status === 'completed') {
               ctx.succeedSpinner(spinner, 'Conversion completed');

@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
 import { COMPRESS_TYPES, DEFAULT_TIMEOUT } from '../utils/constants.js';
+import { parsePositiveInteger } from '../utils/parse.js';
 
 /**
  * Register compress command
@@ -64,7 +65,7 @@ export function registerCompressCommand(program: Command, ctx: Context): void {
         if (wait) {
           spinner = ctx.createSpinner('Processing...');
 
-          task = await client.waitForTask(task.id, parseInt(options.timeout, 10), true, (t) => {
+          task = await client.waitForTask(task.id, parsePositiveInteger(options.timeout, '--timeout'), true, (t) => {
             if (spinner && t.status === 'running') {
               spinner.text = 'Processing...';
             }

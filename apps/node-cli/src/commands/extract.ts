@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
 import { EXTRACT_TYPES, EXTRACT_TYPE_MAP, DEFAULT_TIMEOUT } from '../utils/constants.js';
+import { parsePositiveInteger } from '../utils/parse.js';
 
 /**
  * Register extract command
@@ -82,7 +83,7 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
           if (wait) {
             spinner = ctx.createSpinner('Processing...');
 
-            task = await client.waitForTask(task.id, parseInt(options.timeout, 10));
+            task = await client.waitForTask(task.id, parsePositiveInteger(options.timeout, '--timeout'));
 
             if (task.status === 'completed') {
               ctx.succeedSpinner(spinner, 'Extraction completed');

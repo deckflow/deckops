@@ -11,6 +11,7 @@ import {
   MULTI_SOURCE_TASK_TYPES,
   supportsMultipleSourceFiles,
 } from '../utils/constants.js';
+import { parsePositiveInteger } from '../utils/parse.js';
 
 /**
  * Collect multiple values
@@ -114,7 +115,7 @@ Multiple input files are passed as one ordered source set only for: ${MULTI_SOUR
           if (wait) {
             spinner = ctx.createSpinner('Processing...');
 
-            task = await client.waitForTask(task.id, parseInt(options.timeout, 10));
+            task = await client.waitForTask(task.id, parsePositiveInteger(options.timeout, '--timeout'));
 
             if (task.status === 'completed') {
               ctx.succeedSpinner(spinner, 'Task completed');

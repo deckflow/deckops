@@ -21,6 +21,9 @@ type FilesLike = {
   upload(input: UploadInput, options?: TaskUploadOptions & { spaceId?: string }): Promise<{ id: string }>;
 };
 
+const SSE_RETRY_INTERVAL = 5000;
+const SSE_MAX_RETRIES = 100;
+
 export class TasksApi {
   constructor(
     private readonly http: HttpClient,
@@ -177,64 +180,183 @@ export class TasksApi {
     return await this.waitWithPolling<T>(taskId, timeout, options.pollInterval ?? DEFAULT_POLL_INTERVAL, options.onProgress);
   }
 
-  async subscribe<T extends DeckTaskType = DeckTaskType>(
+  subscribe<T extends DeckTaskType = DeckTaskType>(
     taskId: string,
     handlers: SubscribeTaskHandlers<T>
   ): Promise<() => void> {
     const abortController = new AbortController();
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let resolveRetryTimer: (() => void) | undefined;
+    let activeStream: NodeJS.ReadableStream | undefined;
+    let closed = false;
+    let retryCount = 0;
 
-    try {
-      const res = await this.http.get<DeckTask<T> | NodeJS.ReadableStream>(
-        `/tools/tasks/${encodeURIComponent(taskId)}`,
-        {
-          headers: { 'response-event-stream': 'yes' },
-          responseType: 'stream',
-          signal: abortController.signal,
-          params: this.taskQueryParams(),
-        }
-      );
-
-      const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
-      if (contentType.includes('application/json')) {
-        handlers.onUpdate(res.data as DeckTask<T>);
-        return () => abortController.abort();
+    const cancel = (): void => {
+      closed = true;
+      abortController.abort();
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
       }
+      resolveRetryTimer?.();
+      resolveRetryTimer = undefined;
+      this.destroyStream(activeStream);
+      activeStream = undefined;
+    };
 
-      if (contentType.includes('event-stream') || contentType.includes('text/event-stream')) {
-        const parser = createParser((event: ParsedEvent | ReconnectInterval) => {
-          if (event.type !== 'event') {
+    const waitBeforeRetry = async (): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        resolveRetryTimer = resolve;
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          resolveRetryTimer = undefined;
+          resolve();
+        }, SSE_RETRY_INTERVAL);
+      });
+    };
+
+    const run = async (): Promise<void> => {
+      while (!closed) {
+        try {
+          await this.openTaskEventStream(taskId, handlers, abortController.signal, (stream) => {
+            activeStream = stream;
+          });
+          return;
+        } catch (error) {
+          if (closed || this.isCanceledError(error)) {
             return;
           }
-          try {
-            const task = JSON.parse(event.data) as DeckTask<T>;
-            handlers.onUpdate(task);
-            if (task.status === 'completed' || task.status === 'failed') {
-              abortController.abort();
-            }
-          } catch (error) {
+          if (!this.isSseTransportError(error) || retryCount >= SSE_MAX_RETRIES) {
             handlers.onError?.(error as Error);
+            return;
           }
-        });
 
-        const stream = res.data as NodeJS.ReadableStream;
-        stream.on('data', (chunk: Buffer) => {
-          parser.feed(chunk.toString());
-        });
-        stream.on('error', (error: Error) => {
-          handlers.onError?.(error);
-        });
-        return () => abortController.abort();
+          retryCount += 1;
+          await waitBeforeRetry();
+        }
       }
+    };
 
-      handlers.onError?.(new Error(`Unexpected Content-Type: ${contentType}`));
-    } catch (error) {
-      const err = error as { code?: string };
-      if (err.code !== 'ERR_CANCELED') {
-        handlers.onError?.(error as Error);
+    void run();
+
+    return Promise.resolve(cancel);
+  }
+
+  private async openTaskEventStream<T extends DeckTaskType>(
+    taskId: string,
+    handlers: SubscribeTaskHandlers<T>,
+    signal: AbortSignal,
+    onStream: (stream: NodeJS.ReadableStream | undefined) => void
+  ): Promise<void> {
+    const res = await this.http.get<DeckTask<T> | NodeJS.ReadableStream>(
+      `/tools/tasks/${encodeURIComponent(taskId)}`,
+      {
+        headers: { 'response-event-stream': 'yes' },
+        responseType: 'stream',
+        signal,
+        params: this.taskQueryParams(),
+        'axios-retry': { retries: 0 },
       }
+    );
+
+    const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
+    if (contentType.includes('application/json')) {
+      handlers.onUpdate(res.data as DeckTask<T>);
+      return;
     }
 
-    return () => abortController.abort();
+    if (!contentType.includes('event-stream') && !contentType.includes('text/event-stream')) {
+      throw new Error(`Unexpected Content-Type: ${contentType}`);
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      let terminal = false;
+      const parser = createParser((event: ParsedEvent | ReconnectInterval) => {
+        if (event.type !== 'event') {
+          return;
+        }
+        try {
+          const task = JSON.parse(event.data) as DeckTask<T>;
+          handlers.onUpdate(task);
+          if (task.status === 'completed' || task.status === 'failed') {
+            terminal = true;
+            this.destroyStream(stream);
+            cleanup();
+            resolve();
+          }
+        } catch (error) {
+          handlers.onError?.(error as Error);
+        }
+      });
+
+      const stream = res.data as NodeJS.ReadableStream;
+      const cleanup = (): void => {
+        stream.off('data', onData);
+        stream.off('error', onError);
+        stream.off('end', onEnd);
+        stream.off('close', onClose);
+        onStream(undefined);
+      };
+      const reconnect = (error: Error): void => {
+        cleanup();
+        if (terminal || signal.aborted) {
+          resolve();
+        } else {
+          reject(error);
+        }
+      };
+      const onData = (chunk: Buffer | string): void => {
+        parser.feed(chunk.toString());
+      };
+      const onError = (error: Error): void => {
+        reconnect(error);
+      };
+      const onEnd = (): void => {
+        reconnect(new Error('SSE connection ended before task completion'));
+      };
+      const onClose = (): void => {
+        reconnect(new Error('SSE connection closed before task completion'));
+      };
+
+      onStream(stream);
+      stream.on('data', onData);
+      stream.on('error', onError);
+      stream.on('end', onEnd);
+      stream.on('close', onClose);
+    });
+  }
+
+  private isSseTransportError(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) {
+      return false;
+    }
+
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (typeof statusCode === 'number') {
+      return false;
+    }
+
+    if (error instanceof Error && error.message.startsWith('Unexpected Content-Type:')) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private isCanceledError(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) {
+      return false;
+    }
+
+    const err = error as { code?: string; message?: string };
+    return err.code === 'ERR_CANCELED' || err.message === 'canceled' || err.message?.includes('canceled') === true;
+  }
+
+  private destroyStream(stream: NodeJS.ReadableStream | undefined): void {
+    const destroy = (stream as { destroy?: () => void } | undefined)?.destroy;
+    if (typeof destroy === 'function') {
+      destroy.call(stream);
+    }
   }
 
   private async waitWithEventStream<T extends DeckTaskType>(
@@ -246,15 +368,48 @@ export class TasksApi {
       const start = Date.now();
       let cancel: (() => void) | undefined;
       let settled = false;
+      let fallbackStarted = false;
+
+      const remainingTimeout = (): number => {
+        const elapsedSeconds = (Date.now() - start) / 1000;
+        return Math.max(timeout - elapsedSeconds, 0);
+      };
+
+      const finish = (callback: () => void): void => {
+        clearInterval(timer);
+        cancel?.();
+        if (!settled) {
+          settled = true;
+          callback();
+        }
+      };
+
+      const fallbackToPolling = (): void => {
+        if (settled || fallbackStarted) {
+          return;
+        }
+
+        fallbackStarted = true;
+        clearInterval(timer);
+        cancel?.();
+        this.waitWithPolling<T>(taskId, remainingTimeout(), DEFAULT_POLL_INTERVAL, onProgress)
+          .then((task) => {
+            if (!settled) {
+              settled = true;
+              resolve(task);
+            }
+          })
+          .catch((error) => {
+            if (!settled) {
+              settled = true;
+              reject(error);
+            }
+          });
+      };
 
       const timer = setInterval(() => {
         if (Date.now() - start > timeout * 1000) {
-          cancel?.();
-          clearInterval(timer);
-          if (!settled) {
-            settled = true;
-            reject(new Error(`Task ${taskId} did not complete within ${timeout}s`));
-          }
+          finish(() => reject(new Error(`Task ${taskId} did not complete within ${timeout}s`)));
         }
       }, 1000);
 
@@ -262,30 +417,19 @@ export class TasksApi {
         onUpdate: (task) => {
           onProgress?.(task);
           if (task.status === 'completed') {
-            clearInterval(timer);
-            cancel?.();
-            if (!settled) {
-              settled = true;
-              resolve(task);
-            }
+            finish(() => resolve(task));
           } else if (task.status === 'failed') {
-            clearInterval(timer);
-            cancel?.();
-            if (!settled) {
-              settled = true;
-              reject(new Error(`Task failed: ${task.error || 'Unknown error'}`));
-            }
+            finish(() => reject(new Error(`Task failed: ${task.error || 'Unknown error'}`)));
           }
         },
         onError: () => {
-          clearInterval(timer);
-          if (!settled) {
-            settled = true;
-            this.waitWithPolling<T>(taskId, timeout, DEFAULT_POLL_INTERVAL, onProgress).then(resolve).catch(reject);
-          }
+          fallbackToPolling();
         },
       }).then((cancelFn) => {
         cancel = cancelFn;
+        if (settled || fallbackStarted) {
+          cancelFn();
+        }
       });
     });
   }

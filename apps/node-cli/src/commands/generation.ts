@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
 import { DEFAULT_TIMEOUT, GENERATION_FILE_EXTENSIONS } from '../utils/constants.js';
+import { parsePositiveInteger } from '../utils/parse.js';
 
 function parseBooleanOption(value: string | boolean | undefined): boolean {
   if (value === undefined || value === true) {
@@ -102,14 +103,7 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
           if (options.author !== undefined) params.author = options.author;
 
           if (options.pageCount !== undefined) {
-            const pageCount = Number.parseInt(options.pageCount, 10);
-            if (!Number.isInteger(pageCount) || pageCount <= 0) {
-              ctx.error(
-                `Invalid --page-count: ${options.pageCount}\nExpected: a positive integer`,
-                'INVALID_PAGE_COUNT'
-              );
-            }
-            params.pageCount = pageCount;
+            params.pageCount = parsePositiveInteger(options.pageCount, '--page-count');
           }
 
           const fileIds: string[] = [];
@@ -138,7 +132,7 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
 
           if (wait) {
             spinner = ctx.createSpinner('Generating...');
-            task = await client.waitForTask(task.id, Number.parseInt(options.timeout, 10));
+            task = await client.waitForTask(task.id, parsePositiveInteger(options.timeout, '--timeout'));
 
             if (task.status === 'completed') {
               ctx.succeedSpinner(spinner, 'Generation completed');

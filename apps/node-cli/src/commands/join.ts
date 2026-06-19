@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import path from 'path';
 import { Context } from '../context.js';
 import { DEFAULT_TIMEOUT } from '../utils/constants.js';
+import { parsePositiveInteger } from '../utils/parse.js';
 
 const PPTX_JOIN_TASK_TYPE = 'pptx.join';
 const PPTX_EXT = '.pptx';
@@ -106,7 +107,7 @@ Files are merged into one task in the order provided.`
           if (wait) {
             spinner = ctx.createSpinner('Joining pptx files...');
 
-            task = await client.waitForTask(task.id, parseInt(options.timeout, 10), true, (t) => {
+            task = await client.waitForTask(task.id, parsePositiveInteger(options.timeout, '--timeout'), true, (t) => {
               if (spinner && t.status === 'running') {
                 spinner.text = 'Joining pptx files...';
               }

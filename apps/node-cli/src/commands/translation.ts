@@ -12,6 +12,7 @@ import {
   SUPPORTED_TARGET_LANGUAGES,
   TRANSLATION_FILE_EXTENSIONS,
 } from '../utils/constants.js';
+import { parsePositiveInteger } from '../utils/parse.js';
 
 const TRANSLATION_MODELS = ['Standard', 'Pro'] as const;
 type TranslationModel = (typeof TRANSLATION_MODELS)[number];
@@ -153,7 +154,7 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
 
           if (wait) {
             spinner = ctx.createSpinner('Translating...');
-            task = await client.waitForTask(task.id, Number.parseInt(options.timeout, 10));
+            task = await client.waitForTask(task.id, parsePositiveInteger(options.timeout, '--timeout'));
 
             if (task.status === 'completed') {
               ctx.succeedSpinner(spinner, 'Translation completed');
