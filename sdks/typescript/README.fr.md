@@ -2,7 +2,7 @@
 
 # @deckops/sdk
 
-SDK compatible Node.js et navigateur pour les API de tâches Deckops/Deckflow.
+SDK TypeScript compatible Node.js et navigateur pour les API de tâches Deckops/Deckflow.
 
 ## Installation
 
@@ -260,4 +260,4 @@ await deck.revamp({
 - Les helpers de tâches acceptent directement les fichiers et les téléversent avant la création de la tâche.
 - Les téléversements Node.js peuvent lire un chemin et calculer le MD5.
 - Les téléversements navigateur peuvent utiliser `Blob`/`File` ; le SDK lit le nom de fichier et calcule le MD5.
-- L'abonnement Server-Sent Event est principalement destiné aux flux Node.js. Le polling navigateur via `deck.tasks.wait(taskId, { useEventStream: false })` est l'option la plus portable.
+- L.abonnement Server-Sent Event fonctionne dans Node.js et les navigateurs modernes ; le polling reste disponible avec `deck.tasks.wait(taskId, { useEventStream: false })`.

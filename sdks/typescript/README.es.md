@@ -2,7 +2,7 @@
 
 # @deckops/sdk
 
-SDK compatible con Node.js y navegador para las API de tareas de Deckops/Deckflow.
+SDK TypeScript compatible con Node.js y navegador para las API de tareas de Deckops/Deckflow.
 
 ## Instalación
 
@@ -260,4 +260,4 @@ await deck.revamp({
 - Los helpers de tareas aceptan archivos directamente y los suben antes de crear la tarea.
 - Las subidas en Node.js pueden leer una ruta y calcular MD5.
 - Las subidas en navegador pueden usar `Blob`/`File`; el SDK lee el nombre del archivo y calcula MD5.
-- La suscripción Server-Sent Event está pensada principalmente para flujos de Node.js. El sondeo en navegador mediante `deck.tasks.wait(taskId, { useEventStream: false })` es la opción más portable.
+- La suscripción Server-Sent Event funciona en Node.js y navegadores modernos; el sondeo sigue disponible con `deck.tasks.wait(taskId, { useEventStream: false })`.

@@ -267,7 +267,7 @@ export interface UploadOptions {
   spaceId?: string;
   /** File name. Required for binary inputs that do not carry a name. */
   name?: string;
-  /** File MD5 hash. Required in browser environments when SDK cannot calculate MD5. */
+  /** File MD5 hash. Calculated automatically when omitted. */
   hash?: string;
   /** Desired chunk size in bytes. */
   chunkSize?: number;
@@ -280,7 +280,7 @@ export type TaskUploadOptions = Omit<UploadOptions, 'spaceId'>;
 export type TaskUploadInput =
   | UploadInput
   | ({
-      /** File-like value, Node.js path, or binary data to upload. */
+      /** File-like value, Node.js path, or binary data to upload. Paths are Node.js-only. */
       input: UploadInput;
     } & TaskUploadOptions);
 

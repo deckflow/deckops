@@ -83,6 +83,9 @@ export class FilesApi {
     const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
 
     if (typeof input === 'string') {
+      if (!this.isNodeRuntime()) {
+        throw new Error('String file paths are only supported in Node.js. Use File, Blob, Uint8Array, or ArrayBuffer in browsers.');
+      }
       const fs = await import('node:fs/promises');
       const path = await import('node:path');
       const data = await fs.readFile(input);
@@ -128,6 +131,10 @@ export class FilesApi {
 
   private isBlob(input: UploadInput): input is Blob {
     return typeof Blob !== 'undefined' && input instanceof Blob;
+  }
+
+  private isNodeRuntime(): boolean {
+    return typeof process !== 'undefined' && process.versions?.node != null;
   }
 
   private calculateMD5(data: Uint8Array): string {
@@ -329,17 +336,14 @@ export class FilesApi {
     name: string,
     data: Uint8Array | Blob
   ): Promise<{ body: unknown; headers: Record<string, string> }> {
-    if (typeof globalThis.FormData !== 'undefined') {
-      const form = new FormData();
-      const blob = this.isBlob(data) ? data : new Blob([this.toArrayBuffer(data)]);
-      form.append('file', blob, name);
-      return { body: form, headers: {} };
+    if (typeof globalThis.FormData === 'undefined' || typeof globalThis.Blob === 'undefined') {
+      throw new Error('FormData and Blob are required for local uploads in this runtime');
     }
 
-    const { default: NodeFormData } = await import('form-data');
-    const form = new NodeFormData();
-    form.append('file', this.isBlob(data) ? Buffer.from(await data.arrayBuffer()) : Buffer.from(data), name);
-    return { body: form, headers: form.getHeaders() as Record<string, string> };
+    const form = new FormData();
+    const blob = this.isBlob(data) ? data : new Blob([this.toArrayBuffer(data)]);
+    form.append('file', blob, name);
+    return { body: form, headers: {} };
   }
 
   private toArrayBuffer(data: Uint8Array): ArrayBuffer {

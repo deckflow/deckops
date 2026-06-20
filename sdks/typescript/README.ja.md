@@ -2,7 +2,7 @@
 
 # @deckops/sdk
 
-Deckops/Deckflow タスク API 用の Node.js/ブラウザ対応 SDK。
+Deckops/Deckflow タスク API 用の TypeScript SDK。Node.js とブラウザに対応します。
 
 ## インストール
 
@@ -260,4 +260,4 @@ await deck.revamp({
 - タスクヘルパーはファイルを直接受け取り、タスク作成前にアップロードします。
 - Node.js でのアップロードはパスを読み取り MD5 を計算できます。
 - ブラウザでのアップロードは `Blob`/`File` を使用可能。SDK はファイル名を読み取り MD5 を計算します。
-- Server-Sent Event サブスクリプションは主に Node.js ストリーム向けです。ブラウザでは `deck.tasks.wait(taskId, { useEventStream: false })` によるポーリングが最も移植性の高い方法です。
+- Server-Sent Event サブスクリプションは Node.js とモダンブラウザで動作します。`deck.tasks.wait(taskId, { useEventStream: false })` によるポーリングも利用できます。

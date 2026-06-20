@@ -1,5 +1,5 @@
 import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsource-parser';
-import type { HttpClient } from './http-client.js';
+import type { HttpClient, NodeReadableLike } from './http-client.js';
 import {
   DEFAULT_POLL_INTERVAL,
   DEFAULT_TIMEOUT,
@@ -21,10 +21,14 @@ type FilesLike = {
   upload(input: UploadInput, options?: TaskUploadOptions & { spaceId?: string }): Promise<{ id: string }>;
 };
 
+type EventStreamBody = NodeReadableLike | ReadableStream<Uint8Array> | string;
+
 const SSE_RETRY_INTERVAL = 5000;
 const SSE_MAX_RETRIES = 100;
 
 export class TasksApi {
+  private readonly webStreamReaders = new WeakMap<ReadableStream<Uint8Array>, ReadableStreamDefaultReader<Uint8Array>>();
+
   constructor(
     private readonly http: HttpClient,
     private readonly files?: FilesLike
@@ -187,7 +191,7 @@ export class TasksApi {
     const abortController = new AbortController();
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let resolveRetryTimer: (() => void) | undefined;
-    let activeStream: NodeJS.ReadableStream | undefined;
+    let activeStream: EventStreamBody | undefined;
     let closed = false;
     let retryCount = 0;
 
@@ -246,18 +250,13 @@ export class TasksApi {
     taskId: string,
     handlers: SubscribeTaskHandlers<T>,
     signal: AbortSignal,
-    onStream: (stream: NodeJS.ReadableStream | undefined) => void
+    onStream: (stream: EventStreamBody | undefined) => void
   ): Promise<void> {
-    const res = await this.http.get<DeckTask<T> | NodeJS.ReadableStream>(
-      `/tools/tasks/${encodeURIComponent(taskId)}`,
-      {
-        headers: { 'response-event-stream': 'yes' },
-        responseType: 'stream',
-        signal,
-        params: this.taskQueryParams(),
-        'axios-retry': { retries: 0 },
-      }
-    );
+    const res = await this.http.eventStream<DeckTask<T>>(`/tools/tasks/${encodeURIComponent(taskId)}`, {
+      headers: { 'response-event-stream': 'yes' },
+      signal,
+      params: this.taskQueryParams(),
+    });
 
     const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
     if (contentType.includes('application/json')) {
@@ -289,8 +288,12 @@ export class TasksApi {
         }
       });
 
-      const stream = res.data as NodeJS.ReadableStream;
+      const stream = res.data as EventStreamBody;
       const cleanup = (): void => {
+        if (!this.isNodeReadable(stream)) {
+          onStream(undefined);
+          return;
+        }
         stream.off('data', onData);
         stream.off('error', onError);
         stream.off('end', onEnd);
@@ -305,8 +308,8 @@ export class TasksApi {
           reject(error);
         }
       };
-      const onData = (chunk: Buffer | string): void => {
-        parser.feed(chunk.toString());
+      const onData = (chunk: unknown): void => {
+        parser.feed(this.streamChunkToText(chunk));
       };
       const onError = (error: Error): void => {
         reconnect(error);
@@ -319,6 +322,26 @@ export class TasksApi {
       };
 
       onStream(stream);
+
+      if (typeof stream === 'string') {
+        parser.feed(stream);
+        if (!terminal) {
+          reconnect(new Error('SSE connection ended before task completion'));
+        }
+        return;
+      }
+
+      if (this.isWebReadableStream(stream)) {
+        void this.consumeWebStream(stream, signal, (chunk) => parser.feed(chunk))
+          .then(() => {
+            if (!terminal) {
+              reconnect(new Error('SSE connection ended before task completion'));
+            }
+          })
+          .catch((error) => reconnect(error as Error));
+        return;
+      }
+
       stream.on('data', onData);
       stream.on('error', onError);
       stream.on('end', onEnd);
@@ -352,10 +375,79 @@ export class TasksApi {
     return err.code === 'ERR_CANCELED' || err.message === 'canceled' || err.message?.includes('canceled') === true;
   }
 
-  private destroyStream(stream: NodeJS.ReadableStream | undefined): void {
-    const destroy = (stream as { destroy?: () => void } | undefined)?.destroy;
+  private destroyStream(stream: EventStreamBody | undefined): void {
+    if (this.isWebReadableStream(stream)) {
+      const reader = this.webStreamReaders.get(stream);
+      if (reader) {
+        void reader.cancel();
+      } else {
+        void stream.cancel();
+      }
+      return;
+    }
+
+    const destroy = stream && this.isNodeReadable(stream) ? stream.destroy : undefined;
     if (typeof destroy === 'function') {
       destroy.call(stream);
+    }
+  }
+
+  private isNodeReadable(value: unknown): value is NodeReadableLike {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      typeof (value as { on?: unknown }).on === 'function' &&
+      typeof (value as { off?: unknown }).off === 'function'
+    );
+  }
+
+  private isWebReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
+    return (
+      typeof ReadableStream !== 'undefined' &&
+      value instanceof ReadableStream &&
+      typeof value.getReader === 'function'
+    );
+  }
+
+  private streamChunkToText(chunk: unknown): string {
+    if (typeof chunk === 'string') {
+      return chunk;
+    }
+    if (chunk instanceof Uint8Array) {
+      return new TextDecoder().decode(chunk);
+    }
+    return String(chunk);
+  }
+
+  private async consumeWebStream(
+    stream: ReadableStream<Uint8Array>,
+    signal: AbortSignal,
+    onChunk: (chunk: string) => void
+  ): Promise<void> {
+    const reader = stream.getReader();
+    this.webStreamReaders.set(stream, reader);
+    const decoder = new TextDecoder();
+    const abort = (): void => {
+      void reader.cancel();
+    };
+    signal.addEventListener('abort', abort, { once: true });
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        onChunk(decoder.decode(value, { stream: true }));
+      }
+      const rest = decoder.decode();
+      if (rest) {
+        onChunk(rest);
+      }
+    } finally {
+      this.webStreamReaders.delete(stream);
+      signal.removeEventListener('abort', abort);
+      reader.releaseLock();
     }
   }
 

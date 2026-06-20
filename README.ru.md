@@ -6,7 +6,7 @@ Deckops — это pnpm monorepo для автоматизации задач De
 
 ## Пакеты
 
-- `sdks/nodejs` — `@deckops/sdk`, SDK для Node.js/браузера для загрузки файлов и API задач.
+- `sdks/typescript` — `@deckops/sdk`, TypeScript SDK для Node.js и браузера для загрузки файлов и API задач.
 - `apps/node-cli` — `deckops`, CLI для Node.js. См. [apps/node-cli/README.ru.md](apps/node-cli/README.ru.md).
 
 ## Установка и сборка
@@ -39,7 +39,7 @@ deckops convert slides.pptx --to pdf
 
 ## SDK
 
-API `@deckops/sdk` описан в [sdks/nodejs/README.ru.md](sdks/nodejs/README.ru.md).
+API `@deckops/sdk` описан в [sdks/typescript/README.ru.md](sdks/typescript/README.ru.md).
 
 Базовый пример:
 

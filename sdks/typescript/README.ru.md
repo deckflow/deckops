@@ -2,7 +2,7 @@
 
 # @deckops/sdk
 
-SDK для Node.js и браузера для API задач Deckops/Deckflow.
+TypeScript SDK для Node.js и браузера для API задач Deckops/Deckflow.
 
 ## Установка
 
@@ -260,4 +260,4 @@ await deck.revamp({
 - Вспомогательные методы задач принимают файлы напрямую и загружают их перед созданием задачи.
 - Загрузки в Node.js могут читать путь и вычислять MD5.
 - Загрузки в браузере могут использовать `Blob`/`File`; SDK читает имя файла и вычисляет MD5.
-- Подписка Server-Sent Event в основном предназначена для потоков Node.js. Наиболее переносимый вариант для браузера — опрос через `deck.tasks.wait(taskId, { useEventStream: false })`.
+- Подписка Server-Sent Event работает в Node.js и современных браузерах; опрос также доступен через `deck.tasks.wait(taskId, { useEventStream: false })`.

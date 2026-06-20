@@ -2,7 +2,7 @@
 
 # @deckops/sdk
 
-Node.js and browser-compatible SDK for Deckops/Deckflow task APIs.
+TypeScript SDK for Deckops/Deckflow task APIs in Node.js and browsers.
 
 ## Install
 
@@ -263,4 +263,4 @@ await deck.revamp({
 - Task helpers accept files directly and upload them before task creation.
 - Node.js uploads can read a path and calculate MD5.
 - Browser uploads can use `Blob`/`File`; the SDK reads the file name and calculates MD5.
-- Server-Sent Event subscription is primarily intended for Node.js streams. Browser polling via `deck.tasks.wait(taskId, { useEventStream: false })` is the most portable option.
+- Server-Sent Event subscription works in Node.js and modern browsers; polling remains available with `deck.tasks.wait(taskId, { useEventStream: false })`.

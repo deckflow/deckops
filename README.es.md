@@ -6,7 +6,7 @@ Deckops es un monorepo pnpm para la automatización de tareas de Deckflow.
 
 ## Paquetes
 
-- `sdks/nodejs` - `@deckops/sdk`, un SDK compatible con Node.js/navegador para subida de archivos y APIs de tareas.
+- `sdks/typescript` - `@deckops/sdk`, un SDK TypeScript compatible con Node.js y navegador para subida de archivos y APIs de tareas.
 - `apps/node-cli` - `deckops`, la CLI de Node.js. Consulte [apps/node-cli/README.es.md](apps/node-cli/README.es.md) para su uso.
 
 ## Instalación y compilación
@@ -39,7 +39,7 @@ deckops convert slides.pptx --to pdf
 
 ## SDK
 
-Consulte [sdks/nodejs/README.es.md](sdks/nodejs/README.es.md) para la API de `@deckops/sdk`.
+Consulte [sdks/typescript/README.es.md](sdks/typescript/README.es.md) para la API de `@deckops/sdk`.
 
 Ejemplo básico:
 

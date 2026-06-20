@@ -6,7 +6,7 @@ Deckops 是一个用于 Deckflow 任务自动化的 pnpm monorepo。
 
 ## 包
 
-- `sdks/nodejs` - `@deckops/sdk`，用于文件上传与任务 API 的 Node.js/浏览器兼容 SDK。
+- `sdks/typescript` - `@deckops/sdk`，用于文件上传与任务 API 的 TypeScript SDK，兼容 Node.js 和浏览器。
 - `apps/node-cli` - `deckops`，Node.js 命令行工具。用法见 [apps/node-cli/README.zh-CN.md](apps/node-cli/README.zh-CN.md)。
 
 ## 安装与构建
@@ -39,7 +39,7 @@ deckops convert slides.pptx --to pdf
 
 ## SDK
 
-`@deckops/sdk` API 见 [sdks/nodejs/README.zh-CN.md](sdks/nodejs/README.zh-CN.md)。
+`@deckops/sdk` API 见 [sdks/typescript/README.zh-CN.md](sdks/typescript/README.zh-CN.md)。
 
 基本示例：
 
