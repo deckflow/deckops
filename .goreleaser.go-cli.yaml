@@ -1,0 +1,49 @@
+version: 2
+
+project_name: deckops
+
+builds:
+  - id: deckops
+    dir: apps/go-cli
+    main: .
+    binary: deckops
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X=main.version={{ .Env.RELEASE_VERSION }}
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Env.RELEASE_VERSION }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - apps/go-cli/README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: deckflow
+    name: deckops
+  name_template: "go-cli v{{ .Env.RELEASE_VERSION }}"

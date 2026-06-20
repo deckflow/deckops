@@ -23,12 +23,14 @@ import (
 )
 
 const (
-	version            = "0.7.0"
+	defaultVersion     = "0.7.0"
 	defaultTimeoutSec  = 300
 	defaultOCRLanguage = "zh-hans"
 	defaultLoginPort   = 3737
 	loginTimeout       = 5 * time.Minute
 )
+
+var version = defaultVersion
 
 var compressTypes = map[string]string{
 	".zip":  "file.compress",
