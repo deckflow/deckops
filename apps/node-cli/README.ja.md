@@ -18,6 +18,8 @@ deckops --help
 
 ## クイックスタート
 
+Deckops は、コマンドで必要になったときに認証とワークスペース設定を案内します。
+
 ```bash
 deckops convert slides.pptx --to pdf
 ```
@@ -315,26 +317,6 @@ deckops --json task delete abc123-task-id
 deckops task delete abc123-task-id && deckops task list --limit 5
 ```
 
-## 対話型 REPL
-
-### `repl`
-
-対話型コマンドラインに入り、プロセスを再起動せずにサブコマンドを 1 つずつ実行。
-
-```bash
-# REPL を起動
-deckops repl
-```
-
-REPL では通常の CLI と同じコマンドを入力できます。例：
-
-```
-deckflow> convert slides.pptx --to pdf
-deckflow> task list --limit 5
-```
-
-`exit` または `quit` で終了。
-
 ## 対話型補完
 
 TTY 環境で必須の引数やオプションが不足している場合、CLI は対話的に補完を試みます（`--json` 使用時は発動しません）。例えば `--to` がない場合、`convert` が出力フォーマットの選択を案内します。
@@ -348,7 +330,7 @@ TTY 環境で必須の引数やオプションが不足している場合、CLI 
   - 複数ファイル → ディレクトリに書き込み；パスが `.zip` で終わる場合は zip にパッケージ
   - ファイル結果なし → JSON を書き込み
 
-`-o` を指定した場合、`--wait` を明示しなくてもタスク完了を待ちます。
+`-o` を指定した場合、CLI は結果をダウンロードできるようタスク完了を待ちます。`--no-wait` も指定されていても同様です。
 
 ## よくある質問
 

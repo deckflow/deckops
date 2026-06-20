@@ -18,6 +18,8 @@ deckops --help
 
 ## 快速开始
 
+Deckops 会在命令需要时引导你完成认证和工作区设置。
+
 ```bash
 deckops convert slides.pptx --to pdf
 ```
@@ -315,26 +317,6 @@ deckops --json task delete abc123-task-id
 deckops task delete abc123-task-id && deckops task list --limit 5
 ```
 
-## 交互式 REPL
-
-### `repl`
-
-进入交互式命令行，可逐条输入子命令，无需重复启动进程。
-
-```bash
-# 启动 REPL
-deckops repl
-```
-
-在 REPL 中可输入与普通 CLI 相同的命令，例如：
-
-```
-deckflow> convert slides.pptx --to pdf
-deckflow> task list --limit 5
-```
-
-输入 `exit` 或 `quit` 退出。
-
 ## 交互式补全
 
 在 TTY 环境下，若缺少必填参数或选项，CLI 会尝试交互式提示补全（使用 `--json` 时不会触发）。例如缺少 `--to` 时，`convert` 会引导你选择输出格式。
@@ -348,7 +330,7 @@ deckflow> task list --limit 5
   - 多文件 → 写入目录；若路径以 `.zip` 结尾则打包为 zip
   - 无文件结果 → 写入 JSON
 
-指定 `-o` 时，即使未显式传 `--wait`，也会等待任务完成。
+指定 `-o` 时，CLI 会等待任务完成以便下载结果，即使同时传入了 `--no-wait`。
 
 ## 常见问题
 

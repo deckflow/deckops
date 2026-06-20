@@ -18,7 +18,6 @@ import { registerJoinCommand } from './commands/join.js';
 import { registerGenerationCommand } from './commands/generation.js';
 import { registerTranslationCommand } from './commands/translation.js';
 import { registerRunCommand } from './commands/run.js';
-import { registerReplCommand } from './commands/repl.js';
 import { ExitCode, outputError } from './utils/errors.js';
 import { parseWithInteractiveRepair } from './utils/interactive-parse.js';
 
@@ -60,7 +59,6 @@ async function main() {
   registerGenerationCommand(program, ctx);
   registerTranslationCommand(program, ctx);
   registerRunCommand(program, ctx);
-  registerReplCommand(program, ctx);
 
   // Parse arguments
   try {

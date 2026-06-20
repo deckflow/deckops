@@ -18,6 +18,8 @@ deckops --help
 
 ## Inicio rápido
 
+Deckops te guiará por la autenticación y la configuración del espacio de trabajo cuando un comando lo necesite.
+
 ```bash
 deckops convert slides.pptx --to pdf
 ```
@@ -315,26 +317,6 @@ deckops --json task delete abc123-task-id
 deckops task delete abc123-task-id && deckops task list --limit 5
 ```
 
-## REPL interactivo
-
-### `repl`
-
-Entrar en una línea de comandos interactiva para ejecutar subcomandos uno a uno sin reiniciar el proceso.
-
-```bash
-# Iniciar REPL
-deckops repl
-```
-
-En el REPL puedes introducir los mismos comandos que el CLI normal, por ejemplo:
-
-```
-deckflow> convert slides.pptx --to pdf
-deckflow> task list --limit 5
-```
-
-Escribe `exit` o `quit` para salir.
-
 ## Autocompletado interactivo
 
 En un entorno TTY, si faltan argumentos u opciones obligatorios, el CLI intentará completar de forma interactiva (no se activa con `--json`). Por ejemplo, si falta `--to`, `convert` te guiará para elegir un formato de salida.
@@ -348,7 +330,7 @@ En un entorno TTY, si faltan argumentos u opciones obligatorios, el CLI intentar
   - Varios archivos → escribir en directorio; si la ruta termina en `.zip`, empaquetar como zip
   - Sin resultado de archivo → escribir JSON
 
-Cuando se especifica `-o`, se esperará la tarea aunque no se pase explícitamente `--wait`.
+Cuando se especifica `-o`, el CLI espera a que la tarea termine para poder descargar el resultado, incluso si también se proporciona `--no-wait`.
 
 ## Preguntas frecuentes
 

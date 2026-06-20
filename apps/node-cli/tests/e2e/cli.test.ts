@@ -18,7 +18,7 @@ async function runCLI(args: string[]): Promise<{
 }> {
   return new Promise((resolve) => {
     const child = spawn('node', ['dist/cli.js', ...args], {
-      env: { ...process.env, FORCE_COLOR: '0' }, // Disable colors for testing
+      env: { ...process.env, CI: 'true', FORCE_COLOR: '0' }, // Disable colors for testing
     });
 
     let stdout = '';
@@ -145,7 +145,7 @@ describe('CLI E2E Tests', () => {
     });
 
     it('should handle missing required argument', async () => {
-      const result = await runCLI(['compress']);
+      const result = await runCLI(['--json', 'compress']);
 
       expect(result.exitCode).not.toBe(0);
     });
