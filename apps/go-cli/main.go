@@ -1440,6 +1440,14 @@ func (c *appContext) runFileTask(options fileTaskOptions) error {
 			return nil
 		}
 	}
+	if options.wait && task.Status == deckops.TaskStatusCompleted {
+		var downloadResult any
+		if err := client.Tasks.Down(context.Background(), task.ID, deckops.TaskDownloadOptions{}, &downloadResult); err != nil {
+			return err
+		}
+		printJSON(downloadResult)
+		return nil
+	}
 	c.output(task, func() string {
 		lines := []string{
 			options.title + ":",
@@ -1462,8 +1470,8 @@ func (c *appContext) runFileTask(options fileTaskOptions) error {
 func parseTaskOptions(args []string, extra optionSpec) (options, []string, error) {
 	spec := optionSpec{
 		"out":     {short: "o", takesValue: true},
-		"wait":    {value: "true"},
-		"no-wait": {value: "true"},
+		"wait":    {},
+		"no-wait": {},
 		"timeout": {takesValue: true, value: strconv.Itoa(defaultTimeoutSec)},
 	}
 	for k, v := range extra {
