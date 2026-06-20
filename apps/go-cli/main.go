@@ -185,6 +185,12 @@ func newAppContext(jsonOut bool) (*appContext, error) {
 }
 
 func dispatch(ctx *appContext, args []string) error {
+	if len(args) > 1 && hasHelpFlag(args[1:]) {
+		if printCommandHelp(args) {
+			return nil
+		}
+	}
+
 	switch args[0] {
 	case "config":
 		return ctx.runConfig(args[1:])
@@ -231,6 +237,281 @@ Commands:
   create      Create document content
   translate   Translate a document file
   run         Run a task with explicit type`)
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+func printCommandHelp(args []string) bool {
+	switch args[0] {
+	case "config":
+		return printConfigHelp(args[1:])
+	case "login":
+		fmt.Println(`Usage:
+  deckops login [options]
+
+Login to Deckflow and save authentication token
+
+Options:
+  --port <port>  Local server port for callback (default: 3737)
+  -h, --help     display help for command`)
+	case "task":
+		return printTaskHelp(args[1:])
+	case "compress":
+		fmt.Println(`Usage:
+  deckops compress [options] <input-file>
+
+Compress a file
+
+Options:
+  -o, --out <path>     Write completed task output to a file or directory
+  --no-wait            Do not wait for task completion
+  --timeout <seconds>  Timeout in seconds (default: 300)
+  -h, --help           display help for command`)
+	case "extract":
+		fmt.Println(`Usage:
+  deckops extract [options] <input-file>
+
+Extract information from a file (fonts, text-shapes)
+
+Options:
+  --type <type>        Extract type: fonts, text-shapes
+  -o, --out <path>     Write completed task output to a file or directory
+  --no-wait            Do not wait for task completion
+  --timeout <seconds>  Timeout in seconds (default: 300)
+  -h, --help           display help for command`)
+	case "ocr":
+		fmt.Printf(`Usage:
+  deckops ocr [options] <input-file>
+
+Extract text from images using OCR
+
+Options:
+  --language <lang>    OCR language (%s) (default: %s)
+  -o, --out <path>     Write completed task output to a file or directory
+  --no-wait            Do not wait for task completion
+  --timeout <seconds>  Timeout in seconds (default: 300)
+  -h, --help           display help for command
+`, strings.Join(ocrLanguages, ", "), defaultOCRLanguage)
+	case "convert":
+		fmt.Printf(`Usage:
+  deckops convert [options] <input-files...>
+
+Convert file(s) to a different format
+
+Options:
+  --to <format>             Output format: %s
+  --width <number>          Width for html->pptx/html->png conversion (only applies to .html --to pptx/png)
+  --height <number>         Height for html->pptx/html->png conversion (only applies to .html --to pptx/png)
+  --need-embed-fonts [bool] Whether to embed fonts for html->pptx conversion (default: false)
+  -o, --out <path>          Write completed task output to a file or directory
+  --no-wait                 Do not wait for task completion
+  --timeout <seconds>       Timeout in seconds (default: 300)
+  -h, --help                display help for command
+
+Examples:
+  $ deckops convert slides.pptx --to pdf
+  $ deckops convert page1.html page2.html --to pptx
+
+Multiple input files create one ordered conversion task only for html -> pptx.
+`, strings.Join(keysNested(renderFormats), ", "))
+	case "join":
+		fmt.Println(`Usage:
+  deckops join [options] <input-files...>
+
+Merge multiple pptx files into one (in the given order)
+
+Options:
+  --name <name>        Output task name (defaults to first input file name)
+  -o, --out <path>     Write completed task output to a file or directory
+  --no-wait            Do not wait for task completion
+  --timeout <seconds>  Timeout in seconds (default: 300)
+  -h, --help           display help for command
+
+Example:
+  $ deckops join intro.pptx body.pptx appendix.pptx
+
+Files are merged into one task in the order provided.`)
+	case "create":
+		fmt.Println(`Usage:
+  deckops create [options] [input-files...]
+
+Create document content
+
+Options:
+  --input-text <text>       Input text from user
+  --enable-search [bool]    Enable search
+  --advanced-model [bool]   Use advanced model
+  --fast-mode [bool]        Enable fast mode
+  --intent <intent>         Content generation intent
+  --audience <audience>     Target audience
+  --page-count <number>     Expected page count
+  --author <name>           Document author
+  -o, --out <path>          Write completed task output to a file or directory
+  --no-wait                 Do not wait for task completion
+  --timeout <seconds>       Timeout in seconds (default: 300)
+  -h, --help                display help for command`)
+	case "translate":
+		fmt.Printf(`Usage:
+  deckops translate [options] <input-file>
+
+Translate a document file
+
+Options:
+  --from <language>          Source language (%s)
+  --to <language>            Target language (%s)
+  --model <model>            Translation model (Standard, Pro)
+  --use-glossary [bool]      Use glossary (default: false)
+  --image-translate [bool]   Translate images (default: false)
+  -o, --out <path>           Write completed task output to a file or directory
+  --no-wait                  Do not wait for task completion
+  --timeout <seconds>        Timeout in seconds (default: 300)
+  -h, --help                 display help for command
+`, strings.Join(sourceLanguages, ", "), strings.Join(targetLanguages, ", "))
+	case "run":
+		fmt.Printf(`Usage:
+  deckops run [options] <task-type> <input-files...>
+
+Run a task with explicit type
+
+Options:
+  --param <key=value>  Task parameters (can be used multiple times)
+  -o, --out <path>     Write completed task output to a file or directory
+  --no-wait            Do not wait for task completion
+  --timeout <seconds>  Timeout in seconds (default: 300)
+  -h, --help           display help for command
+
+Examples:
+  $ deckops run convertor.ppt2pdf demo.ppt
+  $ deckops run pptx.join part1.pptx part2.pptx
+  $ deckops run convertor.html2pptx page1.html page2.html
+
+Multiple input files are passed as one ordered source set only for: %s.
+`, strings.Join(multiSourceTaskTypes, ", "))
+	default:
+		return false
+	}
+	return true
+}
+
+func printConfigHelp(args []string) bool {
+	sub := firstNonHelpArg(args)
+	switch sub {
+	case "":
+		fmt.Println(`Usage:
+  deckops config <command>
+
+Manage configuration
+
+Commands:
+  set-token <token>       Set authentication token
+  set-space <space-id>    Set workspace/space ID
+  set-api-base <url>      Set API base URL
+  show                    Show current configuration
+
+Options:
+  -h, --help              display help for command`)
+	case "set-token":
+		fmt.Println(`Usage:
+  deckops config set-token <token>
+
+Set authentication token
+
+Options:
+  -h, --help  display help for command`)
+	case "set-space":
+		fmt.Println(`Usage:
+  deckops config set-space <space-id>
+
+Set workspace/space ID
+
+Options:
+  -h, --help  display help for command`)
+	case "set-api-base":
+		fmt.Println(`Usage:
+  deckops config set-api-base <url>
+
+Set API base URL
+
+Options:
+  -h, --help  display help for command`)
+	case "show":
+		fmt.Println(`Usage:
+  deckops config show
+
+Show current configuration
+
+Options:
+  -h, --help  display help for command`)
+	default:
+		return false
+	}
+	return true
+}
+
+func printTaskHelp(args []string) bool {
+	sub := firstNonHelpArg(args)
+	switch sub {
+	case "":
+		fmt.Println(`Usage:
+  deckops task <command>
+
+Manage tasks
+
+Commands:
+  list                  List all tasks
+  get <task-id>         Get task details
+  delete <task-id>      Delete a task
+
+Options:
+  -h, --help            display help for command`)
+	case "list":
+		fmt.Println(`Usage:
+  deckops task list [options]
+
+List all tasks
+
+Options:
+  --type <type>      Filter by task type
+  --limit <n>        Maximum number of results (default: 50)
+  --offset <n>       Start index for pagination (default: 0)
+  -h, --help         display help for command`)
+	case "get":
+		fmt.Println(`Usage:
+  deckops task get [options] <task-id>
+
+Get task details
+
+Options:
+  -o, --out <path>   Write completed task output to a file or directory
+  -h, --help         display help for command`)
+	case "delete":
+		fmt.Println(`Usage:
+  deckops task delete <task-id>
+
+Delete a task
+
+Options:
+  -h, --help         display help for command`)
+	default:
+		return false
+	}
+	return true
+}
+
+func firstNonHelpArg(args []string) string {
+	for _, arg := range args {
+		if arg != "-h" && arg != "--help" {
+			return arg
+		}
+	}
+	return ""
 }
 
 func (c *appContext) loadConfig() error {
@@ -456,8 +737,8 @@ func (c *appContext) runLogin(args []string) error {
 		return err
 	}
 	if !c.json {
-		fmt.Println("\nToken saved successfully!\n")
-		fmt.Println("You can now use Deckflow CLI commands.\n")
+		fmt.Println("\nToken saved successfully!")
+		fmt.Println("\nYou can now use Deckflow CLI commands.")
 	}
 	c.output(map[string]any{"success": true, "message": "Login successful"}, func() string { return "Login successful!" })
 	return nil
@@ -471,9 +752,9 @@ func (c *appContext) ensureLoggedIn(ctx context.Context, port int, reason string
 	}
 	if !c.json {
 		if reason == "unauthorized" {
-			fmt.Println("\nAuthentication expired. Please log in again.\n")
+			fmt.Println("\nAuthentication expired. Please log in again.")
 		} else {
-			fmt.Println("\nDeckflow Login\n")
+			fmt.Println("\nDeckflow Login")
 		}
 		fmt.Println("Opening browser to:", loginURL)
 		fmt.Printf("Waiting for authentication on port %d...\n\n", port)
@@ -524,7 +805,7 @@ func (c *appContext) ensureCheckout(ctx context.Context, port int) error {
 		return err
 	}
 	if !c.json {
-		fmt.Println("\nInsufficient balance. Please complete payment to continue.\n")
+		fmt.Println("\nInsufficient balance. Please complete payment to continue.")
 		fmt.Println("Opening browser to:", checkoutURL)
 		fmt.Printf("Waiting for checkout completion on port %d...\n\n", port)
 	}
