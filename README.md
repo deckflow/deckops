@@ -7,6 +7,7 @@ Deckops is a pnpm monorepo for Deckflow task automation.
 ## Packages
 
 - `sdks/typescript` - `@deckops/sdk`, a TypeScript SDK for file upload and task APIs in Node.js and browsers.
+- `sdks/go` - Go SDK for file upload and task APIs.
 - `apps/node-cli` - `deckops`, the Node.js CLI. See [apps/node-cli/README.md](apps/node-cli/README.md) for usage.
 
 ## Install and Build
@@ -39,7 +40,7 @@ deckops convert slides.pptx --to pdf
 
 ## SDK
 
-See [sdks/typescript/README.md](sdks/typescript/README.md) for the `@deckops/sdk` API.
+See [sdks/typescript/README.md](sdks/typescript/README.md) for the `@deckops/sdk` API, and [sdks/go/README.md](sdks/go/README.md) for the Go SDK.
 
 Basic example:
 
@@ -65,4 +66,4 @@ console.log(done.result);
 - `root` in `createDeck({ root })` is the API root address and defaults to `https://app.deckflow.com/v1`.
 - `token` is sent as `X-Auth-Token`.
 - `apiKey` is sent as `Authorization: Bearer {apiKey}`.
-- Future SDKs can be added under `sdks/go`, `sdks/python`, `sdks/java`, or `sdks/rust`.
+- Future SDKs can be added under `sdks/python`, `sdks/java`, or `sdks/rust`.
