@@ -29,6 +29,36 @@ Replace `darwin_arm64` with your platform:
 
 Verify downloads with the `checksums.txt` file attached to the same release.
 
+### macOS first run (Gatekeeper)
+
+Pre-built binaries are not signed with an Apple Developer ID. On first launch, macOS may block the binary with a message such as **"cannot be opened because the developer cannot be verified"**, or ask you to allow it under **System Settings → Privacy & Security**.
+
+This is expected for unsigned CLI tools. Use one of the following before running `deckops`:
+
+**Option A — remove the quarantine flag (recommended)**
+
+If you downloaded the archive from a browser or see the security prompt after extracting it:
+
+```bash
+xattr -d com.apple.quarantine /path/to/deckops
+```
+
+If `deckops` is already in your `PATH` (for example `/usr/local/bin/deckops`):
+
+```bash
+xattr -d com.apple.quarantine "$(which deckops)"
+```
+
+**Option B — open once from Finder**
+
+Right-click the `deckops` binary → **Open** → confirm **Open** in the dialog. After that, you can run it from the terminal as usual.
+
+**Option C — build from source (no Gatekeeper prompt)**
+
+See [Build from source](#build-from-source) below. A binary compiled on your Mac is not quarantined.
+
+> **Tip:** Installing via `curl … | tar -xz` (see example above) often avoids the quarantine flag. Browser downloads of the `.tar.gz` are more likely to trigger Gatekeeper.
+
 ## Build from source
 
 ```bash
