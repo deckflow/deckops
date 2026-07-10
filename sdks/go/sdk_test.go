@@ -290,6 +290,59 @@ func TestUnauthorizedRefreshesCredentials(t *testing.T) {
 	}
 }
 
+func TestUnauthorizedDedupesConcurrentRefresh(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	refreshCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("X-Auth-Token") == "old-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"expired"}`))
+			return
+		}
+		if got := r.Header.Get("X-Auth-Token"); got != "new-token" {
+			t.Fatalf("token = %q", got)
+		}
+		taskID := strings.TrimPrefix(r.URL.Path, "/tools/tasks/")
+		_, _ = w.Write([]byte(`{"id":"` + taskID + `","spaceId":"space-new","type":"image.ocr","status":"completed"}`))
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{
+		Root:     server.URL,
+		Token:    "old-token",
+		SpaceID:  "space-old",
+		AuthUUID: testAuthUUID,
+		OnUnauthorized: func(context.Context) (AuthRefresh, error) {
+			refreshCalls++
+			time.Sleep(20 * time.Millisecond)
+			return AuthRefresh{Token: "new-token", SpaceID: "space-new"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errCh := make(chan error, 2)
+	go func() {
+		_, err := deck.Tasks.Get(ctx, "task-1", false)
+		errCh <- err
+	}()
+	go func() {
+		_, err := deck.Tasks.Get(ctx, "task-2", false)
+		errCh <- err
+	}()
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refreshCalls)
+	}
+}
+
 func TestAuthUUIDStorage(t *testing.T) {
 	resetAuthUUIDCacheForTests()
 	ctx := context.Background()

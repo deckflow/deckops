@@ -88,7 +88,6 @@ Multiple input files create one ordered conversion task only for html -> pptx.`
         try {
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
-          const spaceId = ctx.config.spaceId;
 
           // Determine task type
           const formatMap = RENDER_FORMATS[options.to];
@@ -144,7 +143,7 @@ Multiple input files create one ordered conversion task only for html -> pptx.`
             const baseName = path.basename(inputFile);
             spinner = ctx.createSpinner(`Uploading [${index}/${total}] ${baseName}...`);
 
-            const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
+            const fileId = await uploader.uploadFile(undefined, inputFile, (progress) => {
               if (spinner) {
                 spinner.text = `Uploading [${index}/${total}] ${baseName}: ${(progress * 100).toFixed(1)}%`;
               }
@@ -188,7 +187,7 @@ Multiple input files create one ordered conversion task only for html -> pptx.`
             params.needEmbedFonts = options.needEmbedFonts ?? false;
           }
 
-          let task = await client.addTask(spaceId, fileIds, taskType, taskName, params);
+          let task = await client.addTask(undefined, fileIds, taskType, taskName, params);
 
           ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 

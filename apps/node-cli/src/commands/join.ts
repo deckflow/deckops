@@ -58,7 +58,6 @@ Files are merged into one task in the order provided.`
 
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
-          const spaceId = ctx.config.spaceId;
 
           // Upload files sequentially to preserve the requested order
           const fileIds: string[] = [];
@@ -72,7 +71,7 @@ Files are merged into one task in the order provided.`
 
             spinner = ctx.createSpinner(`Uploading [${index}/${total}] ${baseName}...`);
 
-            const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
+            const fileId = await uploader.uploadFile(undefined, inputFile, (progress) => {
               if (spinner) {
                 spinner.text = `Uploading [${index}/${total}] ${baseName}: ${(progress * 100).toFixed(1)}%`;
               }
@@ -91,7 +90,7 @@ Files are merged into one task in the order provided.`
             options.name || (firstFile ? path.basename(firstFile, PPTX_EXT) : undefined);
 
           let task = await client.addTask(
-            spaceId,
+            undefined,
             fileIds,
             PPTX_JOIN_TASK_TYPE,
             taskName

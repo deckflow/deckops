@@ -407,6 +407,104 @@ describe('@deckops/sdk', () => {
     expect(task.spaceId).toBe('space-new');
   });
 
+  it('dedupes concurrent onUnauthorized refresh across parallel 401 responses', async () => {
+    let refreshCalls = 0;
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'old-token',
+      spaceId: 'space-old',
+      authUuid: TEST_AUTH_UUID,
+      onUnauthorized: async () => {
+        refreshCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { token: 'new-token', spaceId: 'space-new' };
+      },
+    });
+
+    mock.onGet(/http:\/\/localhost:3000\/api\/tools\/tasks\/task-[12]$/).reply((config) => {
+      if (config.headers?.['X-Auth-Token'] === 'old-token') {
+        return [401, { message: 'expired' }];
+      }
+      const taskId = String(config.url).endsWith('/task-1') ? 'task-1' : 'task-2';
+      expect(config.headers?.['X-Auth-Token']).toBe('new-token');
+      return [
+        200,
+        { id: taskId, spaceId: 'space-new', type: 'image.ocr', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    const [task1, task2] = await Promise.all([
+      deck.tasks.get('task-1'),
+      deck.tasks.get('task-2'),
+    ]);
+
+    expect(refreshCalls).toBe(1);
+    expect(task1.id).toBe('task-1');
+    expect(task2.id).toBe('task-2');
+  });
+
+  it('sends updated token on later requests after setToken', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'old-token',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    let seenToken: string | undefined;
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply((config) => {
+      seenToken = config.headers?.['X-Auth-Token'] as string | undefined;
+      return [
+        200,
+        { id: 'task-1', spaceId: 'space-1', type: 'image.ocr', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    deck.setToken('new-token');
+    await deck.tasks.get('task-1');
+    expect(seenToken).toBe('new-token');
+  });
+
+  it('reuses refreshed credentials across sequential requests without re-auth', async () => {
+    let refreshCalls = 0;
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'old-token',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+      onUnauthorized: async () => {
+        refreshCalls += 1;
+        return { token: 'new-token', spaceId: 'space-1' };
+      },
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      if (config.headers?.['X-Auth-Token'] === 'old-token') {
+        return [401, { message: 'expired' }];
+      }
+      return [
+        200,
+        { id: 'task-1', spaceId: 'space-1', type: 'convertor.html2pptx', status: 'pending' },
+      ];
+    });
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply((config) => {
+      expect(config.headers?.['X-Auth-Token']).toBe('new-token');
+      return [
+        200,
+        { id: 'task-1', spaceId: 'space-1', type: 'convertor.html2pptx', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    await deck.tasks.create({ type: 'convertor.html2pptx', fileIds: ['file-1'] });
+    expect(refreshCalls).toBe(1);
+
+    await deck.tasks.get('task-1');
+    expect(refreshCalls).toBe(1);
+  });
+
   it('sends explicit authUuid as X-Auth-UUID header', async () => {
     const deck = createDeck({
       root: 'http://localhost:3000/api',

@@ -88,7 +88,6 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
         try {
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
-          const spaceId = ctx.config.spaceId;
 
           if (
             !SUPPORTED_SOURCE_LANGUAGES.includes(
@@ -126,7 +125,7 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
 
           let spinner: any = ctx.createSpinner(`Uploading ${path.basename(inputFile)}...`);
 
-          const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
+          const fileId = await uploader.uploadFile(undefined, inputFile, (progress) => {
             if (spinner) {
               spinner.text = `Uploading ${path.basename(inputFile)}: ${(progress * 100).toFixed(1)}%`;
             }
@@ -145,7 +144,7 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
             imageTranslate: options.imageTranslate,
           };
 
-          let task = await client.addTask(spaceId, [fileId], 'translation', taskName, params);
+          let task = await client.addTask(undefined, [fileId], 'translation', taskName, params);
 
           ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 

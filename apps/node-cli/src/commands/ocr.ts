@@ -29,7 +29,6 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
         try {
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
-          const spaceId = ctx.config.spaceId;
 
           // Validate language
           if (!OCR_LANGUAGES.includes(options.language as any)) {
@@ -53,7 +52,7 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
           let spinner: any;
           spinner = ctx.createSpinner(`Uploading ${path.basename(inputFile)}...`);
 
-          const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
+          const fileId = await uploader.uploadFile(undefined, inputFile, (progress) => {
             if (spinner) {
               spinner.text = `Uploading: ${(progress * 100).toFixed(1)}%`;
             }
@@ -68,7 +67,7 @@ export function registerOcrCommand(program: Command, ctx: Context): void {
           const taskType = 'image.ocr';
           const params = { language: options.language };
 
-          let task = await client.addTask(spaceId, [fileId], taskType, taskName, params);
+          let task = await client.addTask(undefined, [fileId], taskType, taskName, params);
 
           ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 

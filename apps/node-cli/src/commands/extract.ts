@@ -29,7 +29,6 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
         try {
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
-          const spaceId = ctx.config.spaceId;
 
           // Determine task type
           const ext = path.extname(inputFile).toLowerCase();
@@ -60,7 +59,7 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
           let spinner: any;
           spinner = ctx.createSpinner(`Uploading ${path.basename(inputFile)}...`);
 
-          const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
+          const fileId = await uploader.uploadFile(undefined, inputFile, (progress) => {
             if (spinner) {
               spinner.text = `Uploading: ${(progress * 100).toFixed(1)}%`;
             }
@@ -72,7 +71,7 @@ export function registerExtractCommand(program: Command, ctx: Context): void {
           spinner = ctx.createSpinner('Creating extraction task...');
 
           const taskName = path.basename(inputFile, ext);
-          let task = await client.addTask(spaceId, [fileId], taskType, taskName);
+          let task = await client.addTask(undefined, [fileId], taskType, taskName);
 
           ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 

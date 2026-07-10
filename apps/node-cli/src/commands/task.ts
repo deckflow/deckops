@@ -24,10 +24,9 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
     .action(async (options: { type?: string; limit: string; offset: string }) => {
       try {
         const client = await ctx.getClient();
-        const spaceId = ctx.config.spaceId;
 
         const result = await client.listTasks(
-          spaceId,
+          undefined,
           options.type,
           parseNonNegativeInteger(options.offset, '--offset'),
           parsePositiveInteger(options.limit, '--limit')

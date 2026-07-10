@@ -26,6 +26,14 @@ type httpClient struct {
 	onUnauthorized    func(context.Context) (AuthRefresh, error)
 	onPaymentRequired func(context.Context) error
 	mu                sync.RWMutex
+	authRefreshMu     sync.Mutex
+	authRefreshWait   *authRefreshWaiter
+}
+
+type authRefreshWaiter struct {
+	done chan struct{}
+	auth AuthRefresh
+	err  error
 }
 
 type httpResponse struct {
@@ -220,7 +228,7 @@ func (c *httpClient) do(ctx context.Context, method string, path string, query u
 				if c.onUnauthorized != nil {
 					authRetried = true
 					oldSpaceID := c.SpaceID()
-					auth, err := c.onUnauthorized(ctx)
+					auth, err := c.refreshAuth(ctx)
 					if err != nil {
 						return nil, err
 					}
@@ -251,6 +259,38 @@ func (c *httpClient) usesAPIKeyAuth() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.apiKey != "" && c.token == ""
+}
+
+func (c *httpClient) refreshAuth(ctx context.Context) (AuthRefresh, error) {
+	if c.onUnauthorized == nil {
+		return AuthRefresh{}, fmt.Errorf("onUnauthorized is not configured")
+	}
+
+	c.authRefreshMu.Lock()
+	if waiting := c.authRefreshWait; waiting != nil {
+		c.authRefreshMu.Unlock()
+		select {
+		case <-waiting.done:
+			return waiting.auth, waiting.err
+		case <-ctx.Done():
+			return AuthRefresh{}, ctx.Err()
+		}
+	}
+
+	wait := &authRefreshWaiter{done: make(chan struct{})}
+	c.authRefreshWait = wait
+	c.authRefreshMu.Unlock()
+
+	wait.auth, wait.err = c.onUnauthorized(ctx)
+
+	c.authRefreshMu.Lock()
+	if c.authRefreshWait == wait {
+		c.authRefreshWait = nil
+	}
+	c.authRefreshMu.Unlock()
+	close(wait.done)
+
+	return wait.auth, wait.err
 }
 
 func (c *httpClient) doOnce(ctx context.Context, method string, path string, query url.Values, headers http.Header, body []byte, stream bool) (*httpResponse, error) {

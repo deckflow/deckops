@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	deckops "github.com/deckops/deckops/sdks/go"
@@ -105,11 +106,19 @@ type configData struct {
 }
 
 type appContext struct {
-	config     configData
-	configDir  string
-	configPath string
-	json       bool
-	client     *deckops.Client
+	config      configData
+	configDir   string
+	configPath  string
+	json        bool
+	client      *deckops.Client
+	loginMu     sync.Mutex
+	loginWaiter *loginWaiter
+}
+
+type loginWaiter struct {
+	done  chan struct{}
+	token string
+	err   error
 }
 
 func main() {
@@ -738,6 +747,34 @@ func (c *appContext) runLogin(args []string) error {
 }
 
 func (c *appContext) ensureLoggedIn(ctx context.Context, port int, reason string) (string, error) {
+	c.loginMu.Lock()
+	if waiting := c.loginWaiter; waiting != nil {
+		c.loginMu.Unlock()
+		select {
+		case <-waiting.done:
+			return waiting.token, waiting.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
+	wait := &loginWaiter{done: make(chan struct{})}
+	c.loginWaiter = wait
+	c.loginMu.Unlock()
+
+	wait.token, wait.err = c.runLoginFlow(ctx, port, reason)
+
+	c.loginMu.Lock()
+	if c.loginWaiter == wait {
+		c.loginWaiter = nil
+	}
+	c.loginMu.Unlock()
+	close(wait.done)
+
+	return wait.token, wait.err
+}
+
+func (c *appContext) runLoginFlow(ctx context.Context, port int, reason string) (string, error) {
 	callbackURL := fmt.Sprintf("http://localhost:%d", port)
 	loginURL, err := buildLoginURL(c.apiBase(), callbackURL)
 	if err != nil {
@@ -1361,7 +1398,6 @@ func (c *appContext) runFileTask(options fileTaskOptions) error {
 	if err != nil {
 		return err
 	}
-	spaceID := c.config.SpaceID
 	fileIDs := make([]string, 0, len(options.inputFiles))
 	for i, input := range options.inputFiles {
 		base := filepath.Base(input)
@@ -1371,7 +1407,6 @@ func (c *appContext) runFileTask(options fileTaskOptions) error {
 			c.info("Uploading " + base + "...")
 		}
 		result, err := client.Files.Upload(context.Background(), deckops.UploadInput{Path: input}, deckops.UploadOptions{
-			SpaceID: spaceID,
 			OnProgress: func(progress float64) {
 				if !c.json && progress >= 1 {
 					fmt.Println("Uploaded " + base)
@@ -1385,7 +1420,6 @@ func (c *appContext) runFileTask(options fileTaskOptions) error {
 	}
 	c.info(options.createMessage)
 	task, err := client.Tasks.Create(context.Background(), deckops.CreateTaskParams{
-		SpaceID: spaceID,
 		FileIDs: fileIDs,
 		Type:    deckops.TaskType(options.taskType),
 		Name:    options.taskName,

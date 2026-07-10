@@ -12,6 +12,8 @@ type RetriableConfig = Record<string, unknown> & {
   __deckopsAuthRetried?: boolean;
 };
 
+type AuthRefreshResult = { token: string; spaceId?: string } | string;
+
 export type NodeReadableLike = {
   on(event: 'data', listener: (chunk: unknown) => void): NodeReadableLike;
   on(event: 'error', listener: (error: Error) => void): NodeReadableLike;
@@ -31,6 +33,7 @@ export class HttpClient {
   public spaceId?: string;
   private spaceIdExplicit = false;
   private resolvedSpaceIdPromise?: Promise<string>;
+  private authRefreshPromise?: Promise<AuthRefreshResult>;
   private readonly onUnauthorized?: CreateDeckOptions['onUnauthorized'];
   private readonly onPaymentRequired?: CreateDeckOptions['onPaymentRequired'];
 
@@ -51,8 +54,24 @@ export class HttpClient {
     });
 
     this.client.interceptors.request.use(async (config) => {
-      config.headers = config.headers ?? {};
-      config.headers['X-Auth-UUID'] = await this.authUuidPromise;
+      const authUuid = await this.authUuidPromise;
+      const authHeaders = this.buildAuthHeaders();
+      const headers = config.headers;
+
+      if (headers && typeof (headers as { set?: unknown }).set === 'function') {
+        const mutable = headers as { set: (key: string, value: string) => void };
+        for (const [key, value] of Object.entries(authHeaders)) {
+          mutable.set(key, value);
+        }
+        mutable.set('X-Auth-UUID', authUuid);
+        return config;
+      }
+
+      config.headers = {
+        ...(headers as Record<string, string> | undefined),
+        ...authHeaders,
+        'X-Auth-UUID': authUuid,
+      };
       return config;
     });
 
@@ -79,20 +98,11 @@ export class HttpClient {
           if (this.isApiKeyAuth()) {
             throw APIError.unauthorizedApiKey(error);
           }
-          if (options.onUnauthorized) {
+          if (this.onUnauthorized) {
             cfg.__deckopsAuthRetried = true;
             const oldSpaceId = this.spaceId;
-            const auth = await options.onUnauthorized();
-            const nextToken = typeof auth === 'string' ? auth : auth.token;
-            const nextSpaceId = typeof auth === 'string' ? this.spaceId : auth.spaceId;
-
-            this.setToken(nextToken);
-            if (nextSpaceId) {
-              this.setSpaceId(nextSpaceId);
-            }
-            this.rewriteRequestSpaceId(cfg, oldSpaceId, nextSpaceId);
-
-            cfg.headers = { ...(cfg.headers ?? {}), ...this.buildAuthHeaders() };
+            const auth = await this.refreshAuth();
+            this.applyAuthResult(auth, cfg, oldSpaceId);
             return await this.client.request(cfg);
           }
           throw APIError.unauthorizedToken(error);
@@ -331,13 +341,8 @@ export class HttpClient {
         if (this.onUnauthorized) {
           authRetried = true;
           const oldSpaceId = this.spaceId;
-          const auth = await this.onUnauthorized();
-          const nextToken = typeof auth === 'string' ? auth : auth.token;
-          const nextSpaceId = typeof auth === 'string' ? this.spaceId : auth.spaceId;
-          this.setToken(nextToken);
-          if (nextSpaceId) {
-            this.setSpaceId(nextSpaceId);
-          }
+          const auth = await this.refreshAuth();
+          const nextSpaceId = this.applyAuthResult(auth, undefined, oldSpaceId);
           if (oldSpaceId && nextSpaceId && params.spaceId === oldSpaceId) {
             params.spaceId = nextSpaceId;
           }
@@ -442,6 +447,39 @@ export class HttpClient {
       result[key] = value;
     });
     return result;
+  }
+
+  private refreshAuth(): Promise<AuthRefreshResult> {
+    if (!this.onUnauthorized) {
+      return Promise.reject(new Error('onUnauthorized is not configured'));
+    }
+    if (!this.authRefreshPromise) {
+      this.authRefreshPromise = this.onUnauthorized().finally(() => {
+        this.authRefreshPromise = undefined;
+      });
+    }
+    return this.authRefreshPromise;
+  }
+
+  private applyAuthResult(
+    auth: AuthRefreshResult,
+    cfg?: RetriableConfig,
+    oldSpaceId?: string
+  ): string | undefined {
+    const nextToken = typeof auth === 'string' ? auth : auth.token;
+    const nextSpaceId = typeof auth === 'string' ? this.spaceId : auth.spaceId;
+    const previousSpaceId = oldSpaceId ?? this.spaceId;
+
+    this.setToken(nextToken);
+    if (nextSpaceId) {
+      this.setSpaceId(nextSpaceId);
+    }
+    if (cfg) {
+      this.rewriteRequestSpaceId(cfg, previousSpaceId, nextSpaceId);
+      cfg.headers = { ...(cfg.headers ?? {}), ...this.buildAuthHeaders() };
+    }
+
+    return nextSpaceId;
   }
 
   private applyAuthHeaders(): void {

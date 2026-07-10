@@ -67,7 +67,6 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
         try {
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
-          const spaceId = ctx.config.spaceId;
 
           if (!options.inputText && inputFiles.length === 0) {
             ctx.error(
@@ -109,7 +108,7 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
           for (const inputFile of inputFiles) {
             spinner = ctx.createSpinner(`Uploading ${path.basename(inputFile)}...`);
 
-            const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
+            const fileId = await uploader.uploadFile(undefined, inputFile, (progress) => {
               if (spinner) {
                 spinner.text = `Uploading ${path.basename(inputFile)}: ${(progress * 100).toFixed(1)}%`;
               }
@@ -123,7 +122,7 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
 
           const firstFile = inputFiles[0];
           const taskName = firstFile ? path.basename(firstFile) : options.intent || 'create';
-          let task = await client.addTask(spaceId, fileIds, 'generation', taskName, params);
+          let task = await client.addTask(undefined, fileIds, 'generation', taskName, params);
 
           ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 

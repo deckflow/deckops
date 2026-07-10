@@ -112,6 +112,11 @@ export class Context {
       });
 
       this._apiClient = this.createLegacyClient(this._deck);
+    } else {
+      this._deck?.setToken(this.config.token);
+      if (this.config.spaceId) {
+        this._deck?.setSpaceId(this.config.spaceId);
+      }
     }
 
     return this._apiClient;

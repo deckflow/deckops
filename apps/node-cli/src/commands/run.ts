@@ -58,7 +58,6 @@ Multiple input files are passed as one ordered source set only for: ${MULTI_SOUR
 
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
-          const spaceId = ctx.config.spaceId;
 
           // Parse parameters
           const params: Record<string, unknown> = {};
@@ -87,7 +86,7 @@ Multiple input files are passed as one ordered source set only for: ${MULTI_SOUR
           for (const inputFile of inputFiles) {
             spinner = ctx.createSpinner(`Uploading ${path.basename(inputFile)}...`);
 
-            const fileId = await uploader.uploadFile(spaceId, inputFile, (progress) => {
+            const fileId = await uploader.uploadFile(undefined, inputFile, (progress) => {
               if (spinner) {
                 spinner.text = `Uploading ${path.basename(inputFile)}: ${(progress * 100).toFixed(1)}%`;
               }
@@ -103,7 +102,7 @@ Multiple input files are passed as one ordered source set only for: ${MULTI_SOUR
 
           const firstFile = inputFiles[0];
           const taskName = firstFile ? path.basename(firstFile) : undefined;
-          let task = await client.addTask(spaceId, fileIds, taskType, taskName, params);
+          let task = await client.addTask(undefined, fileIds, taskType, taskName, params);
 
           ctx.succeedSpinner(spinner, `Task created: ${task.id}`);
 
