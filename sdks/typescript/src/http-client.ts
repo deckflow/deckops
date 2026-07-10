@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance } from 'axios';
+import axios, { AxiosHeaders, type AxiosInstance } from 'axios';
 import { resolveAuthUuid } from './auth-uuid.js';
 import { APIError, getRetryDelaysMs, isRetriableAxiosError } from './errors.js';
 import { DEFAULT_ROOT, type CreateDeckOptions, type UserSelf } from './types.js';
@@ -67,11 +67,11 @@ export class HttpClient {
         return config;
       }
 
-      config.headers = {
+      config.headers = AxiosHeaders.from({
         ...(headers as Record<string, string> | undefined),
         ...authHeaders,
         'X-Auth-UUID': authUuid,
-      };
+      });
       return config;
     });
 
