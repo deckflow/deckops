@@ -118,7 +118,7 @@ export interface CreateDeckOptions {
   token?: string;
   /** API key sent as Authorization: Bearer {apiKey}. */
   apiKey?: string;
-  /** Default space id used by task and upload calls. */
+  /** Default space id used by task and upload calls. When omitted, resolved from GET /user/self. */
   spaceId?: string;
   /** Explicit client UUID (UUID v4) sent as X-Auth-UUID. Skips automatic persistence. */
   authUuid?: string;
@@ -130,8 +130,13 @@ export interface CreateDeckOptions {
   onPaymentRequired?: () => Promise<void>;
 }
 
+/** Current user profile returned by GET /user/self. */
+export interface UserSelf {
+  id: string;
+}
+
 export interface CreateTaskParams<T extends DeckTaskType = DeckTaskType> {
-  /** Space/workspace id. Falls back to createDeck({ spaceId }). */
+  /** Space/workspace id. Falls back to createDeck({ spaceId }) or user.self id. */
   spaceId?: string;
   /** Ordered input file ids. Required for most tasks except generation/html.buildPlayer. */
   fileIds?: string[];
@@ -150,7 +155,7 @@ export interface CreateTaskParams<T extends DeckTaskType = DeckTaskType> {
 export interface TaskShortcutParams<T extends DeckTaskType> extends Omit<CreateTaskParams<T>, 'type'> {}
 
 export interface ListTasksParams<T extends DeckTaskType = DeckTaskType> {
-  /** Space/workspace id. Falls back to createDeck({ spaceId }). */
+  /** Space/workspace id. Falls back to createDeck({ spaceId }) or user.self id. */
   spaceId?: string;
   /** Optional task type filter. */
   type?: T;

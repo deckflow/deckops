@@ -30,19 +30,16 @@ type normalizedUpload struct {
 }
 
 func (f *FilesClient) RequestUpload(ctx context.Context, params RequestUploadParams) (*UploadAuthResponse, error) {
-	spaceID := params.SpaceID
-	if spaceID == "" {
-		spaceID = f.http.SpaceID()
-	}
-	if spaceID == "" {
-		return nil, fmt.Errorf("spaceId is required")
+	spaceID, err := f.http.ResolveSpaceID(ctx, params.SpaceID)
+	if err != nil {
+		return nil, err
 	}
 	if params.ChunkSize == 0 {
 		params.ChunkSize = DefaultChunkSize
 	}
 
 	var out UploadAuthResponse
-	_, err := f.http.postJSON(ctx, "/spaces/"+urlPathEscape(spaceID)+"/file/auth", map[string]any{
+	_, err = f.http.postJSON(ctx, "/spaces/"+urlPathEscape(spaceID)+"/file/auth", map[string]any{
 		"name":      params.Name,
 		"bytes":     params.Bytes,
 		"hash":      params.Hash,

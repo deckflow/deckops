@@ -2,7 +2,7 @@ import axios, { type AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
 import { resolveAuthUuid } from './auth-uuid.js';
 import { APIError } from './errors.js';
-import { DEFAULT_ROOT, type CreateDeckOptions } from './types.js';
+import { DEFAULT_ROOT, type CreateDeckOptions, type UserSelf } from './types.js';
 
 type RetriableConfig = Record<string, unknown> & {
   headers?: Record<string, string>;
@@ -30,6 +30,8 @@ export class HttpClient {
   public token?: string;
   public apiKey?: string;
   public spaceId?: string;
+  private spaceIdExplicit = false;
+  private resolvedSpaceIdPromise?: Promise<string>;
   private readonly onUnauthorized?: CreateDeckOptions['onUnauthorized'];
   private readonly onPaymentRequired?: CreateDeckOptions['onPaymentRequired'];
 
@@ -38,6 +40,7 @@ export class HttpClient {
     this.token = options.token;
     this.apiKey = options.apiKey;
     this.spaceId = options.spaceId;
+    this.spaceIdExplicit = Boolean(options.spaceId);
     this.onUnauthorized = options.onUnauthorized;
     this.onPaymentRequired = options.onPaymentRequired;
     this.authUuidPromise = resolveAuthUuid(options);
@@ -102,16 +105,63 @@ export class HttpClient {
 
   setToken(token: string | undefined): void {
     this.token = token;
+    this.clearAutoResolvedSpaceId();
     this.applyAuthHeaders();
   }
 
   setApiKey(apiKey: string | undefined): void {
     this.apiKey = apiKey;
+    this.clearAutoResolvedSpaceId();
     this.applyAuthHeaders();
   }
 
   setSpaceId(spaceId: string | undefined): void {
     this.spaceId = spaceId;
+    this.spaceIdExplicit = Boolean(spaceId);
+    this.resolvedSpaceIdPromise = undefined;
+  }
+
+  async resolveSpaceId(spaceId?: string): Promise<string> {
+    if (spaceId) {
+      return spaceId;
+    }
+    if (this.spaceId) {
+      return this.spaceId;
+    }
+
+    if (!this.resolvedSpaceIdPromise) {
+      this.resolvedSpaceIdPromise = this.fetchDefaultSpaceId();
+    }
+
+    try {
+      return await this.resolvedSpaceIdPromise;
+    } catch (error) {
+      this.resolvedSpaceIdPromise = undefined;
+      throw error;
+    }
+  }
+
+  private async fetchDefaultSpaceId(): Promise<string> {
+    if (!this.token && !this.apiKey) {
+      throw new Error('spaceId is required');
+    }
+
+    const res = await this.get<UserSelf>('/user/self');
+    const id = res.data.id;
+    if (!id) {
+      throw new Error('user.self did not return an id');
+    }
+
+    this.spaceId = id;
+    return id;
+  }
+
+  private clearAutoResolvedSpaceId(): void {
+    if (this.spaceIdExplicit) {
+      return;
+    }
+    this.spaceId = undefined;
+    this.resolvedSpaceIdPromise = undefined;
   }
 
   getAuthUuid(): Promise<string> {

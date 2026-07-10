@@ -25,7 +25,7 @@ type TasksClient struct {
 }
 
 func (t *TasksClient) Create(ctx context.Context, params CreateTaskParams) (*Task, error) {
-	spaceID, err := t.requireSpaceID(params.SpaceID)
+	spaceID, err := t.http.ResolveSpaceID(ctx, params.SpaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (t *TasksClient) Create(ctx context.Context, params CreateTaskParams) (*Tas
 }
 
 func (t *TasksClient) List(ctx context.Context, params ListTasksParams) (*TaskListResponse, error) {
-	spaceID, err := t.requireSpaceID(params.SpaceID)
+	spaceID, err := t.http.ResolveSpaceID(ctx, params.SpaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -290,15 +290,6 @@ func (t *TasksClient) waitWithPolling(ctx context.Context, taskID string, interv
 	}
 }
 
-func (t *TasksClient) requireSpaceID(spaceID string) (string, error) {
-	if spaceID == "" {
-		spaceID = t.http.SpaceID()
-	}
-	if spaceID == "" {
-		return "", fmt.Errorf("spaceId is required")
-	}
-	return spaceID, nil
-}
 
 func (t *TasksClient) taskQueryParams() url.Values {
 	spaceID := t.http.SpaceID()

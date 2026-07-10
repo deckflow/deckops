@@ -25,7 +25,7 @@ export class FilesApi {
   constructor(private readonly http: HttpClient) {}
 
   async requestUpload(params: RequestUploadParams): Promise<UploadAuthResponse> {
-    const spaceId = this.requireSpaceId(params.spaceId);
+    const spaceId = await this.resolveSpaceId(params.spaceId);
     const res = await this.http.post<UploadAuthResponse>(`/spaces/${encodeURIComponent(spaceId)}/file/auth`, {
       name: params.name,
       bytes: params.bytes,
@@ -71,12 +71,8 @@ export class FilesApi {
     };
   }
 
-  private requireSpaceId(spaceId?: string): string {
-    const value = spaceId ?? this.http.spaceId;
-    if (!value) {
-      throw new Error('spaceId is required');
-    }
-    return value;
+  private async resolveSpaceId(spaceId?: string): Promise<string> {
+    return this.http.resolveSpaceId(spaceId);
   }
 
   private async normalizeInput(input: UploadInput, options: UploadOptions): Promise<NormalizedUpload> {

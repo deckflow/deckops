@@ -54,6 +54,10 @@ const (
 	TaskStatusFailed    TaskStatus = "failed"
 )
 
+type UserSelf struct {
+	ID string `json:"id"`
+}
+
 type ClientOptions struct {
 	Root              string
 	Token             string

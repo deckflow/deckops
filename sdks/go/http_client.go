@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"mime"
@@ -20,6 +21,7 @@ type httpClient struct {
 	token             string
 	apiKey            string
 	spaceID           string
+	spaceIDExplicit   bool
 	authUUID          string
 	client            *http.Client
 	onUnauthorized    func(context.Context) (AuthRefresh, error)
@@ -51,6 +53,7 @@ func newHTTPClient(ctx context.Context, options ClientOptions) (*httpClient, err
 		token:             options.Token,
 		apiKey:            options.APIKey,
 		spaceID:           options.SpaceID,
+		spaceIDExplicit:   options.SpaceID != "",
 		authUUID:          authUUID,
 		client:            c,
 		onUnauthorized:    options.OnUnauthorized,
@@ -66,24 +69,71 @@ func (c *httpClient) SetToken(token string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.token = token
+	c.clearAutoResolvedSpaceID()
 }
 
 func (c *httpClient) SetAPIKey(apiKey string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.apiKey = apiKey
+	c.clearAutoResolvedSpaceID()
 }
 
 func (c *httpClient) SetSpaceID(spaceID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.spaceID = spaceID
+	c.spaceIDExplicit = spaceID != ""
 }
 
 func (c *httpClient) SpaceID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.spaceID
+}
+
+func (c *httpClient) ResolveSpaceID(ctx context.Context, spaceID string) (string, error) {
+	if spaceID != "" {
+		return spaceID, nil
+	}
+
+	c.mu.RLock()
+	if c.spaceID != "" {
+		id := c.spaceID
+		c.mu.RUnlock()
+		return id, nil
+	}
+	c.mu.RUnlock()
+
+	c.mu.RLock()
+	hasCredentials := c.token != "" || c.apiKey != ""
+	c.mu.RUnlock()
+	if !hasCredentials {
+		return "", fmt.Errorf("spaceId is required")
+	}
+
+	var user UserSelf
+	if _, err := c.getJSON(ctx, "/user/self", nil, nil, &user); err != nil {
+		return "", err
+	}
+	if user.ID == "" {
+		return "", fmt.Errorf("user.self did not return an id")
+	}
+
+	c.mu.Lock()
+	if c.spaceID == "" {
+		c.spaceID = user.ID
+	}
+	id := c.spaceID
+	c.mu.Unlock()
+	return id, nil
+}
+
+func (c *httpClient) clearAutoResolvedSpaceID() {
+	if c.spaceIDExplicit {
+		return
+	}
+	c.spaceID = ""
 }
 
 func (c *httpClient) AuthUUID() string {

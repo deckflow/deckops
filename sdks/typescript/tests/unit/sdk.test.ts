@@ -59,6 +59,66 @@ describe('@deckops/sdk', () => {
     expect(task.id).toBe('task-1');
   });
 
+  it('resolves spaceId from user.self when not configured', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+    });
+
+    mock.onGet('http://localhost:3000/api/user/self').reply((config) => {
+      expect(config.headers?.['X-Auth-Token']).toBe('token-1');
+      return [200, { id: 'space-from-user' }];
+    });
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(JSON.parse(String(config.data))).toMatchObject({
+        spaceId: 'space-from-user',
+        fileIds: ['file-1'],
+        type: 'convertor.ppt2pdf',
+      });
+      return [
+        200,
+        {
+          id: 'task-1',
+          spaceId: 'space-from-user',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+        },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({ fileIds: ['file-1'] });
+    expect(task.id).toBe('task-1');
+  });
+
+  it('resolves spaceId from user.self using apiKey when not configured', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      apiKey: 'key-1',
+    });
+
+    mock.onGet('http://localhost:3000/api/user/self').reply((config) => {
+      expect(config.headers?.Authorization).toBe('Bearer key-1');
+      return [200, { id: 'space-from-api-key' }];
+    });
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(JSON.parse(String(config.data))).toMatchObject({
+        spaceId: 'space-from-api-key',
+      });
+      return [
+        200,
+        {
+          id: 'task-1',
+          spaceId: 'space-from-api-key',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+        },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({ fileIds: ['file-1'] });
+    expect(task.spaceId).toBe('space-from-api-key');
+  });
+
   it('sends schema-aligned task params unchanged', async () => {
     const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
 

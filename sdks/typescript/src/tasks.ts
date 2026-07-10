@@ -35,7 +35,7 @@ export class TasksApi {
   ) {}
 
   async create<T extends DeckTaskType>(params: CreateTaskParams<T>): Promise<DeckTask<T>> {
-    const spaceId = this.requireSpaceId(params.spaceId);
+    const spaceId = await this.resolveSpaceId(params.spaceId);
     const fileIds = await this.resolveFileIds(spaceId, params);
     const payload: Record<string, unknown> = {
       spaceId,
@@ -101,7 +101,7 @@ export class TasksApi {
   }
 
   async list<T extends DeckTaskType = DeckTaskType>(params: ListTasksParams<T> = {}): Promise<TaskListResponse<T>> {
-    const spaceId = this.requireSpaceId(params.spaceId);
+    const spaceId = await this.resolveSpaceId(params.spaceId);
     const query: Record<string, string | number> = {
       spaceId,
       _startIndex: params.startIndex ?? 0,
@@ -552,12 +552,8 @@ export class TasksApi {
     }
   }
 
-  private requireSpaceId(spaceId?: string): string {
-    const value = spaceId ?? this.http.spaceId;
-    if (!value) {
-      throw new Error('spaceId is required');
-    }
-    return value;
+  private async resolveSpaceId(spaceId?: string): Promise<string> {
+    return this.http.resolveSpaceId(spaceId);
   }
 
   private taskQueryParams(): Record<string, string> | undefined {

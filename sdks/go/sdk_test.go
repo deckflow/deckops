@@ -84,6 +84,49 @@ func TestCreateTaskSendsAuthHeaders(t *testing.T) {
 	}
 }
 
+func TestResolveSpaceIDFromUserSelf(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/user/self":
+			if got := r.Header.Get("X-Auth-Token"); got != "token-1" {
+				t.Fatalf("token header = %q", got)
+			}
+			_, _ = w.Write([]byte(`{"id":"space-from-user"}`))
+		case "/tools/tasks":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["spaceId"] != "space-from-user" {
+				t.Fatalf("spaceId = %#v", body["spaceId"])
+			}
+			_, _ = w.Write([]byte(`{"id":"task-1","spaceId":"space-from-user","type":"convertor.ppt2pdf","status":"pending"}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{
+		Root:     server.URL,
+		Token:    "token-1",
+		AuthUUID: testAuthUUID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := deck.ConvertPptToPDF(ctx, TaskShortcutParams{FileIDs: []string{"file-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ID != "task-1" {
+		t.Fatalf("task id = %q", task.ID)
+	}
+}
+
 func TestListGetDeleteAndWait(t *testing.T) {
 	resetAuthUUIDCacheForTests()
 	ctx := context.Background()
