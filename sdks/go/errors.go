@@ -2,10 +2,25 @@ package deckops
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
+
+const (
+	StatusUpstreamUnavailable = 604
+)
+
+var retryDelays = []int{5, 10, 20}
+
+func retryDelayForAttempt(attempt int) time.Duration {
+	if attempt < 0 || attempt >= len(retryDelays) {
+		return 0
+	}
+	return time.Duration(retryDelays[attempt]) * time.Second
+}
 
 type APIError struct {
 	StatusCode   int
@@ -25,6 +40,45 @@ func (e *APIError) Error() string {
 		return fmt.Sprintf("API Error (unknown): %s", e.Message)
 	}
 	return fmt.Sprintf("API Error (%d): %s", e.StatusCode, e.Message)
+}
+
+func isRetriableStatus(status int) bool {
+	return status == StatusUpstreamUnavailable || status == http.StatusBadGateway
+}
+
+func isRetriableTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return isRetriableStatus(apiErr.StatusCode)
+	}
+	return true
+}
+
+func unauthorizedAPIKeyError(base *APIError) *APIError {
+	return &APIError{
+		StatusCode: http.StatusUnauthorized,
+		RequestID:  base.RequestID,
+		Message:    "Authentication failed. Please update your API key.",
+	}
+}
+
+func unauthorizedTokenError(base *APIError) *APIError {
+	return &APIError{
+		StatusCode: http.StatusUnauthorized,
+		RequestID:  base.RequestID,
+		Message:    "Authentication expired. Please log in again.",
+	}
+}
+
+func paymentRequiredError(base *APIError) *APIError {
+	return &APIError{
+		StatusCode: http.StatusPaymentRequired,
+		RequestID:  base.RequestID,
+		Message:    "Payment is required. Please complete checkout and try again.",
+	}
 }
 
 func newAPIError(resp *http.Response, body []byte) *APIError {

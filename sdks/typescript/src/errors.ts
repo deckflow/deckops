@@ -107,6 +107,62 @@ function extractRequestIdFromBody(data: unknown): string | undefined {
   return undefined;
 }
 
+function extractErrorMessage(data: unknown, fallback = 'Request failed'): string {
+  if (data == null) {
+    return fallback;
+  }
+  if (typeof data === 'string') {
+    return data.length > 500 ? `${data.slice(0, 500)}...` : data;
+  }
+  if (typeof data === 'object') {
+    const body = data as Record<string, unknown>;
+    const candidate = body.message ?? body.error ?? body.msg;
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return fallback;
+}
+
+function formatAPIErrorMessage(status: number | undefined, message: string, requestId?: string): string {
+  const base = `API Error (${status ?? 'unknown'}): ${message}`;
+  return requestId ? `${base} [X-RequestId: ${requestId}]` : base;
+}
+
+export const RETRY_DELAYS_MS = [5000, 10000, 20000] as const;
+
+let retryDelaysMs: readonly number[] = RETRY_DELAYS_MS;
+
+export function setRetryDelaysForTests(delays: readonly number[]): void {
+  retryDelaysMs = delays;
+}
+
+export function resetRetryDelaysForTests(): void {
+  retryDelaysMs = RETRY_DELAYS_MS;
+}
+
+export function getRetryDelaysMs(): readonly number[] {
+  return retryDelaysMs;
+}
+
+export function isRetriableHTTPStatus(status?: number): boolean {
+  return status === 604 || status === 502;
+}
+
+export function isRetriableAxiosError(error: AxiosError): boolean {
+  if (!error.response) {
+    return (
+      error.code === 'ECONNABORTED' ||
+      error.code === 'ETIMEDOUT' ||
+      error.code === 'ENOTFOUND' ||
+      error.code === 'ECONNREFUSED' ||
+      error.code === 'ERR_NETWORK' ||
+      error.message.toLowerCase().includes('network')
+    );
+  }
+  return isRetriableHTTPStatus(error.response.status);
+}
+
 export class APIError extends Error {
   constructor(
     message: string,
@@ -123,28 +179,46 @@ export class APIError extends Error {
     const data = error.response?.data;
     const requestId =
       extractRequestIdFromHeaders(error.response?.headers) ?? extractRequestIdFromBody(data);
+    const errorMessage = extractErrorMessage(data, error.message || 'Unknown API error');
 
-    let errorMessage = error.message || 'Unknown API error';
-    if (data) {
-      if (typeof data === 'string') {
-        errorMessage = data.length > 500 ? `${data.slice(0, 500)}...` : data;
-      } else if (typeof data === 'object') {
-        const body = data as Record<string, unknown>;
-        const candidate = body.message ?? body.error ?? body.msg;
-        if (typeof candidate === 'string' && candidate.trim()) {
-          errorMessage = candidate.trim();
-        } else {
-          errorMessage = 'Request failed';
-        }
-      }
-    }
-
-    const base = `API Error (${status || 'unknown'}): ${errorMessage}`;
     return new APIError(
-      requestId ? `${base} [X-RequestId: ${requestId}]` : base,
+      formatAPIErrorMessage(status, errorMessage, requestId),
       status,
       data as MetadataValue | undefined,
       requestId
     );
+  }
+
+  static fromResponse(status: number, data: unknown, headers: unknown): APIError {
+    const requestId = extractRequestIdFromHeaders(headers) ?? extractRequestIdFromBody(data);
+    const errorMessage = extractErrorMessage(data, `Request failed with status ${status}`);
+
+    return new APIError(
+      formatAPIErrorMessage(status, errorMessage, requestId),
+      status,
+      data as MetadataValue | undefined,
+      requestId
+    );
+  }
+
+  static unauthorizedApiKey(error: AxiosError): APIError {
+    const requestId =
+      extractRequestIdFromHeaders(error.response?.headers) ?? extractRequestIdFromBody(error.response?.data);
+    const message = 'Authentication failed. Please update your API key.';
+    return new APIError(formatAPIErrorMessage(401, message, requestId), 401, undefined, requestId);
+  }
+
+  static unauthorizedToken(error: AxiosError): APIError {
+    const requestId =
+      extractRequestIdFromHeaders(error.response?.headers) ?? extractRequestIdFromBody(error.response?.data);
+    const message = 'Authentication expired. Please log in again.';
+    return new APIError(formatAPIErrorMessage(401, message, requestId), 401, undefined, requestId);
+  }
+
+  static paymentRequired(error: AxiosError): APIError {
+    const requestId =
+      extractRequestIdFromHeaders(error.response?.headers) ?? extractRequestIdFromBody(error.response?.data);
+    const message = 'Payment is required. Please complete checkout and try again.';
+    return new APIError(formatAPIErrorMessage(402, message, requestId), 402, undefined, requestId);
   }
 }

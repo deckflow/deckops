@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -187,9 +186,9 @@ func (c *httpClient) do(ctx context.Context, method string, path string, query u
 	var paymentRetried, authRetried bool
 	var lastErr error
 
-	for attempt := 0; attempt < 4; attempt++ {
+	for attempt := 0; attempt <= len(retryDelays); attempt++ {
 		if attempt > 0 {
-			delay := time.Duration(math.Pow(2, float64(attempt-1)) * float64(100*time.Millisecond))
+			delay := retryDelayForAttempt(attempt - 1)
 			if err := sleepContext(ctx, delay); err != nil {
 				return nil, err
 			}
@@ -203,36 +202,55 @@ func (c *httpClient) do(ctx context.Context, method string, path string, query u
 
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
-			if apiErr.StatusCode == http.StatusPaymentRequired && c.onPaymentRequired != nil && !paymentRetried {
-				paymentRetried = true
-				if err := c.onPaymentRequired(ctx); err != nil {
-					return nil, err
+			if apiErr.StatusCode == http.StatusPaymentRequired && !paymentRetried {
+				if c.onPaymentRequired != nil {
+					paymentRetried = true
+					if err := c.onPaymentRequired(ctx); err != nil {
+						return nil, err
+					}
+					attempt = -1
+					continue
 				}
-				attempt = -1
-				continue
+				return nil, paymentRequiredError(apiErr)
 			}
-			if apiErr.StatusCode == http.StatusUnauthorized && c.onUnauthorized != nil && !authRetried {
-				authRetried = true
-				oldSpaceID := c.SpaceID()
-				auth, err := c.onUnauthorized(ctx)
-				if err != nil {
-					return nil, err
+			if apiErr.StatusCode == http.StatusUnauthorized && !authRetried {
+				if c.usesAPIKeyAuth() {
+					return nil, unauthorizedAPIKeyError(apiErr)
 				}
-				c.SetToken(auth.Token)
-				if auth.SpaceID != "" {
-					c.SetSpaceID(auth.SpaceID)
-					body = rewriteSpaceID(query, body, oldSpaceID, auth.SpaceID)
+				if c.onUnauthorized != nil {
+					authRetried = true
+					oldSpaceID := c.SpaceID()
+					auth, err := c.onUnauthorized(ctx)
+					if err != nil {
+						return nil, err
+					}
+					c.SetToken(auth.Token)
+					if auth.SpaceID != "" {
+						c.SetSpaceID(auth.SpaceID)
+						body = rewriteSpaceID(query, body, oldSpaceID, auth.SpaceID)
+					}
+					attempt = -1
+					continue
 				}
-				attempt = -1
-				continue
+				return nil, unauthorizedTokenError(apiErr)
 			}
 			if !isRetriableStatus(apiErr.StatusCode) {
 				return nil, err
 			}
 			continue
 		}
+
+		if !isRetriableTransportError(err) || attempt >= len(retryDelays) {
+			return nil, err
+		}
 	}
 	return nil, lastErr
+}
+
+func (c *httpClient) usesAPIKeyAuth() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.apiKey != "" && c.token == ""
 }
 
 func (c *httpClient) doOnce(ctx context.Context, method string, path string, query url.Values, headers http.Header, body []byte, stream bool) (*httpResponse, error) {
@@ -292,15 +310,6 @@ func (c *httpClient) applyHeaders(headers http.Header) {
 	}
 	if c.apiKey != "" {
 		headers.Set("Authorization", "Bearer "+c.apiKey)
-	}
-}
-
-func isRetriableStatus(status int) bool {
-	switch status {
-	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return true
-	default:
-		return false
 	}
 }
 

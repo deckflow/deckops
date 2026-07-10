@@ -1,7 +1,6 @@
 import axios, { type AxiosInstance } from 'axios';
-import axiosRetry from 'axios-retry';
 import { resolveAuthUuid } from './auth-uuid.js';
-import { APIError } from './errors.js';
+import { APIError, getRetryDelaysMs, isRetriableAxiosError } from './errors.js';
 import { DEFAULT_ROOT, type CreateDeckOptions, type UserSelf } from './types.js';
 
 type RetriableConfig = Record<string, unknown> & {
@@ -67,40 +66,62 @@ export class HttpClient {
         const status = error.response?.status;
         const cfg = error.config as RetriableConfig | undefined;
 
-        if (status === 402 && options.onPaymentRequired && cfg && !cfg.__deckopsCheckoutRetried) {
-          cfg.__deckopsCheckoutRetried = true;
-          await options.onPaymentRequired();
-          return await this.client.request(cfg);
+        if (status === 402 && cfg && !cfg.__deckopsCheckoutRetried) {
+          if (options.onPaymentRequired) {
+            cfg.__deckopsCheckoutRetried = true;
+            await options.onPaymentRequired();
+            return await this.client.request(cfg);
+          }
+          throw APIError.paymentRequired(error);
         }
 
-        if (status === 401 && options.onUnauthorized && cfg && !cfg.__deckopsAuthRetried) {
-          cfg.__deckopsAuthRetried = true;
-          const oldSpaceId = this.spaceId;
-          const auth = await options.onUnauthorized();
-          const nextToken = typeof auth === 'string' ? auth : auth.token;
-          const nextSpaceId = typeof auth === 'string' ? this.spaceId : auth.spaceId;
-
-          this.setToken(nextToken);
-          if (nextSpaceId) {
-            this.setSpaceId(nextSpaceId);
+        if (status === 401 && cfg && !cfg.__deckopsAuthRetried) {
+          if (this.isApiKeyAuth()) {
+            throw APIError.unauthorizedApiKey(error);
           }
-          this.rewriteRequestSpaceId(cfg, oldSpaceId, nextSpaceId);
+          if (options.onUnauthorized) {
+            cfg.__deckopsAuthRetried = true;
+            const oldSpaceId = this.spaceId;
+            const auth = await options.onUnauthorized();
+            const nextToken = typeof auth === 'string' ? auth : auth.token;
+            const nextSpaceId = typeof auth === 'string' ? this.spaceId : auth.spaceId;
 
-          cfg.headers = { ...(cfg.headers ?? {}), ...this.buildAuthHeaders() };
-          return await this.client.request(cfg);
+            this.setToken(nextToken);
+            if (nextSpaceId) {
+              this.setSpaceId(nextSpaceId);
+            }
+            this.rewriteRequestSpaceId(cfg, oldSpaceId, nextSpaceId);
+
+            cfg.headers = { ...(cfg.headers ?? {}), ...this.buildAuthHeaders() };
+            return await this.client.request(cfg);
+          }
+          throw APIError.unauthorizedToken(error);
         }
 
         throw error;
       }
     );
+  }
 
-    axiosRetry(this.client, {
-      retries: 3,
-      retryDelay: (...args) => axiosRetry.exponentialDelay(...args),
-      retryCondition: (error) =>
-        axiosRetry.isNetworkOrIdempotentRequestError(error) ||
-        [429, 500, 502, 503, 504].includes(error.response?.status || 0),
-    });
+  private async withRetry<T>(request: () => Promise<T>): Promise<T> {
+    const delays = getRetryDelaysMs();
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+      if (attempt > 0) {
+        await this.sleep(delays[attempt - 1] ?? delays[delays.length - 1]!);
+      }
+      try {
+        return await request();
+      } catch (error) {
+        lastError = error;
+        if (!axios.isAxiosError(error) || !isRetriableAxiosError(error) || attempt >= delays.length) {
+          throw error;
+        }
+      }
+    }
+
+    throw lastError;
   }
 
   setToken(token: string | undefined): void {
@@ -174,7 +195,9 @@ export class HttpClient {
 
   async get<T>(path: string, config?: Record<string, unknown>): Promise<{ data: T; headers: Record<string, unknown> }> {
     try {
-      const res = await this.client.get<T>(this.url(path), config);
+      const request = () => this.client.get<T>(this.url(path), config);
+      const res =
+        config?.responseType === 'stream' ? await request() : await this.withRetry(request);
       return { data: res.data, headers: res.headers as Record<string, unknown> };
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -190,7 +213,7 @@ export class HttpClient {
     config?: Record<string, unknown>
   ): Promise<{ data: T; headers: Record<string, unknown> }> {
     try {
-      const res = await this.client.post<T>(this.url(path), data, config);
+      const res = await this.withRetry(() => this.client.post<T>(this.url(path), data, config));
       return { data: res.data, headers: res.headers as Record<string, unknown> };
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -202,7 +225,7 @@ export class HttpClient {
 
   async delete(path: string, config?: Record<string, unknown>): Promise<void> {
     try {
-      await this.client.delete(this.url(path), config);
+      await this.withRetry(() => this.client.delete(this.url(path), config));
     } catch (error) {
       if (axios.isAxiosError(error)) {
         throw APIError.fromAxiosError(error);
@@ -228,7 +251,6 @@ export class HttpClient {
       responseType: 'stream',
       signal: config.signal,
       params: config.params,
-      'axios-retry': { retries: 0 },
     });
   }
 
@@ -265,45 +287,71 @@ export class HttpClient {
     let authRetried = false;
     const params = { ...(config.params ?? {}) };
 
-    for (;;) {
-      const headers = {
-        ...this.buildAuthHeaders(),
-        'X-Auth-UUID': await this.authUuidPromise,
-        ...(config.headers ?? {}),
-      };
-      const response = await fetch(this.urlWithParams(path, params), {
-        method: 'GET',
-        headers,
-        signal: config.signal,
-      });
-      const responseHeaders = this.headersFromFetch(response.headers);
-
-      if (response.status === 402 && this.onPaymentRequired && !checkoutRetried) {
-        checkoutRetried = true;
-        await this.onPaymentRequired();
-        continue;
+    for (let networkRetry = 0; ; networkRetry++) {
+      const retryDelays = getRetryDelaysMs();
+      if (networkRetry > 0) {
+        await this.sleep(retryDelays[networkRetry - 1] ?? retryDelays[retryDelays.length - 1]!);
       }
 
-      if (response.status === 401 && this.onUnauthorized && !authRetried) {
-        authRetried = true;
-        const oldSpaceId = this.spaceId;
-        const auth = await this.onUnauthorized();
-        const nextToken = typeof auth === 'string' ? auth : auth.token;
-        const nextSpaceId = typeof auth === 'string' ? this.spaceId : auth.spaceId;
-        this.setToken(nextToken);
-        if (nextSpaceId) {
-          this.setSpaceId(nextSpaceId);
+      let response: Response;
+      try {
+        const headers = {
+          ...this.buildAuthHeaders(),
+          'X-Auth-UUID': await this.authUuidPromise,
+          ...(config.headers ?? {}),
+        };
+        response = await fetch(this.urlWithParams(path, params), {
+          method: 'GET',
+          headers,
+          signal: config.signal,
+        });
+      } catch (error) {
+        if (networkRetry < getRetryDelaysMs().length && this.isRetriableFetchError(error)) {
+          continue;
         }
-        if (oldSpaceId && nextSpaceId && params.spaceId === oldSpaceId) {
-          params.spaceId = nextSpaceId;
+        throw error;
+      }
+
+      const responseHeaders = this.headersFromFetch(response.headers);
+
+      if (response.status === 402 && !checkoutRetried) {
+        if (this.onPaymentRequired) {
+          checkoutRetried = true;
+          await this.onPaymentRequired();
+          networkRetry = 0;
+          continue;
         }
-        continue;
+        throw await this.readFetchAPIError(response, responseHeaders);
+      }
+
+      if (response.status === 401 && !authRetried) {
+        if (this.isApiKeyAuth()) {
+          throw await this.readFetchAPIError(response, responseHeaders, 'Authentication failed. Please update your API key.');
+        }
+        if (this.onUnauthorized) {
+          authRetried = true;
+          const oldSpaceId = this.spaceId;
+          const auth = await this.onUnauthorized();
+          const nextToken = typeof auth === 'string' ? auth : auth.token;
+          const nextSpaceId = typeof auth === 'string' ? this.spaceId : auth.spaceId;
+          this.setToken(nextToken);
+          if (nextSpaceId) {
+            this.setSpaceId(nextSpaceId);
+          }
+          if (oldSpaceId && nextSpaceId && params.spaceId === oldSpaceId) {
+            params.spaceId = nextSpaceId;
+          }
+          networkRetry = 0;
+          continue;
+        }
+        throw await this.readFetchAPIError(response, responseHeaders, 'Authentication expired. Please log in again.');
       }
 
       if (!response.ok) {
-        throw Object.assign(new Error(`Request failed with status ${response.status}`), {
-          statusCode: response.status,
-        });
+        if (networkRetry < getRetryDelaysMs().length && (response.status === 604 || response.status === 502)) {
+          continue;
+        }
+        throw await this.readFetchAPIError(response, responseHeaders);
       }
 
       const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
@@ -317,6 +365,67 @@ export class HttpClient {
 
       return { data: response.body, headers: responseHeaders };
     }
+  }
+
+  private isApiKeyAuth(): boolean {
+    return Boolean(this.apiKey && !this.token);
+  }
+
+  private isRetriableFetchError(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return false;
+    }
+    if (!(error instanceof Error)) {
+      return true;
+    }
+    const message = error.message.toLowerCase();
+    return message.includes('network') || message.includes('timeout') || message.includes('fetch failed');
+  }
+
+  private async readFetchAPIError(
+    response: Response,
+    headers: Record<string, unknown>,
+    fallbackMessage?: string
+  ): Promise<APIError> {
+    const text = await response.text();
+    let data: unknown = text;
+    if (text) {
+      try {
+        data = JSON.parse(text) as unknown;
+      } catch {
+        // Keep plain text body.
+      }
+    }
+    const apiError = APIError.fromResponse(response.status, data, headers);
+    if (fallbackMessage) {
+      const requestIdSuffix = apiError.requestId ? ` [X-RequestId: ${apiError.requestId}]` : '';
+      return new APIError(
+        `API Error (${response.status}): ${fallbackMessage}${requestIdSuffix}`,
+        response.status,
+        apiError.responseData,
+        apiError.requestId
+      );
+    }
+    return apiError;
+  }
+
+  private async sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+      };
+      if (signal?.aborted) {
+        clearTimeout(timer);
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   private urlWithParams(path: string, params?: Record<string, string>): string {

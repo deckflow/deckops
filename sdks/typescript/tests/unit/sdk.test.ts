@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { resetAuthUuidCacheForTests } from '../../src/auth-uuid.js';
-import { createDeck, DEFAULT_ROOT, isValidAuthUuid } from '../../src/index.js';
+import { resetRetryDelaysForTests, setRetryDelaysForTests } from '../../src/errors.js';
+import { createDeck, DEFAULT_ROOT, isValidAuthUuid, APIError } from '../../src/index.js';
 
 const TEST_AUTH_UUID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -14,6 +15,7 @@ describe('@deckops/sdk', () => {
   beforeEach(() => {
     mock = new MockAdapter(axios);
     resetAuthUuidCacheForTests();
+    resetRetryDelaysForTests();
   });
 
   afterEach(() => {
@@ -497,5 +499,116 @@ describe('@deckops/sdk', () => {
 
     await deck.tasks.get('task-1');
     await expect(deck.getAuthUuid()).resolves.toBe(TEST_AUTH_UUID);
+  });
+
+  it('prompts api-key users to update credentials on 401', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      apiKey: 'key-1',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock
+      .onGet('http://localhost:3000/api/tools/tasks/task-1')
+      .reply(401, { message: 'invalid key' }, { 'x-request-id': 'req-auth-1' });
+
+    await expect(deck.tasks.get('task-1')).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(APIError);
+      const apiError = error as APIError;
+      expect(apiError.statusCode).toBe(401);
+      expect(apiError.requestId).toBe('req-auth-1');
+      expect(apiError.message).toContain('API key');
+      expect(apiError.message).toContain('X-RequestId: req-auth-1');
+      return true;
+    });
+  });
+
+  it('prompts token users to log in again on 401 without onUnauthorized', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'expired-token',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply(401, { message: 'expired' });
+
+    await expect(deck.tasks.get('task-1')).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(APIError);
+      expect((error as APIError).message).toContain('log in again');
+      return true;
+    });
+  });
+
+  it('prompts users to complete checkout on 402 without onPaymentRequired', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock
+      .onGet('http://localhost:3000/api/tools/tasks/task-1')
+      .reply(402, { message: 'payment required' }, { 'x-request-id': 'req-pay-1' });
+
+    await expect(deck.tasks.get('task-1')).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(APIError);
+      const apiError = error as APIError;
+      expect(apiError.statusCode).toBe(402);
+      expect(apiError.message).toContain('checkout');
+      expect(apiError.message).toContain('X-RequestId: req-pay-1');
+      return true;
+    });
+  });
+
+  it('includes X-RequestId in other 4xx errors', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock
+      .onGet('http://localhost:3000/api/tools/tasks/task-1')
+      .reply(404, { message: 'task not found' }, { 'x-request-id': 'req-404-1' });
+
+    await expect(deck.tasks.get('task-1')).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(APIError);
+      const apiError = error as APIError;
+      expect(apiError.statusCode).toBe(404);
+      expect(apiError.message).toContain('task not found');
+      expect(apiError.message).toContain('X-RequestId: req-404-1');
+      return true;
+    });
+  });
+
+  it('retries 502 responses up to 3 times before succeeding', async () => {
+    setRetryDelaysForTests([0, 0, 0]);
+    let calls = 0;
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply(() => {
+      calls += 1;
+      if (calls <= 3) {
+        return [502, { message: 'bad gateway' }];
+      }
+      return [
+        200,
+        { id: 'task-1', spaceId: 'space-1', type: 'image.ocr', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    const task = await deck.tasks.get('task-1');
+    expect(task.id).toBe('task-1');
+    expect(calls).toBe(4);
   });
 });

@@ -353,3 +353,108 @@ func TestParseSSE(t *testing.T) {
 		t.Fatalf("task id = %q", got.ID)
 	}
 }
+
+func TestUnauthorizedAPIKeyPromptsReset(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "req-auth-1")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"invalid key"}`))
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{
+		Root:     server.URL,
+		APIKey:   "key-1",
+		SpaceID:  "space-1",
+		AuthUUID: testAuthUUID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = deck.Tasks.Get(ctx, "task-1", false)
+	if err == nil {
+		t.Fatal("expected unauthorized api key error")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d", apiErr.StatusCode)
+	}
+	if apiErr.RequestID != "req-auth-1" {
+		t.Fatalf("request id = %q", apiErr.RequestID)
+	}
+	if !strings.Contains(apiErr.Error(), "API key") {
+		t.Fatalf("message = %q", apiErr.Error())
+	}
+}
+
+func TestAPIErrorIncludesRequestID(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "req-404-1")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"task not found"}`))
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{
+		Root:     server.URL,
+		Token:    "token-1",
+		SpaceID:  "space-1",
+		AuthUUID: testAuthUUID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = deck.Tasks.Get(ctx, "task-1", false)
+	if err == nil {
+		t.Fatal("expected not found error")
+	}
+	if !strings.Contains(err.Error(), "X-RequestId: req-404-1") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestRetryBadGateway(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	oldDelays := retryDelays
+	retryDelays = []int{0, 0, 0}
+	defer func() { retryDelays = oldDelays }()
+
+	ctx := context.Background()
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls <= 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"message":"bad gateway"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"task-1","spaceId":"space-1","type":"image.ocr","status":"completed"}`))
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{
+		Root:     server.URL,
+		Token:    "token-1",
+		SpaceID:  "space-1",
+		AuthUUID: testAuthUUID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := deck.Tasks.Get(ctx, "task-1", false); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 4 {
+		t.Fatalf("calls = %d, want 4", calls)
+	}
+}
