@@ -59,10 +59,6 @@ Files are merged into one task in the order provided.`
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
           const spaceId = ctx.config.spaceId;
-          if (!spaceId) {
-            ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
-            return;
-          }
 
           // Upload files sequentially to preserve the requested order
           const fileIds: string[] = [];

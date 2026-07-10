@@ -25,14 +25,14 @@ type SpinnerLike = {
 
 type LegacyClient = {
   addTask: (
-    spaceId: string,
+    spaceId: string | undefined,
     fileIds: string[],
     taskType: string,
     name?: string,
     params?: Record<string, unknown>
   ) => Promise<DeckTask>;
   listTasks: (
-    spaceId: string,
+    spaceId: string | undefined,
     taskType?: string,
     startIndex?: number,
     maxResults?: number
@@ -52,7 +52,7 @@ type LegacyClient = {
 
 type LegacyUploader = {
   uploadFile: (
-    spaceId: string,
+    spaceId: string | undefined,
     filePath: string,
     progressCallback?: (percentage: number) => void
   ) => Promise<string>;

@@ -89,9 +89,6 @@ export function registerTranslationCommand(program: Command, ctx: Context): void
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
           const spaceId = ctx.config.spaceId;
-          if (!spaceId) {
-            ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
-          }
 
           if (
             !SUPPORTED_SOURCE_LANGUAGES.includes(

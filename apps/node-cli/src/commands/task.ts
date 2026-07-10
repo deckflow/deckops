@@ -26,10 +26,6 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
         const client = await ctx.getClient();
         const spaceId = ctx.config.spaceId;
 
-        if (!spaceId) {
-          ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
-        }
-
         const result = await client.listTasks(
           spaceId,
           options.type,

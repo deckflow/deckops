@@ -590,13 +590,6 @@ func (c *appContext) getClient(ctx context.Context) (*deckops.Client, error) {
 	return client, nil
 }
 
-func (c *appContext) requireSpaceID() (string, error) {
-	if c.config.SpaceID == "" {
-		return "", fmt.Errorf("Space ID missing. Please run `deckflow login` first.")
-	}
-	return c.config.SpaceID, nil
-}
-
 func (c *appContext) output(data any, human func() string) {
 	if c.json {
 		printJSON(data)
@@ -698,8 +691,6 @@ func (c *appContext) runConfig(args []string) error {
 			}
 			if c.config.Token == "" {
 				lines = append(lines, "Tip: token is missing. Please run `deckflow login` first.")
-			} else if c.config.SpaceID == "" {
-				lines = append(lines, "Tip: spaceId is missing. Some commands require it; set it via `deckflow config set-space <space-id>`.")
 			}
 			return strings.Join(lines, "\n")
 		})
@@ -971,10 +962,6 @@ func (c *appContext) runTask(args []string) error {
 		if err != nil {
 			return err
 		}
-		spaceID, err := c.requireSpaceID()
-		if err != nil {
-			return err
-		}
 		offset, err := nonNegativeInt(opts.first("offset"), "--offset")
 		if err != nil {
 			return err
@@ -984,7 +971,7 @@ func (c *appContext) runTask(args []string) error {
 			return err
 		}
 		result, err := client.Tasks.List(context.Background(), deckops.ListTasksParams{
-			SpaceID: spaceID, Type: deckops.TaskType(opts.first("type")), StartIndex: offset, MaxResults: limit, HasStart: true, HasMax: true,
+			SpaceID: c.config.SpaceID, Type: deckops.TaskType(opts.first("type")), StartIndex: offset, MaxResults: limit, HasStart: true, HasMax: true,
 		})
 		if err != nil {
 			return err
@@ -1374,10 +1361,7 @@ func (c *appContext) runFileTask(options fileTaskOptions) error {
 	if err != nil {
 		return err
 	}
-	spaceID, err := c.requireSpaceID()
-	if err != nil {
-		return err
-	}
+	spaceID := c.config.SpaceID
 	fileIDs := make([]string, 0, len(options.inputFiles))
 	for i, input := range options.inputFiles {
 		base := filepath.Base(input)

@@ -59,10 +59,6 @@ Multiple input files are passed as one ordered source set only for: ${MULTI_SOUR
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
           const spaceId = ctx.config.spaceId;
-          if (!spaceId) {
-            ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
-            return;
-          }
 
           // Parse parameters
           const params: Record<string, unknown> = {};

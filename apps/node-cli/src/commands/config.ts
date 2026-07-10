@@ -71,7 +71,6 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
       try {
         const allConfig = ctx.config.all();
         const shouldShowLoginHint = !allConfig.token;
-        const shouldShowSpaceHint = !allConfig.spaceId;
 
         // Mask sensitive data in human-readable output
         const displayConfig = { ...allConfig };
@@ -85,9 +84,6 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
             .join('\n');
           if (shouldShowLoginHint) {
             return `${content}\n${chalk.yellow('Tip: token is missing. Please run `deckflow login` first.')}`;
-          }
-          if (shouldShowSpaceHint) {
-            return `${content}\n${chalk.yellow('Tip: spaceId is missing. Some commands require it; set it via `deckflow config set-space <space-id>`.')}`;
           }
           return content;
         });

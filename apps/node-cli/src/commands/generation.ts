@@ -68,9 +68,6 @@ export function registerGenerationCommand(program: Command, ctx: Context): void 
           const client = await ctx.getClient();
           const uploader = await ctx.getUploader();
           const spaceId = ctx.config.spaceId;
-          if (!spaceId) {
-            ctx.error('Space ID missing. Please run `deckflow login` first.', 'NO_SPACE_ID');
-          }
 
           if (!options.inputText && inputFiles.length === 0) {
             ctx.error(
