@@ -1,6 +1,6 @@
 {
   "name": "@deckops/sdk",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Deckops TypeScript SDK for Node.js and browsers",
   "type": "module",
   "main": "./dist/index.js",

@@ -90,7 +90,7 @@ func TestResolveSpaceIDFromUserSelf(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/user/self":
+		case "/user":
 			if got := r.Header.Get("X-Auth-Token"); got != "token-1" {
 				t.Fatalf("token header = %q", got)
 			}

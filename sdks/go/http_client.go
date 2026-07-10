@@ -113,7 +113,7 @@ func (c *httpClient) ResolveSpaceID(ctx context.Context, spaceID string) (string
 	}
 
 	var user UserSelf
-	if _, err := c.getJSON(ctx, "/user/self", nil, nil, &user); err != nil {
+	if _, err := c.getJSON(ctx, "/user", nil, nil, &user); err != nil {
 		return "", err
 	}
 	if user.ID == "" {

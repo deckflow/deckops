@@ -146,7 +146,7 @@ export class HttpClient {
       throw new Error('spaceId is required');
     }
 
-    const res = await this.get<UserSelf>('/user/self');
+    const res = await this.get<UserSelf>('/user');
     const id = res.data.id;
     if (!id) {
       throw new Error('user.self did not return an id');

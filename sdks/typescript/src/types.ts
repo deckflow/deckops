@@ -118,7 +118,7 @@ export interface CreateDeckOptions {
   token?: string;
   /** API key sent as Authorization: Bearer {apiKey}. */
   apiKey?: string;
-  /** Default space id used by task and upload calls. When omitted, resolved from GET /user/self. */
+  /** Default space id used by task and upload calls. When omitted, resolved from GET /user. */
   spaceId?: string;
   /** Explicit client UUID (UUID v4) sent as X-Auth-UUID. Skips automatic persistence. */
   authUuid?: string;
@@ -130,7 +130,7 @@ export interface CreateDeckOptions {
   onPaymentRequired?: () => Promise<void>;
 }
 
-/** Current user profile returned by GET /user/self. */
+/** Current user profile returned by GET /user. */
 export interface UserSelf {
   id: string;
 }

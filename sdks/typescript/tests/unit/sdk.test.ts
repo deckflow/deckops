@@ -65,7 +65,7 @@ describe('@deckops/sdk', () => {
       token: 'token-1',
     });
 
-    mock.onGet('http://localhost:3000/api/user/self').reply((config) => {
+    mock.onGet('http://localhost:3000/api/user').reply((config) => {
       expect(config.headers?.['X-Auth-Token']).toBe('token-1');
       return [200, { id: 'space-from-user' }];
     });
@@ -96,7 +96,7 @@ describe('@deckops/sdk', () => {
       apiKey: 'key-1',
     });
 
-    mock.onGet('http://localhost:3000/api/user/self').reply((config) => {
+    mock.onGet('http://localhost:3000/api/user').reply((config) => {
       expect(config.headers?.Authorization).toBe('Bearer key-1');
       return [200, { id: 'space-from-api-key' }];
     });
