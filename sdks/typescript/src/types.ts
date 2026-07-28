@@ -102,7 +102,7 @@ export interface DeckTask<T extends DeckTaskType = DeckTaskType> {
   params?: DeckTaskTypeParams[T];
   /** Optional preview payload. */
   preview?: DeckTaskTypePreview[T];
-  /** Task result payload when the backend includes it in task detail responses. */
+  /** Task result payload. Prefer `tasks.down(taskId)` — detail responses no longer include results. */
   result?: DeckTaskTypeResult[T] | null;
   /** Error message for failed tasks. */
   error?: string | null;

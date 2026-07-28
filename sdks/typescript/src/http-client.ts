@@ -232,6 +232,22 @@ export class HttpClient {
     }
   }
 
+  async put<T>(
+    path: string,
+    data?: unknown,
+    config?: Record<string, unknown>
+  ): Promise<{ data: T; headers: Record<string, unknown> }> {
+    try {
+      const res = await this.withRetry(() => this.client.put<T>(this.url(path), data, config));
+      return { data: res.data, headers: res.headers as Record<string, unknown> };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        throw APIError.fromAxiosError(error);
+      }
+      throw error;
+    }
+  }
+
   async delete(path: string, config?: Record<string, unknown>): Promise<void> {
     try {
       await this.withRetry(() => this.client.delete(this.url(path), config));

@@ -212,6 +212,8 @@ Multiple input files create one ordered conversion task only for html -> pptx.`
             }
           }
 
+          task = await ctx.attachDownloadResult(task);
+
           ctx.output(task, (t) => {
             const lines = [
               `${chalk.bold('Conversion Task:')}`,

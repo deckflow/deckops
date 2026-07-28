@@ -127,6 +127,8 @@ Multiple input files are passed as one ordered source set only for: ${MULTI_SOUR
             }
           }
 
+          task = await ctx.attachDownloadResult(task);
+
           ctx.output(task, (t) => {
             const lines = [
               `${chalk.bold('Task:')}`,

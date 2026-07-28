@@ -77,7 +77,9 @@ export function registerTaskCommands(program: Command, ctx: Context): void {
           }
         }
 
-        ctx.output(taskData, (task) => {
+        const task = await ctx.attachDownloadResult(taskData);
+
+        ctx.output(task, (task) => {
           const statusColor =
             task.status === 'completed'
               ? chalk.green

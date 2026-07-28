@@ -34,6 +34,7 @@ export interface TasksClient {
     options?: { useEventStream?: boolean }
   ): Promise<DeckTask<T>>;
   delete(taskId: string): Promise<void>;
+  start<T extends DeckTaskType = DeckTaskType>(taskId: string): Promise<DeckTask<T>>;
   down<T extends DeckTaskType = DeckTaskType>(
     taskId: string,
     options?: TaskDownloadOptions
