@@ -43,6 +43,7 @@ func (e *APIError) Error() string {
 }
 
 func isRetriableStatus(status int) bool {
+	// Only transient upstream/gateway failures — never 4xx business errors (403, 404, …).
 	return status == StatusUpstreamUnavailable || status == http.StatusBadGateway
 }
 
@@ -55,6 +56,66 @@ func isRetriableTransportError(err error) bool {
 		return isRetriableStatus(apiErr.StatusCode)
 	}
 	return true
+}
+
+// IsRetriableError reports whether an error is worth retrying.
+//
+// Retries exist for transient network / upstream issues only.
+// Explicit application errors (403, 401, 404, 4xx in general) must fail immediately.
+func IsRetriableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return isRetriableStatus(apiErr.StatusCode)
+	}
+
+	msg := err.Error()
+	if status, ok := parseHTTPStatusFromErrorMessage(msg); ok {
+		return isRetriableStatus(status)
+	}
+
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "network") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "connection reset") ||
+		strings.Contains(lower, "no such host") ||
+		strings.Contains(lower, "i/o timeout") ||
+		strings.Contains(lower, "temporary failure")
+}
+
+func parseHTTPStatusFromErrorMessage(message string) (int, bool) {
+	// Matches: "API Error (403): ..." or "Failed to download https://...: 403 Forbidden"
+	for _, prefix := range []string{"API Error (", "Failed to download "} {
+		idx := strings.Index(message, prefix)
+		if idx < 0 {
+			continue
+		}
+		rest := message[idx+len(prefix):]
+		if prefix == "Failed to download " {
+			colon := strings.LastIndex(rest, ": ")
+			if colon < 0 {
+				continue
+			}
+			rest = rest[colon+2:]
+		}
+		if len(rest) >= 3 {
+			status := 0
+			for i := 0; i < 3; i++ {
+				if rest[i] < '0' || rest[i] > '9' {
+					status = 0
+					break
+				}
+				status = status*10 + int(rest[i]-'0')
+			}
+			if status >= 100 && status <= 599 {
+				return status, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func unauthorizedAPIKeyError(base *APIError) *APIError {
