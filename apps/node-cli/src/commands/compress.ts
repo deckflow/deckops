@@ -82,6 +82,8 @@ export function registerCompressCommand(program: Command, ctx: Context): void {
           }
         }
 
+        task = await ctx.attachDownloadResult(task);
+
         ctx.output(task, (t) => {
           const lines = [
             `${chalk.bold('Compression Task:')}`,

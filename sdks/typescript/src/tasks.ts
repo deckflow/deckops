@@ -54,6 +54,22 @@ export class TasksApi {
     return res.data;
   }
 
+  /**
+   * Trigger an already-created task to begin executing.
+   *
+   * Required for guest-mode tasks: the backend creates them in a pending state
+   * and waits for an explicit `PUT /tools/tasks/:id/start` before running.
+   * Authenticated tasks are started automatically by the backend.
+   */
+  async start<T extends DeckTaskType = DeckTaskType>(taskId: string): Promise<DeckTask<T>> {
+    const res = await this.http.put<DeckTask<T>>(
+      `/tools/tasks/${encodeURIComponent(taskId)}/start`,
+      undefined,
+      { params: this.taskQueryParams() }
+    );
+    return res.data;
+  }
+
   private async resolveFileIds<T extends DeckTaskType>(
     spaceId: string | undefined,
     params: CreateTaskParams<T>
@@ -185,10 +201,30 @@ export class TasksApi {
     options: WaitForTaskOptions = {}
   ): Promise<DeckTask<T>> {
     const timeout = options.timeout ?? DEFAULT_TIMEOUT;
-    if (options.useEventStream !== false) {
-      return await this.waitWithEventStream<T>(taskId, timeout, options.onProgress);
+    const startedAt = Date.now();
+
+    // Fast path: task may already be terminal before SSE connects (common for
+    // quick guest-mode tasks after an explicit start). Avoid hanging on an SSE
+    // connection that never emits a terminal event for an already-finished task.
+    const current = await this.get<T>(taskId);
+    options.onProgress?.(current);
+    if (current.status === 'completed') {
+      return current;
     }
-    return await this.waitWithPolling<T>(taskId, timeout, options.pollInterval ?? DEFAULT_POLL_INTERVAL, options.onProgress);
+    if (current.status === 'failed') {
+      throw new Error(`Task failed: ${current.error || 'Unknown error'}`);
+    }
+
+    const remainingTimeout = Math.max(timeout - (Date.now() - startedAt) / 1000, 0);
+    if (options.useEventStream !== false) {
+      return await this.waitWithEventStream<T>(taskId, remainingTimeout, options.onProgress);
+    }
+    return await this.waitWithPolling<T>(
+      taskId,
+      remainingTimeout,
+      options.pollInterval ?? DEFAULT_POLL_INTERVAL,
+      options.onProgress
+    );
   }
 
   subscribe<T extends DeckTaskType = DeckTaskType>(
@@ -267,7 +303,11 @@ export class TasksApi {
 
     const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
     if (contentType.includes('application/json')) {
-      handlers.onUpdate(res.data as DeckTask<T>);
+      // In Node, eventStream uses axios responseType:'stream', so even a JSON
+      // body arrives as a Readable stream. Parse it before notifying handlers;
+      // otherwise wait() never sees status=completed and hangs forever.
+      const task = await this.parseJsonTaskBody<T>(res.data, signal);
+      handlers.onUpdate(task);
       return;
     }
 
@@ -354,6 +394,92 @@ export class TasksApi {
       stream.on('end', onEnd);
       stream.on('close', onClose);
     });
+  }
+
+  private async parseJsonTaskBody<T extends DeckTaskType>(
+    body: unknown,
+    signal: AbortSignal
+  ): Promise<DeckTask<T>> {
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      !this.isNodeReadable(body) &&
+      !this.isWebReadableStream(body)
+    ) {
+      return body as DeckTask<T>;
+    }
+
+    const text = (await this.readBodyAsText(body, signal)).trim();
+    if (!text) {
+      throw new Error('Empty JSON body in task detail response');
+    }
+    return JSON.parse(text) as DeckTask<T>;
+  }
+
+  private async readBodyAsText(body: unknown, signal: AbortSignal): Promise<string> {
+    if (typeof body === 'string') {
+      return body;
+    }
+
+    if (this.isWebReadableStream(body)) {
+      const chunks: string[] = [];
+      await this.consumeWebStream(body, signal, (chunk) => {
+        chunks.push(chunk);
+      });
+      return chunks.join('');
+    }
+
+    if (this.isNodeReadable(body)) {
+      return await new Promise<string>((resolve, reject) => {
+        const chunks: Uint8Array[] = [];
+        const onData = (chunk: unknown): void => {
+          if (chunk instanceof Uint8Array) {
+            chunks.push(chunk);
+            return;
+          }
+          chunks.push(new TextEncoder().encode(this.streamChunkToText(chunk)));
+        };
+        const onError = (error: Error): void => {
+          cleanup();
+          reject(error);
+        };
+        const onEnd = (): void => {
+          cleanup();
+          const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+          const merged = new Uint8Array(total);
+          let offset = 0;
+          for (const chunk of chunks) {
+            merged.set(chunk, offset);
+            offset += chunk.byteLength;
+          }
+          resolve(new TextDecoder().decode(merged));
+        };
+        const onAbort = (): void => {
+          cleanup();
+          body.destroy?.();
+          reject(signal.reason ?? new Error('canceled'));
+        };
+        const cleanup = (): void => {
+          body.off('data', onData);
+          body.off('error', onError);
+          body.off('end', onEnd);
+          body.off('close', onEnd);
+          signal.removeEventListener('abort', onAbort);
+        };
+
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+        body.on('data', onData);
+        body.on('error', onError);
+        body.on('end', onEnd);
+        body.on('close', onEnd);
+      });
+    }
+
+    return String(body ?? '');
   }
 
   private isSseTransportError(error: unknown): boolean {

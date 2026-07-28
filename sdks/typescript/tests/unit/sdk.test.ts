@@ -179,21 +179,83 @@ describe('@deckops/sdk', () => {
 
   it('falls back to polling when event stream wait is unavailable', async () => {
     const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    let polls = 0;
 
     mock.onGet('http://localhost:3000/api/tools/tasks/task-stream').reply((config) => {
       if (config.headers?.['response-event-stream'] === 'yes') {
         return [503, { message: 'stream unavailable' }];
       }
 
+      polls += 1;
       return [
         200,
-        { id: 'task-stream', spaceId: 'space-1', type: 'image.ocr', status: 'completed' },
+        {
+          id: 'task-stream',
+          spaceId: 'space-1',
+          type: 'image.ocr',
+          status: polls === 1 ? 'running' : 'completed',
+        },
         { 'content-type': 'application/json' },
       ];
     });
 
     const task = await deck.tasks.wait('task-stream', { timeout: 5 });
     expect(task.status).toBe('completed');
+    expect(polls).toBeGreaterThan(1);
+  });
+
+  it('resolves wait when task is already completed before SSE connects', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    let detailCalls = 0;
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-done').reply((config) => {
+      detailCalls += 1;
+      // First call is the non-SSE status check in wait(); SSE must not be required.
+      expect(config.headers?.['response-event-stream']).toBeUndefined();
+      return [
+        200,
+        { id: 'task-done', spaceId: 'space-1', type: 'image.ocr', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    const task = await deck.tasks.wait('task-done', { timeout: 5 });
+    expect(task.status).toBe('completed');
+    expect(detailCalls).toBe(1);
+  });
+
+  it('parses JSON task body from Node streams during SSE subscribe', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    const completed = {
+      id: 'task-json-stream',
+      spaceId: 'space-1',
+      type: 'image.ocr',
+      status: 'completed' as const,
+    };
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-json-stream').reply((config) => {
+      if (config.headers?.['response-event-stream'] === 'yes') {
+        // Mimic axios responseType:'stream' — JSON body arrives as a Readable.
+        return [
+          200,
+          Readable.from([JSON.stringify(completed)]),
+          { 'content-type': 'application/json' },
+        ];
+      }
+      return [200, { ...completed, status: 'running' }, { 'content-type': 'application/json' }];
+    });
+
+    const updates: Array<{ status: string }> = [];
+    const cancel = await deck.tasks.subscribe('task-json-stream', {
+      onUpdate: (task) => {
+        updates.push({ status: task.status });
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(updates).toEqual([{ status: 'completed' }]);
+    });
+    cancel();
   });
 
   it('retries event-stream task detail requests after network failures', async () => {
@@ -205,10 +267,22 @@ describe('@deckops/sdk', () => {
       authUuid: TEST_AUTH_UUID,
     });
     const url = 'http://localhost:3000/api/tools/tasks/task-retry';
+    let sseAttempts = 0;
 
-    mock.onGet(url).networkErrorOnce();
     mock.onGet(url).reply((config) => {
-      expect(config.headers?.['response-event-stream']).toBe('yes');
+      if (config.headers?.['response-event-stream'] !== 'yes') {
+        return [
+          200,
+          { id: 'task-retry', spaceId: 'space-1', type: 'image.ocr', status: 'running' },
+          { 'content-type': 'application/json' },
+        ];
+      }
+
+      sseAttempts += 1;
+      if (sseAttempts === 1) {
+        return Promise.reject(new Error('Network Error'));
+      }
+
       return [
         200,
         Readable.from([
@@ -225,16 +299,16 @@ describe('@deckops/sdk', () => {
 
     const waiting = deck.tasks.wait('task-retry', { timeout: 30 });
     await vi.advanceTimersByTimeAsync(0);
-    expect(mock.history.get.filter((request) => request.url === url)).toHaveLength(1);
+    expect(sseAttempts).toBe(1);
 
     await vi.advanceTimersByTimeAsync(4999);
-    expect(mock.history.get.filter((request) => request.url === url)).toHaveLength(1);
+    expect(sseAttempts).toBe(1);
 
     await vi.advanceTimersByTimeAsync(1);
     const task = await waiting;
 
     expect(task.status).toBe('completed');
-    expect(mock.history.get.filter((request) => request.url === url)).toHaveLength(2);
+    expect(sseAttempts).toBe(2);
   });
 
   it('stops event-stream network retries after 100 attempts', async () => {
@@ -708,6 +782,31 @@ describe('@deckops/sdk', () => {
     const task = await deck.tasks.get('task-1');
     expect(task.id).toBe('task-1');
     expect(calls).toBe(4);
+  });
+
+  it('does not retry 403 business errors', async () => {
+    setRetryDelaysForTests([0, 0, 0]);
+    let calls = 0;
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'token-1',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1/download').reply(() => {
+      calls += 1;
+      return [403, { message: 'forbidden' }, { 'x-request-id': 'req-403-1' }];
+    });
+
+    await expect(deck.tasks.down('task-1')).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(APIError);
+      const apiError = error as APIError;
+      expect(apiError.statusCode).toBe(403);
+      expect(apiError.message).toContain('forbidden');
+      return true;
+    });
+    expect(calls).toBe(1);
   });
 
   it('creates tasks in guest mode by resolving spaceId from /user via X-Auth-UUID', async () => {

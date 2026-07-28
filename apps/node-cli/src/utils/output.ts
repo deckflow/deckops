@@ -27,7 +27,7 @@ export async function writeTaskOutput(
   if (files.length === 0) {
     const target = await resolveSingleOutputPath(outPath, task.id, '.json');
     await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, `${JSON.stringify(downloadResult ?? task.result ?? task, null, 2)}\n`);
+    await fs.writeFile(target, `${JSON.stringify(downloadResult ?? task, null, 2)}\n`);
     return { kind: 'json', path: path.resolve(target) };
   }
 

@@ -146,6 +146,7 @@ export function getRetryDelaysMs(): readonly number[] {
 }
 
 export function isRetriableHTTPStatus(status?: number): boolean {
+  // Only transient upstream/gateway failures — never 4xx business errors (403, 404, …).
   return status === 604 || status === 502;
 }
 
@@ -221,4 +222,42 @@ export class APIError extends Error {
     const message = 'Payment is required. Please complete checkout and try again.';
     return new APIError(formatAPIErrorMessage(402, message, requestId), 402, undefined, requestId);
   }
+}
+
+/**
+ * Whether an error is worth retrying.
+ *
+ * Retries exist for transient network / upstream issues only.
+ * Explicit application errors (403, 401, 404, 4xx in general) must fail immediately.
+ */
+export function isRetriableError(error: unknown): boolean {
+  if (typeof error === 'object' && error !== null && (error as { isAxiosError?: boolean }).isAxiosError) {
+    return isRetriableAxiosError(error as AxiosError);
+  }
+
+  if (error instanceof APIError) {
+    return typeof error.statusCode === 'number' ? isRetriableHTTPStatus(error.statusCode) : false;
+  }
+
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message;
+  const statusMatch = /(?:API Error \(|Failed to download [^:]+: )(\d{3})\b/i.exec(message);
+  if (statusMatch) {
+    return isRetriableHTTPStatus(Number.parseInt(statusMatch[1]!, 10));
+  }
+
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('network') ||
+    lower.includes('timeout') ||
+    lower.includes('fetch failed') ||
+    lower.includes('econnaborted') ||
+    lower.includes('etimedout') ||
+    lower.includes('enotfound') ||
+    lower.includes('econnrefused') ||
+    lower.includes('err_network')
+  );
 }

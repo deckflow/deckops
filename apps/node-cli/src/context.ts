@@ -3,7 +3,7 @@
  */
 
 import { Config } from './core/config.js';
-import { createDeck, APIError, type DeckClient, type DeckTask, type TaskListResponse } from '@deckops/sdk';
+import { createDeck, APIError, isRetriableError, type DeckClient, type DeckTask, type TaskListResponse } from '@deckops/sdk';
 import { runCheckoutFlow, runLoginFlow } from './core/auth.js';
 import { formatResponseBody, outputError, ExitCode } from './utils/errors.js';
 import {
@@ -84,26 +84,24 @@ export class Context {
   }
 
   /**
-   * Get or create API client
+   * Get or create API client.
+   *
+   * Lazy auth: do NOT prompt for login up-front. The SDK's HTTP client will
+   * invoke `onUnauthorized` on a 401 response, which triggers the interactive
+   * login flow at that point. This lets guest-accessible requests succeed
+   * without ever requiring the user to log in.
    */
   async getClient(): Promise<LegacyClient> {
-    // Token is the only hard requirement for authentication.
-    // Some deployments may not return/provide spaceId during login.
-    if (!this.config.token) {
-      await this.ensureLoggedIn(3737, 'explicit');
-    }
-
-    if (!this.config.token) {
-      this.error('Login did not provide a token. Please run `deckflow login` again.', 'NOT_CONFIGURED');
-    }
-
     if (!this._apiClient) {
       this._deck = createDeck({
         root: this.config.apiBase,
-        token: this.config.token!,
+        token: this.config.token,
         spaceId: this.config.spaceId,
         onUnauthorized: async () => {
-          const token = await this.ensureLoggedIn();
+          // First-time visit (no token yet) feels like an explicit login;
+          // an expired token reads as "auth expired".
+          const reason = this.config.token ? 'unauthorized' : 'explicit';
+          const token = await this.ensureLoggedIn(3737, reason);
           return { token, spaceId: this.config.spaceId };
         },
         onPaymentRequired: async () => {
@@ -148,14 +146,25 @@ export class Context {
 
   private createLegacyClient(deck: DeckClient): LegacyClient {
     return {
-      addTask: async (spaceId, fileIds, taskType, name, params) =>
-        deck.tasks.create({
+      addTask: async (spaceId, fileIds, taskType, name, params) => {
+        const task = await deck.tasks.create({
           spaceId,
           fileIds,
           type: taskType as never,
           name,
           params: (params ?? {}) as never,
-        }),
+        });
+
+        // Guest mode (no token): the backend parks the task in a pending state
+        // and waits for an explicit start signal before executing.
+        // If `create` triggered a 401 → login → retry, `config.token` is now set
+        // and we skip the start call (authenticated tasks auto-start).
+        if (!this.config.token) {
+          await deck.tasks.start(task.id);
+        }
+
+        return task;
+      },
       listTasks: async (spaceId, taskType, startIndex = 0, maxResults = 50) =>
         deck.tasks.list({
           spaceId,
@@ -186,6 +195,25 @@ export class Context {
     return await writeTaskOutput(task, outPath, downloadResult);
   }
 
+  /**
+   * Attach task result from GET /tools/tasks/:id/download.
+   *
+   * Task detail/SSE only carries status/progress metadata now; the result
+   * payload lives exclusively on the download endpoint.
+   */
+  async attachDownloadResult(task: DeckTask): Promise<DeckTask> {
+    if (task.status !== 'completed') {
+      return task;
+    }
+
+    const client = await this.getClient();
+    const result = await client.downTask(task.id);
+    return {
+      ...task,
+      result: result as DeckTask['result'],
+    };
+  }
+
   async tryWriteTaskOutput(task: DeckTask, outPath: string): Promise<TaskOutputWriteResult | undefined> {
     if (task.status !== 'completed') {
       return undefined;
@@ -204,12 +232,15 @@ export class Context {
         return result;
       } catch (error) {
         lastError = error;
-        if (attempt < 3) {
+        // Only retry transient network/upstream failures — never 403/4xx business errors.
+        if (attempt < 3 && isRetriableError(error)) {
           if (spinner) {
             spinner.text = `Download failed, retrying in 10s... (${attempt}/3)`;
           }
           await this.delay(10_000);
+          continue;
         }
+        break;
       }
     }
 

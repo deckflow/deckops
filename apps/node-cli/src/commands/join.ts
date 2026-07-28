@@ -123,6 +123,8 @@ Files are merged into one task in the order provided.`
             }
           }
 
+          task = await ctx.attachDownloadResult(task);
+
           ctx.output(task, (t) => {
             const lines = [
               `${chalk.bold('Join Task:')}`,
