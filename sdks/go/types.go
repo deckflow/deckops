@@ -40,6 +40,11 @@ const (
 	TaskConvertHTMLToPptx    TaskType = "convertor.html2pptx"
 	TaskHTMLBuildPlayer      TaskType = "html.buildPlayer"
 	TaskVideoCompress        TaskType = "video.compress"
+	TaskPDFParse             TaskType = "pdf.parse"
+	TaskPptxParse            TaskType = "pptx.parse"
+	TaskDocxParse            TaskType = "docx.parseTextAndImage"
+	TaskKeynoteParse         TaskType = "keynote.parseTextAndImage"
+	TaskHTMLGetByURL         TaskType = "html.getByURL"
 	TaskGeneration           TaskType = "generation"
 	TaskTranslation          TaskType = "translation"
 	TaskRevamp               TaskType = "revamp"
@@ -116,12 +121,12 @@ type TaskShortcutParams struct {
 }
 
 type ListTasksParams struct {
-	SpaceID     string
-	Type        TaskType
-	StartIndex  int
-	MaxResults  int
-	HasStart    bool
-	HasMax      bool
+	SpaceID    string
+	Type       TaskType
+	StartIndex int
+	MaxResults int
+	HasStart   bool
+	HasMax     bool
 }
 
 type TaskListResponse struct {
@@ -130,10 +135,10 @@ type TaskListResponse struct {
 }
 
 type WaitForTaskOptions struct {
-	Timeout        time.Duration
-	DisableSSE     bool
-	PollInterval   time.Duration
-	OnProgress     func(Task)
+	Timeout      time.Duration
+	DisableSSE   bool
+	PollInterval time.Duration
+	OnProgress   func(Task)
 }
 
 type SubscribeTaskHandlers struct {
@@ -195,15 +200,15 @@ type RequestUploadParams struct {
 }
 
 type UploadAuthResponse struct {
-	ID                string         `json:"id"`
-	Key               string         `json:"key"`
-	Hash              string         `json:"hash"`
-	Platform          UploadPlatform `json:"platform"`
-	Multipart         bool           `json:"multipart"`
-	Auth              *AuthInfo      `json:"auth,omitempty"`
-	MultipartUploadID string         `json:"multipartUploadId,omitempty"`
-	MultipartPartSize int64          `json:"multipartPartSize,omitempty"`
-	MultipartPartAuths []PartAuth `json:"multipartPartAuths,omitempty"`
+	ID                 string         `json:"id"`
+	Key                string         `json:"key"`
+	Hash               string         `json:"hash"`
+	Platform           UploadPlatform `json:"platform"`
+	Multipart          bool           `json:"multipart"`
+	Auth               *AuthInfo      `json:"auth,omitempty"`
+	MultipartUploadID  string         `json:"multipartUploadId,omitempty"`
+	MultipartPartSize  int64          `json:"multipartPartSize,omitempty"`
+	MultipartPartAuths []PartAuth     `json:"multipartPartAuths,omitempty"`
 }
 
 type AuthInfo struct {
@@ -241,4 +246,178 @@ type ConvertFileResult struct {
 	Bytes  int64
 	Hash   string
 	Bounds *ConvertFileBounds
+}
+
+// ParseMode controls whether html.getByURL parses page source or the rendered page.
+type ParseMode string
+
+const (
+	ParseModeSource  ParseMode = "source"
+	ParseModeRuntime ParseMode = "runtime"
+)
+
+// ParseInput describes one document or URL passed to Parse or ParseDetailed.
+//
+// Exactly one of URL, FileID, or File should be set. Name is required with
+// FileID and with in-memory files whose name cannot otherwise be inferred.
+type ParseInput struct {
+	File    *TaskUploadInput
+	FileID  string
+	Name    string
+	URL     string
+	Mode    ParseMode
+	SpaceID string
+	Wait    WaitForTaskOptions
+}
+
+// ParseResult is the Markdown result together with the task that produced it.
+type ParseResult struct {
+	Markdown string
+	TaskID   string
+	Type     TaskType
+}
+
+// MarkdownConvertOptions contains options shared by document converters.
+type MarkdownConvertOptions struct {
+	ToImageURL func(string) string
+}
+
+type ParseLocator struct {
+	PageIndex int `json:"pageIndex"`
+}
+
+type PDFTextBlockStyle struct {
+	Bold   bool `json:"bold,omitempty"`
+	Italic bool `json:"italic,omitempty"`
+}
+
+type PDFTextBlock struct {
+	Text    string             `json:"text"`
+	Role    string             `json:"role,omitempty"`
+	Style   *PDFTextBlockStyle `json:"style,omitempty"`
+	Locator *ParseLocator      `json:"locator,omitempty"`
+}
+
+type PDFImage struct {
+	Key      string        `json:"key,omitempty"`
+	FileName string        `json:"fileName,omitempty"`
+	Locator  *ParseLocator `json:"locator,omitempty"`
+	Bytes    int64         `json:"bytes,omitempty"`
+	Hash     string        `json:"hash,omitempty"`
+}
+
+type PDFParseResult struct {
+	TextBlocks []PDFTextBlock `json:"textBlocks"`
+	Images     []PDFImage     `json:"images,omitempty"`
+}
+
+type KeynoteTextItem struct {
+	ID   string `json:"id"`
+	Text string `json:"text,omitempty"`
+}
+
+type KeynoteTableItem struct {
+	ID   string   `json:"id"`
+	Data []string `json:"data"`
+}
+
+type KeynoteChartData struct {
+	RowName    []string `json:"rowName"`
+	ColumnName []string `json:"columnName"`
+}
+
+type KeynoteChartItem struct {
+	ID   string           `json:"id"`
+	Data KeynoteChartData `json:"data"`
+}
+
+type KeynoteSlide struct {
+	Text  []KeynoteTextItem  `json:"text"`
+	Table []KeynoteTableItem `json:"table"`
+	Chart []KeynoteChartItem `json:"chart"`
+}
+
+type KeynoteImageItem struct {
+	ID        string   `json:"id"`
+	FileName  string   `json:"fileName"`
+	PageIndex *float64 `json:"pageIndex,omitempty"`
+	Key       string   `json:"key"`
+}
+
+type KeynoteParseResult struct {
+	PageNum int                `json:"pageNum"`
+	Width   float64            `json:"width"`
+	Height  float64            `json:"height"`
+	Slides  []KeynoteSlide     `json:"slides"`
+	Images  []KeynoteImageItem `json:"images,omitempty"`
+}
+
+type DocxTextStyle struct {
+	StyleID    string   `json:"styleId,omitempty"`
+	StyleName  string   `json:"styleName,omitempty"`
+	OutlineLvl *float64 `json:"outlineLvl,omitempty"`
+	FontSize   float64  `json:"fontSize,omitempty"`
+	Bold       bool     `json:"bold,omitempty"`
+	Italic     bool     `json:"italic,omitempty"`
+}
+
+// DocxElement represents every element variant returned by
+// docx.parseTextAndImage. Fields not used by a particular Type are empty.
+type DocxElement struct {
+	Idx        int               `json:"idx"`
+	Type       string            `json:"type"`
+	Text       string            `json:"text,omitempty"`
+	Style      *DocxTextStyle    `json:"style,omitempty"`
+	Image      string            `json:"image,omitempty"`
+	Name       string            `json:"name,omitempty"`
+	Hash       string            `json:"hash,omitempty"`
+	Bytes      int64             `json:"bytes,omitempty"`
+	Children   []DocxElement     `json:"children,omitempty"`
+	Table      []DocxElement     `json:"table,omitempty"`
+	Series     []string          `json:"series,omitempty"`
+	Categories []string          `json:"categories,omitempty"`
+	Texts      []DocxDiagramText `json:"texts,omitempty"`
+}
+
+type DocxDiagramText struct {
+	Idx int                    `json:"idx"`
+	APs []DocxDiagramParagraph `json:"aps"`
+}
+
+type DocxDiagramParagraph struct {
+	Idx  int    `json:"idx"`
+	Text string `json:"text"`
+}
+
+type DocxParseResult struct {
+	Width   float64       `json:"width"`
+	Height  float64       `json:"height"`
+	PageNum int           `json:"pageNum"`
+	Content []DocxElement `json:"content"`
+}
+
+type HTMLGetByURLResult struct {
+	HTML string `json:"html"`
+}
+
+// PptxParseResult remains map-shaped because pptx.parse returns the complete
+// presentation model and may add OOXML attributes without an SDK release.
+type PptxParseResult map[string]any
+
+// PptxConvertOptions controls geometry-based reading-order extraction.
+type PptxConvertOptions struct {
+	MarkdownConvertOptions
+	MinImageBytes             *int64
+	VerticalToleranceFactor   float64
+	AbsoluteVerticalTolerance *float64
+	InlineSeparator           string
+	BlockSeparator            string
+	RowSeparator              string
+	DropEmptyText             *bool
+	// Deprecated: retained for source compatibility; the current algorithm
+	// uses AbsoluteVerticalTolerance instead.
+	MinRowHeight float64
+	// Deprecated: retained for source compatibility; the current algorithm
+	// uses a two-dimensional nearest-neighbor chain.
+	HorizontalGroupingThreshold float64
 }

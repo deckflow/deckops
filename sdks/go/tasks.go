@@ -290,7 +290,6 @@ func (t *TasksClient) waitWithPolling(ctx context.Context, taskID string, interv
 	}
 }
 
-
 func (t *TasksClient) taskQueryParams() url.Values {
 	spaceID := t.http.SpaceID()
 	if spaceID == "" {

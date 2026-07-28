@@ -1,5 +1,6 @@
 import { FilesApi } from './files.js';
 import { HttpClient } from './http-client.js';
+import { createParse, type ParseInput, type ParseResult } from './parse-facade.js';
 import { TasksApi } from './tasks.js';
 import type {
   CreateDeckOptions,
@@ -22,6 +23,7 @@ import type {
 
 export * from './errors.js';
 export * from './types.js';
+export * from './parse/index.js';
 export { generateAuthUuid, isValidAuthUuid, resolveAuthUuid } from './auth-uuid.js';
 
 export interface TasksClient {
@@ -98,6 +100,18 @@ export interface DeckClient {
   generation(params: TaskShortcutParams<'generation'>): Promise<DeckTask<'generation'>>;
   translation(params: TaskShortcutParams<'translation'>): Promise<DeckTask<'translation'>>;
   revamp(params: TaskShortcutParams<'revamp'>): Promise<DeckTask<'revamp'>>;
+  /** 解析类原语：返回结构化结果，需要 markdown 用 `parse()` */
+  pdfParse(params: TaskShortcutParams<'pdf.parse'>): Promise<DeckTask<'pdf.parse'>>;
+  pptxParse(params: TaskShortcutParams<'pptx.parse'>): Promise<DeckTask<'pptx.parse'>>;
+  docxParse(params: TaskShortcutParams<'docx.parseTextAndImage'>): Promise<DeckTask<'docx.parseTextAndImage'>>;
+  keynoteParse(
+    params: TaskShortcutParams<'keynote.parseTextAndImage'>
+  ): Promise<DeckTask<'keynote.parseTextAndImage'>>;
+  htmlGetByURL(params: TaskShortcutParams<'html.getByURL'>): Promise<DeckTask<'html.getByURL'>>;
+  /** 一步到位：按扩展名/链接路由 → 等待 → 取结果 → 转 markdown */
+  parse(input: ParseInput): Promise<string>;
+  /** 同 parse，但同时返回任务 id 与所用类型，便于回查结构化结果 */
+  parseDetailed(input: ParseInput): Promise<ParseResult>;
 }
 
 export function createDeck(options: CreateDeckOptions = {}): DeckClient {
@@ -113,6 +127,12 @@ export function createDeck(options: CreateDeckOptions = {}): DeckClient {
         type,
       });
   };
+
+  const { parse, parseDetailed } = createParse({
+    createTask: (params) => tasks.create(params as never),
+    waitTask: (taskId, options) => tasks.wait(taskId, options),
+    downTask: (taskId) => tasks.down(taskId),
+  });
 
   return {
     root: http.root,
@@ -148,5 +168,12 @@ export function createDeck(options: CreateDeckOptions = {}): DeckClient {
     generation: shortcut('generation'),
     translation: shortcut('translation'),
     revamp: shortcut('revamp'),
+    pdfParse: shortcut('pdf.parse'),
+    pptxParse: shortcut('pptx.parse'),
+    docxParse: shortcut('docx.parseTextAndImage'),
+    keynoteParse: shortcut('keynote.parseTextAndImage'),
+    htmlGetByURL: shortcut('html.getByURL'),
+    parse,
+    parseDetailed,
   };
 }

@@ -140,6 +140,26 @@ func (c *Client) HTMLBuildPlayer(ctx context.Context, params TaskShortcutParams)
 	return c.shortcut(ctx, TaskHTMLBuildPlayer, params)
 }
 
+func (c *Client) PDFParse(ctx context.Context, params TaskShortcutParams) (*Task, error) {
+	return c.shortcut(ctx, TaskPDFParse, params)
+}
+
+func (c *Client) PptxParse(ctx context.Context, params TaskShortcutParams) (*Task, error) {
+	return c.shortcut(ctx, TaskPptxParse, params)
+}
+
+func (c *Client) DocxParse(ctx context.Context, params TaskShortcutParams) (*Task, error) {
+	return c.shortcut(ctx, TaskDocxParse, params)
+}
+
+func (c *Client) KeynoteParse(ctx context.Context, params TaskShortcutParams) (*Task, error) {
+	return c.shortcut(ctx, TaskKeynoteParse, params)
+}
+
+func (c *Client) HTMLGetByURL(ctx context.Context, params TaskShortcutParams) (*Task, error) {
+	return c.shortcut(ctx, TaskHTMLGetByURL, params)
+}
+
 func (c *Client) Generation(ctx context.Context, params TaskShortcutParams) (*Task, error) {
 	return c.shortcut(ctx, TaskGeneration, params)
 }

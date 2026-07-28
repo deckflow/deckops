@@ -87,6 +87,50 @@ _ = done
 
 `deck.TTask` is an alias for `deck.Tasks`, matching the backend `ttask` naming used by existing integrations.
 
+## Parse documents to Markdown
+
+`Parse` follows the same pipeline as the TypeScript SDK: choose a parser from
+the file extension or URL, create the task, wait for it, download the
+structured result, and convert that result to Markdown.
+
+```go
+input := deckops.TaskUploadInput{
+	Input: deckops.UploadInput{Path: "./slides.pptx"},
+}
+
+markdown, err := deck.Parse(ctx, deckops.ParseInput{File: &input})
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(markdown)
+
+detailed, err := deck.ParseDetailed(ctx, deckops.ParseInput{
+	URL:  "https://example.com/article",
+	Mode: deckops.ParseModeRuntime,
+})
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("task=%s type=%s", detailed.TaskID, detailed.Type)
+```
+
+Supported file extensions are `.pdf`, `.pptx`, `.docx`, and `.key`. For an
+already uploaded file, pass `FileID` and `Name`. The low-level task shortcuts
+are `PDFParse`, `PptxParse`, `DocxParse`, `KeynoteParse`, and `HTMLGetByURL`.
+
+Structured download results can be converted independently:
+
+```go
+var result deckops.PDFParseResult
+if err := deck.Tasks.Down(ctx, task.ID, deckops.TaskDownloadOptions{}, &result); err != nil {
+	log.Fatal(err)
+}
+markdown := deckops.PDFResultToMarkdown(result)
+```
+
+Equivalent converters are available as `PptxResultToMarkdown`,
+`DocxResultToMarkdown`, `KeynoteResultToMarkdown`, and `HTMLToMarkdown`.
+
 ## Uploads
 
 ```go

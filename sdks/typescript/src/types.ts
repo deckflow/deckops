@@ -1,3 +1,11 @@
+import type { PptxParseResult } from './parse/pptx.js';
+import type {
+  DocxParseResult,
+  HtmlGetByUrlResult,
+  KeynoteParseResult,
+  PdfParseResult,
+} from './parse/types.js';
+
 export const DEFAULT_ROOT = 'https://app.deckflow.com/v1';
 export const DEFAULT_TIMEOUT = 300;
 export const DEFAULT_POLL_INTERVAL = 2000;
@@ -27,6 +35,11 @@ export const DECK_TASK_TYPES = [
   'video.compress',
   'image.convertWebp',
   'image.resize',
+  'pdf.parse',
+  'pptx.parse',
+  'docx.parseTextAndImage',
+  'keynote.parseTextAndImage',
+  'html.getByURL',
   'generation',
   'translation',
   'revamp',
@@ -802,6 +815,31 @@ export interface HtmlToPptxResult {
   usedFonts: string[];
 }
 
+export interface PdfParseTaskParams {
+  /** 是否提取文本，默认 true */
+  includeText?: boolean;
+  /** 是否提取图片，默认 true */
+  includeImages?: boolean;
+  /** 最小图片面积占比过滤，0-1 */
+  minImageAreaRatio?: number;
+  /** 是否返回 rawTextItems（调试用） */
+  debug?: boolean;
+}
+
+export type PptxParseTaskParams = Record<never, never>;
+export type DocxParseTaskParams = Record<never, never>;
+export type KeynoteParseTaskParams = Record<never, never>;
+
+export interface HtmlGetByUrlTaskParams {
+  /** 目标 http(s) 链接 */
+  url: string;
+  /** 取源码还是取运行后的代码，默认 runtime */
+  mode?: 'source' | 'runtime';
+}
+
+/** `pptx.parse` 的结果：PPTX 对象模型，字段结构见 @deckflow/presentation */
+export type PptxTaskParseResult = PptxParseResult;
+
 export interface DeckTaskTypeParams {
   'file.compress': FileCompressParams;
   'image.ocr': ImageOcrParams;
@@ -826,6 +864,11 @@ export interface DeckTaskTypeParams {
   'video.compress': VideoCompressParams;
   'image.convertWebp': ImageConvertWebpParams;
   'image.resize': ImageResizeParams;
+  'pdf.parse': PdfParseTaskParams;
+  'pptx.parse': PptxParseTaskParams;
+  'docx.parseTextAndImage': DocxParseTaskParams;
+  'keynote.parseTextAndImage': KeynoteParseTaskParams;
+  'html.getByURL': HtmlGetByUrlTaskParams;
   generation: GenerationParams;
   translation: TranslationParams;
   revamp: RevampParams;
@@ -855,6 +898,11 @@ export interface DeckTaskTypeResult {
   'video.compress': FileResult;
   'image.convertWebp': FileResult;
   'image.resize': FileResult;
+  'pdf.parse': PdfParseResult;
+  'pptx.parse': PptxTaskParseResult;
+  'docx.parseTextAndImage': DocxParseResult;
+  'keynote.parseTextAndImage': KeynoteParseResult;
+  'html.getByURL': HtmlGetByUrlResult;
   generation: Required<{ image?: FileResult; pptx?: FileResult; html?: FileResult }>;
   translation: FileResult;
   revamp: Required<{ image?: FileResult; pptx?: FileResult; html?: FileResult }>;
@@ -887,4 +935,9 @@ export interface DeckTaskTypePreview {
   'convertor.markdown2png': never;
   'html.buildPlayer': never;
   'image.convertWebp': never;
+  'pdf.parse': never;
+  'pptx.parse': never;
+  'docx.parseTextAndImage': never;
+  'keynote.parseTextAndImage': never;
+  'html.getByURL': never;
 }
