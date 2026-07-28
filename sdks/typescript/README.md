@@ -40,6 +40,13 @@ Options:
 - `onUnauthorized?: () => Promise<{ token: string; spaceId?: string } | string>` - called once after a 401, then the request is retried.
 - `onPaymentRequired?: () => Promise<void>` - called once after a 402, then the request is retried.
 
+`token`, `apiKey`, and `spaceId` are all optional. When `spaceId` is omitted the SDK resolves it from `GET /user`, an endpoint that only requires `X-Auth-UUID`. This means `token` and `apiKey` can both be empty: the SDK runs in **guest mode**, the server identifies the guest by `X-Auth-UUID` and enforces usage limits and rate quotas. This is useful for try-before-login experiences.
+
+```ts
+const deck = createDeck({ authUuid: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' });
+await deck.generation({ params: { inputText: 'Write a launch plan', pageCount: 8 } });
+```
+
 Every Deckops API request automatically includes `X-Auth-UUID`, a stable UUID v4 used to track the client across sessions.
 
 - **Browser**: persisted in `localStorage` under `df_uuid`.

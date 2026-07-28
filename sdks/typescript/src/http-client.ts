@@ -152,7 +152,7 @@ export class HttpClient {
     this.resolvedSpaceIdPromise = undefined;
   }
 
-  async resolveSpaceId(spaceId?: string): Promise<string> {
+  async resolveSpaceId(spaceId?: string): Promise<string | undefined> {
     if (spaceId) {
       return spaceId;
     }
@@ -160,6 +160,9 @@ export class HttpClient {
       return this.spaceId;
     }
 
+    // Resolve from GET /user. The endpoint only requires X-Auth-UUID, so
+    // it works for both authenticated users and guests. The server enforces
+    // guest usage limits and rate quotas based on X-Auth-UUID.
     if (!this.resolvedSpaceIdPromise) {
       this.resolvedSpaceIdPromise = this.fetchDefaultSpaceId();
     }
@@ -173,10 +176,6 @@ export class HttpClient {
   }
 
   private async fetchDefaultSpaceId(): Promise<string> {
-    if (!this.token && !this.apiKey) {
-      throw new Error('spaceId is required');
-    }
-
     const res = await this.get<UserSelf>('/user');
     const id = res.data.id;
     if (!id) {

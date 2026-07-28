@@ -38,12 +38,14 @@ export class TasksApi {
     const spaceId = await this.resolveSpaceId(params.spaceId);
     const fileIds = await this.resolveFileIds(spaceId, params);
     const payload: Record<string, unknown> = {
-      spaceId,
       fileIds,
       type: params.type,
       params: params.params ?? {},
     };
 
+    if (spaceId) {
+      payload.spaceId = spaceId;
+    }
     if (params.name) {
       payload.name = params.name;
     }
@@ -52,7 +54,10 @@ export class TasksApi {
     return res.data;
   }
 
-  private async resolveFileIds<T extends DeckTaskType>(spaceId: string, params: CreateTaskParams<T>): Promise<string[]> {
+  private async resolveFileIds<T extends DeckTaskType>(
+    spaceId: string | undefined,
+    params: CreateTaskParams<T>
+  ): Promise<string[]> {
     const fileIds = [...(params.fileIds ?? [])];
     if (!params.files?.length) {
       return fileIds;
@@ -103,11 +108,13 @@ export class TasksApi {
   async list<T extends DeckTaskType = DeckTaskType>(params: ListTasksParams<T> = {}): Promise<TaskListResponse<T>> {
     const spaceId = await this.resolveSpaceId(params.spaceId);
     const query: Record<string, string | number> = {
-      spaceId,
       _startIndex: params.startIndex ?? 0,
       _maxResults: params.maxResults ?? 50,
     };
 
+    if (spaceId) {
+      query.spaceId = spaceId;
+    }
     if (params.type) {
       query.type = params.type;
     }
@@ -552,7 +559,7 @@ export class TasksApi {
     }
   }
 
-  private async resolveSpaceId(spaceId?: string): Promise<string> {
+  private async resolveSpaceId(spaceId?: string): Promise<string | undefined> {
     return this.http.resolveSpaceId(spaceId);
   }
 
