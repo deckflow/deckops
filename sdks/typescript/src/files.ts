@@ -26,6 +26,9 @@ export class FilesApi {
 
   async requestUpload(params: RequestUploadParams): Promise<UploadAuthResponse> {
     const spaceId = await this.resolveSpaceId(params.spaceId);
+    if (!spaceId) {
+      throw new Error('spaceId is required for file uploads');
+    }
     const res = await this.http.post<UploadAuthResponse>(`/spaces/${encodeURIComponent(spaceId)}/file/auth`, {
       name: params.name,
       bytes: params.bytes,
@@ -71,7 +74,7 @@ export class FilesApi {
     };
   }
 
-  private async resolveSpaceId(spaceId?: string): Promise<string> {
+  private async resolveSpaceId(spaceId?: string): Promise<string | undefined> {
     return this.http.resolveSpaceId(spaceId);
   }
 

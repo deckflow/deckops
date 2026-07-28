@@ -709,4 +709,81 @@ describe('@deckops/sdk', () => {
     expect(task.id).toBe('task-1');
     expect(calls).toBe(4);
   });
+
+  it('creates tasks in guest mode by resolving spaceId from /user via X-Auth-UUID', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock.onGet('http://localhost:3000/api/user').reply((config) => {
+      expect(config.headers?.['X-Auth-Token']).toBeUndefined();
+      expect(config.headers?.Authorization).toBeUndefined();
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
+      return [200, { id: 'guest-space' }];
+    });
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
+      expect(JSON.parse(String(config.data))).toMatchObject({
+        spaceId: 'guest-space',
+        fileIds: ['file-1'],
+        type: 'convertor.ppt2pdf',
+      });
+      return [
+        200,
+        { id: 'task-guest', spaceId: 'guest-space', type: 'convertor.ppt2pdf', status: 'pending' },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({ fileIds: ['file-1'] });
+    expect(task.id).toBe('task-guest');
+  });
+
+  it('lists tasks in guest mode using spaceId resolved from /user', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock.onGet('http://localhost:3000/api/user').reply(200, { id: 'guest-space' });
+    mock.onGet('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(config.params?.spaceId).toBe('guest-space');
+      return [
+        200,
+        [{ id: 'task-guest', spaceId: 'guest-space', type: 'image.ocr', status: 'pending' }],
+        { 'x-content-record-total': '1' },
+      ];
+    });
+
+    const list = await deck.tasks.list();
+    expect(list.total).toBe(1);
+  });
+
+  it('uploads files in guest mode using spaceId resolved from /user', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock.onGet('http://localhost:3000/api/user').reply(200, { id: 'guest-space' });
+    mock.onPost('http://localhost:3000/api/spaces/guest-space/file/auth').reply((config) => {
+      const body = JSON.parse(String(config.data));
+      expect(body.name).toBe('a.txt');
+      expect(body.bytes).toBe(3);
+      expect(body.hash).toBe('900150983cd24fb0d6963f7d28e17f72');
+      return [
+        200,
+        {
+          id: 'file-guest-1',
+          key: 'files/a.txt',
+          hash: body.hash,
+          platform: 'oss',
+          multipart: false,
+        },
+      ];
+    });
+
+    const result = await deck.files.upload(new Uint8Array([97, 98, 99]), { name: 'a.txt' });
+    expect(result.id).toBe('file-guest-1');
+  });
 });
