@@ -112,13 +112,8 @@ func (c *httpClient) ResolveSpaceID(ctx context.Context, spaceID string) (string
 	}
 	c.mu.RUnlock()
 
-	c.mu.RLock()
-	hasCredentials := c.token != "" || c.apiKey != ""
-	c.mu.RUnlock()
-	if !hasCredentials {
-		return "", fmt.Errorf("spaceId is required")
-	}
-
+	// Resolve from GET /user. The endpoint only requires X-Auth-UUID, so
+	// it works for both authenticated users and guests.
 	var user UserSelf
 	if _, err := c.getJSON(ctx, "/user", nil, nil, &user); err != nil {
 		return "", err
@@ -152,10 +147,8 @@ func (c *httpClient) getJSON(ctx context.Context, path string, query url.Values,
 	if err != nil {
 		return nil, err
 	}
-	if out != nil {
-		if err := json.Unmarshal(res.Body, out); err != nil {
-			return nil, err
-		}
+	if err := decodeJSONBody(res.Body, out); err != nil {
+		return nil, err
 	}
 	return res, nil
 }
@@ -173,12 +166,38 @@ func (c *httpClient) postJSON(ctx context.Context, path string, in any, out any)
 	if err != nil {
 		return nil, err
 	}
-	if out != nil {
-		if err := json.Unmarshal(res.Body, out); err != nil {
+	if err := decodeJSONBody(res.Body, out); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *httpClient) putJSON(ctx context.Context, path string, query url.Values, in any, out any) (*httpResponse, error) {
+	var body []byte
+	var err error
+	if in != nil {
+		body, err = json.Marshal(in)
+		if err != nil {
 			return nil, err
 		}
 	}
+	res, err := c.do(ctx, http.MethodPut, path, query, nil, body, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := decodeJSONBody(res.Body, out); err != nil {
+		return nil, err
+	}
 	return res, nil
+}
+
+// decodeJSONBody unmarshals JSON into out. Empty bodies (common for 204 / start)
+// are treated as success and leave out unchanged.
+func decodeJSONBody(body []byte, out any) error {
+	if out == nil || len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	return json.Unmarshal(body, out)
 }
 
 func (c *httpClient) delete(ctx context.Context, path string, query url.Values) error {

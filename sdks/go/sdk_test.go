@@ -3,6 +3,7 @@ package deckops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -509,5 +510,179 @@ func TestRetryBadGateway(t *testing.T) {
 	}
 	if calls != 4 {
 		t.Fatalf("calls = %d, want 4", calls)
+	}
+}
+
+func TestGuestModeCreateResolvesSpaceFromUser(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("X-Auth-Token") != "" || r.Header.Get("Authorization") != "" {
+			t.Fatalf("guest request should not send token/api key")
+		}
+		if r.Header.Get("X-Auth-UUID") != testAuthUUID {
+			t.Fatalf("X-Auth-UUID = %q", r.Header.Get("X-Auth-UUID"))
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/user":
+			_, _ = w.Write([]byte(`{"id":"guest-space"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/tools/tasks":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["spaceId"] != "guest-space" {
+				t.Fatalf("spaceId = %#v", body["spaceId"])
+			}
+			_, _ = w.Write([]byte(`{"id":"task-guest","spaceId":"guest-space","type":"convertor.ppt2pdf","status":"pending"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{Root: server.URL, AuthUUID: testAuthUUID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := deck.ConvertPptToPDF(ctx, TaskShortcutParams{FileIDs: []string{"file-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ID != "task-guest" {
+		t.Fatalf("task id = %q", task.ID)
+	}
+}
+
+func TestTaskStart(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	var started bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPut || r.URL.Path != "/tools/tasks/task-1/start" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("spaceId") != "space-1" {
+			t.Fatalf("spaceId query = %q", r.URL.Query().Get("spaceId"))
+		}
+		started = true
+		_, _ = w.Write([]byte(`{"id":"task-1","spaceId":"space-1","type":"image.ocr","status":"running"}`))
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{Root: server.URL, SpaceID: "space-1", AuthUUID: testAuthUUID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := deck.Tasks.Start(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !started || task.Status != TaskStatusRunning {
+		t.Fatalf("started=%v status=%s", started, task.Status)
+	}
+}
+
+func TestTaskStartAllowsEmptyBody(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/tools/tasks/task-1/start" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{Root: server.URL, SpaceID: "space-1", AuthUUID: testAuthUUID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := deck.Tasks.Start(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task == nil {
+		t.Fatal("expected non-nil task")
+	}
+	if task.ID != "" || task.Status != "" {
+		t.Fatalf("expected empty task for empty body, got %#v", task)
+	}
+}
+
+func TestWaitReturnsImmediatelyWhenAlreadyCompleted(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("response-event-stream") == "yes" {
+			t.Fatal("SSE should not be requested when task is already completed")
+		}
+		_, _ = w.Write([]byte(`{"id":"task-done","spaceId":"space-1","type":"image.ocr","status":"completed"}`))
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{Root: server.URL, SpaceID: "space-1", AuthUUID: testAuthUUID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := deck.Tasks.Wait(ctx, "task-done", WaitForTaskOptions{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != TaskStatusCompleted {
+		t.Fatalf("status = %s", task.Status)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestDoesNotRetryForbidden(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	oldDelays := retryDelays
+	retryDelays = []int{0, 0, 0}
+	defer func() { retryDelays = oldDelays }()
+
+	ctx := context.Background()
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "req-403-1")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"forbidden"}`))
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{
+		Root:     server.URL,
+		Token:    "token-1",
+		SpaceID:  "space-1",
+		AuthUUID: testAuthUUID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = deck.Tasks.Down(ctx, "task-1", TaskDownloadOptions{}, &map[string]any{})
+	if err == nil {
+		t.Fatal("expected forbidden error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("error = %#v", err)
+	}
+	if !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("error = %q", err.Error())
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+	if IsRetriableError(err) {
+		t.Fatal("403 should not be retriable")
 	}
 }

@@ -566,14 +566,6 @@ func (c *appContext) apiBase() string {
 }
 
 func (c *appContext) getClient(ctx context.Context) (*deckops.Client, error) {
-	if c.config.Token == "" {
-		if _, err := c.ensureLoggedIn(ctx, defaultLoginPort, "explicit"); err != nil {
-			return nil, err
-		}
-	}
-	if c.config.Token == "" {
-		return nil, fmt.Errorf("Login did not provide a token. Please run `deckflow login` again.")
-	}
 	if c.client != nil {
 		return c.client, nil
 	}
@@ -582,7 +574,13 @@ func (c *appContext) getClient(ctx context.Context) (*deckops.Client, error) {
 		Token:   c.config.Token,
 		SpaceID: c.config.SpaceID,
 		OnUnauthorized: func(ctx context.Context) (deckops.AuthRefresh, error) {
-			token, err := c.ensureLoggedIn(ctx, defaultLoginPort, "unauthorized")
+			// First-time visit (no token yet) feels like an explicit login;
+			// an expired token reads as "auth expired".
+			reason := "unauthorized"
+			if c.config.Token == "" {
+				reason = "explicit"
+			}
+			token, err := c.ensureLoggedIn(ctx, defaultLoginPort, reason)
 			if err != nil {
 				return deckops.AuthRefresh{}, err
 			}
@@ -1045,6 +1043,10 @@ func (c *appContext) runTask(args []string) error {
 				return nil
 			}
 		}
+		task, err = c.attachDownloadResult(context.Background(), client, task)
+		if err != nil {
+			return err
+		}
 		c.output(task, func() string { return formatTaskDetails(task) })
 	case "delete":
 		if len(args) != 2 {
@@ -1428,6 +1430,17 @@ func (c *appContext) runFileTask(options fileTaskOptions) error {
 	if err != nil {
 		return err
 	}
+
+	// Guest mode (no token): the backend parks the task in a pending state
+	// and waits for an explicit start signal before executing.
+	// If Create triggered a 401 → login → retry, config.Token is now set
+	// and we skip the start call (authenticated tasks auto-start).
+	if c.config.Token == "" {
+		if _, err := client.Tasks.Start(context.Background(), task.ID); err != nil {
+			return err
+		}
+	}
+
 	c.info("Task created: " + task.ID)
 	if options.wait {
 		timeoutSec, err := positiveInt(options.timeout, "--timeout")
@@ -1458,14 +1471,12 @@ func (c *appContext) runFileTask(options fileTaskOptions) error {
 			return nil
 		}
 	}
-	if options.wait && task.Status == deckops.TaskStatusCompleted {
-		var downloadResult any
-		if err := client.Tasks.Down(context.Background(), task.ID, deckops.TaskDownloadOptions{}, &downloadResult); err != nil {
-			return err
-		}
-		printJSON(downloadResult)
-		return nil
+
+	task, err = c.attachDownloadResult(context.Background(), client, task)
+	if err != nil {
+		return err
 	}
+
 	c.output(task, func() string {
 		lines := []string{
 			options.title + ":",
@@ -1710,9 +1721,12 @@ func (c *appContext) tryWriteTaskOutput(ctx context.Context, client *deckops.Cli
 			return result, true
 		}
 		lastErr = err
-		if attempt < 3 {
+		// Only retry transient network/upstream failures — never 403/4xx business errors.
+		if attempt < 3 && deckops.IsRetriableError(err) {
 			time.Sleep(10 * time.Second)
+			continue
 		}
+		break
 	}
 	message := fmt.Sprintf("Task completed, but --out result could not be saved to %s after 3 attempts. The task result will be printed below; you can manually download the file from the target/result JSON.", outPath)
 	if c.json {
@@ -1723,6 +1737,20 @@ func (c *appContext) tryWriteTaskOutput(ctx context.Context, client *deckops.Cli
 		fmt.Fprintln(os.Stderr, "Last error:", lastErr)
 	}
 	return outputWriteResult{}, false
+}
+
+// attachDownloadResult loads task result from GET /tools/tasks/:id/download.
+// Task detail/SSE only carries status/progress metadata now.
+func (c *appContext) attachDownloadResult(ctx context.Context, client *deckops.Client, task *deckops.Task) (*deckops.Task, error) {
+	if task.Status != deckops.TaskStatusCompleted {
+		return task, nil
+	}
+	var result any
+	if err := client.Tasks.Down(ctx, task.ID, deckops.TaskDownloadOptions{}, &result); err != nil {
+		return nil, err
+	}
+	task.Result = result
+	return task, nil
 }
 
 func (c *appContext) writeTaskOutput(ctx context.Context, client *deckops.Client, task *deckops.Task, outPath string) (outputWriteResult, error) {
@@ -1740,9 +1768,6 @@ func (c *appContext) writeTaskOutput(ctx context.Context, client *deckops.Client
 			return outputWriteResult{}, err
 		}
 		payload := downloadResult
-		if payload == nil {
-			payload = task.Result
-		}
 		if payload == nil {
 			payload = task
 		}

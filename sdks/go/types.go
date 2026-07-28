@@ -94,6 +94,7 @@ type Task struct {
 	Name      string                 `json:"name,omitempty"`
 	Params    map[string]any         `json:"params,omitempty"`
 	Preview   any                    `json:"preview,omitempty"`
+	// Result is optional on detail responses. Prefer Tasks.Down — detail no longer includes results.
 	Result    any                    `json:"result,omitempty"`
 	Error     string                 `json:"error,omitempty"`
 	CreatedAt string                 `json:"createdAt,omitempty"`

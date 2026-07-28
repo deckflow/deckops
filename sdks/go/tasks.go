@@ -34,13 +34,15 @@ func (t *TasksClient) Create(ctx context.Context, params CreateTaskParams) (*Tas
 		return nil, err
 	}
 	payload := map[string]any{
-		"spaceId": spaceID,
 		"fileIds": fileIDs,
 		"type":    params.Type,
 		"params":  params.Params,
 	}
 	if payload["params"] == nil {
 		payload["params"] = map[string]any{}
+	}
+	if spaceID != "" {
+		payload["spaceId"] = spaceID
 	}
 	if params.Name != "" {
 		payload["name"] = params.Name
@@ -59,7 +61,9 @@ func (t *TasksClient) List(ctx context.Context, params ListTasksParams) (*TaskLi
 		return nil, err
 	}
 	query := url.Values{}
-	query.Set("spaceId", spaceID)
+	if spaceID != "" {
+		query.Set("spaceId", spaceID)
+	}
 	if params.HasStart {
 		query.Set("_startIndex", strconv.Itoa(params.StartIndex))
 	} else {
@@ -111,6 +115,19 @@ func (t *TasksClient) Delete(ctx context.Context, taskID string) error {
 	return t.http.delete(ctx, "/tools/tasks/"+urlPathEscape(taskID), t.taskQueryParams())
 }
 
+// Start triggers an already-created task to begin executing.
+//
+// Required for guest-mode tasks: the backend creates them in a pending state
+// and waits for an explicit PUT /tools/tasks/:id/start before running.
+// Authenticated tasks are started automatically by the backend.
+func (t *TasksClient) Start(ctx context.Context, taskID string) (*Task, error) {
+	var task Task
+	if _, err := t.http.putJSON(ctx, "/tools/tasks/"+urlPathEscape(taskID)+"/start", t.taskQueryParams(), nil, &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
 func (t *TasksClient) Down(ctx context.Context, taskID string, options TaskDownloadOptions, out any) error {
 	query := url.Values{}
 	if options.Type != "" {
@@ -129,7 +146,29 @@ func (t *TasksClient) Wait(ctx context.Context, taskID string, options WaitForTa
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	startedAt := time.Now()
+
+	// Fast path: task may already be terminal before SSE connects (common for
+	// quick guest-mode tasks after an explicit start).
+	current, err := t.Get(ctx, taskID, false)
+	if err != nil {
+		return nil, err
+	}
+	if options.OnProgress != nil {
+		options.OnProgress(*current)
+	}
+	switch current.Status {
+	case TaskStatusCompleted:
+		return current, nil
+	case TaskStatusFailed:
+		return nil, fmt.Errorf("task failed: %s", firstNonEmpty(current.Error, "Unknown error"))
+	}
+
+	remaining := timeout - time.Since(startedAt)
+	if remaining <= 0 {
+		return nil, fmt.Errorf("task %s did not complete within %s", taskID, timeout)
+	}
+	ctx, cancel := context.WithTimeout(ctx, remaining)
 	defer cancel()
 
 	if !options.DisableSSE {
