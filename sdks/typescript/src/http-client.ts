@@ -34,6 +34,9 @@ export class HttpClient {
   private spaceIdExplicit = false;
   private resolvedSpaceIdPromise?: Promise<string>;
   private authRefreshPromise?: Promise<AuthRefreshResult>;
+  private guestDowngradePromise?: Promise<string>;
+  /** Set after credentials are cleared due to 401; later parallel 401s still retry as guest. */
+  private authDowngradedToGuest = false;
   private readonly onUnauthorized?: CreateDeckOptions['onUnauthorized'];
   private readonly onPaymentRequired?: CreateDeckOptions['onPaymentRequired'];
 
@@ -59,7 +62,12 @@ export class HttpClient {
       const headers = config.headers;
 
       if (headers && typeof (headers as { set?: unknown }).set === 'function') {
-        const mutable = headers as { set: (key: string, value: string) => void };
+        const mutable = headers as {
+          set: (key: string, value: string) => void;
+          delete?: (key: string) => void;
+        };
+        mutable.delete?.('X-Auth-Token');
+        mutable.delete?.('Authorization');
         for (const [key, value] of Object.entries(authHeaders)) {
           mutable.set(key, value);
         }
@@ -67,8 +75,11 @@ export class HttpClient {
         return config;
       }
 
+      const plain = { ...(headers as Record<string, string> | undefined) };
+      delete plain['X-Auth-Token'];
+      delete plain.Authorization;
       config.headers = AxiosHeaders.from({
-        ...(headers as Record<string, string> | undefined),
+        ...plain,
         ...authHeaders,
         'X-Auth-UUID': authUuid,
       });
@@ -95,17 +106,25 @@ export class HttpClient {
         }
 
         if (status === 401 && cfg && !cfg.__deckopsAuthRetried) {
-          if (this.isApiKeyAuth()) {
-            throw APIError.unauthorizedApiKey(error);
+          cfg.__deckopsAuthRetried = true;
+          const oldSpaceId = this.spaceIdFromConfig(cfg) ?? this.spaceId;
+
+          if (this.onUnauthorized && this.token && !this.isApiKeyAuth()) {
+            try {
+              const auth = await this.refreshAuth();
+              this.applyAuthResult(auth, cfg, oldSpaceId);
+              return await this.client.request(cfg);
+            } catch {
+              // Refresh failed — fall through to guest mode.
+            }
           }
-          if (this.onUnauthorized) {
-            cfg.__deckopsAuthRetried = true;
-            const oldSpaceId = this.spaceId;
-            const auth = await this.refreshAuth();
-            this.applyAuthResult(auth, cfg, oldSpaceId);
+
+          if (this.hasCredentials() || this.authDowngradedToGuest || this.guestDowngradePromise) {
+            const guestSpaceId = await this.ensureGuestMode();
+            this.rewriteRequestSpaceId(cfg, oldSpaceId, guestSpaceId);
+            cfg.headers = this.guestRequestHeaders(cfg.headers);
             return await this.client.request(cfg);
           }
-          throw APIError.unauthorizedToken(error);
         }
 
         throw error;
@@ -136,12 +155,18 @@ export class HttpClient {
 
   setToken(token: string | undefined): void {
     this.token = token;
+    if (token) {
+      this.authDowngradedToGuest = false;
+    }
     this.clearAutoResolvedSpaceId();
     this.applyAuthHeaders();
   }
 
   setApiKey(apiKey: string | undefined): void {
     this.apiKey = apiKey;
+    if (apiKey) {
+      this.authDowngradedToGuest = false;
+    }
     this.clearAutoResolvedSpaceId();
     this.applyAuthHeaders();
   }
@@ -350,21 +375,31 @@ export class HttpClient {
       }
 
       if (response.status === 401 && !authRetried) {
-        if (this.isApiKeyAuth()) {
-          throw await this.readFetchAPIError(response, responseHeaders, 'Authentication failed. Please update your API key.');
+        authRetried = true;
+        const oldSpaceId = params.spaceId ?? this.spaceId;
+
+        if (this.onUnauthorized && this.token && !this.isApiKeyAuth()) {
+          try {
+            const auth = await this.refreshAuth();
+            const nextSpaceId = this.applyAuthResult(auth, undefined, oldSpaceId);
+            if (oldSpaceId && nextSpaceId && params.spaceId === oldSpaceId) {
+              params.spaceId = nextSpaceId;
+            }
+            networkRetry = 0;
+            continue;
+          } catch {
+            // Refresh failed — fall through to guest mode.
+          }
         }
-        if (this.onUnauthorized) {
-          authRetried = true;
-          const oldSpaceId = this.spaceId;
-          const auth = await this.refreshAuth();
-          const nextSpaceId = this.applyAuthResult(auth, undefined, oldSpaceId);
-          if (oldSpaceId && nextSpaceId && params.spaceId === oldSpaceId) {
-            params.spaceId = nextSpaceId;
+
+        if (this.hasCredentials() || this.authDowngradedToGuest || this.guestDowngradePromise) {
+          const guestSpaceId = await this.ensureGuestMode();
+          if (oldSpaceId && params.spaceId === oldSpaceId) {
+            params.spaceId = guestSpaceId;
           }
           networkRetry = 0;
           continue;
         }
-        throw await this.readFetchAPIError(response, responseHeaders, 'Authentication expired. Please log in again.');
       }
 
       if (!response.ok) {
@@ -389,6 +424,82 @@ export class HttpClient {
 
   private isApiKeyAuth(): boolean {
     return Boolean(this.apiKey && !this.token);
+  }
+
+  private hasCredentials(): boolean {
+    return Boolean(this.token || this.apiKey);
+  }
+
+  /**
+   * Clear expired credentials and resolve a guest space via GET /user
+   * (X-Auth-UUID only). Concurrent 401s share one downgrade.
+   */
+  private ensureGuestMode(): Promise<string> {
+    if (!this.hasCredentials() && this.spaceId && !this.guestDowngradePromise) {
+      return Promise.resolve(this.spaceId);
+    }
+    return this.downgradeToGuest();
+  }
+
+  private downgradeToGuest(): Promise<string> {
+    if (!this.guestDowngradePromise) {
+      this.authDowngradedToGuest = true;
+      this.guestDowngradePromise = (async () => {
+        this.token = undefined;
+        this.apiKey = undefined;
+        this.applyAuthHeaders();
+        this.spaceId = undefined;
+        this.spaceIdExplicit = false;
+        this.resolvedSpaceIdPromise = undefined;
+
+        const guestSpaceId = await this.resolveSpaceId();
+        if (!guestSpaceId) {
+          throw new Error('Failed to resolve guest space id after auth downgrade');
+        }
+        return guestSpaceId;
+      })().finally(() => {
+        this.guestDowngradePromise = undefined;
+      });
+    }
+    return this.guestDowngradePromise;
+  }
+
+  private guestRequestHeaders(headers?: Record<string, string>): Record<string, string> {
+    const next = { ...(headers ?? {}) };
+    delete next['X-Auth-Token'];
+    delete next.Authorization;
+    return { ...next, ...this.buildAuthHeaders() };
+  }
+
+  private spaceIdFromConfig(cfg: RetriableConfig): string | undefined {
+    if (cfg.params && typeof cfg.params.spaceId === 'string') {
+      return cfg.params.spaceId;
+    }
+
+    if (typeof cfg.data === 'string') {
+      try {
+        const parsed = JSON.parse(cfg.data) as Record<string, unknown>;
+        if (typeof parsed.spaceId === 'string') {
+          return parsed.spaceId;
+        }
+      } catch {
+        // Ignore non-JSON bodies.
+      }
+    } else if (cfg.data && typeof cfg.data === 'object') {
+      const spaceId = (cfg.data as Record<string, unknown>).spaceId;
+      if (typeof spaceId === 'string') {
+        return spaceId;
+      }
+    }
+
+    if (typeof cfg.url === 'string') {
+      const match = cfg.url.match(/\/spaces\/([^/?#]+)\//);
+      if (match?.[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    }
+
+    return undefined;
   }
 
   private isRetriableFetchError(error: unknown): boolean {
@@ -499,10 +610,19 @@ export class HttpClient {
 
   private applyAuthHeaders(): void {
     const headers = this.buildAuthHeaders();
-    delete this.client.defaults.headers.common['X-Auth-Token'];
-    delete this.client.defaults.headers.common.Authorization;
+    const common = this.client.defaults.headers.common as {
+      delete?: (key: string) => void;
+      [key: string]: unknown;
+    };
+    if (typeof common.delete === 'function') {
+      common.delete('X-Auth-Token');
+      common.delete('Authorization');
+    } else {
+      delete common['X-Auth-Token'];
+      delete common.Authorization;
+    }
     for (const [key, value] of Object.entries(headers)) {
-      this.client.defaults.headers.common[key] = value;
+      common[key] = value;
     }
   }
 

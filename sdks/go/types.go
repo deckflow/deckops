@@ -71,6 +71,9 @@ type ClientOptions struct {
 	AuthUUID          string
 	AuthUUIDStorage   AuthUUIDStorage
 	HTTPClient        *http.Client
+	// OnUnauthorized is called once after a 401 when a user token is present.
+	// The returned token is saved and the request is retried. If omitted or
+	// refresh fails, credentials are cleared and the request is retried as guest.
 	OnUnauthorized    func(context.Context) (AuthRefresh, error)
 	OnPaymentRequired func(context.Context) error
 }

@@ -28,12 +28,21 @@ type httpClient struct {
 	mu                sync.RWMutex
 	authRefreshMu     sync.Mutex
 	authRefreshWait   *authRefreshWaiter
+	guestDowngradeMu  sync.Mutex
+	guestDowngradeWait *guestDowngradeWaiter
+	authDowngradedToGuest bool
 }
 
 type authRefreshWaiter struct {
 	done chan struct{}
 	auth AuthRefresh
 	err  error
+}
+
+type guestDowngradeWaiter struct {
+	done    chan struct{}
+	spaceID string
+	err     error
 }
 
 type httpResponse struct {
@@ -76,6 +85,9 @@ func (c *httpClient) SetToken(token string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.token = token
+	if token != "" {
+		c.authDowngradedToGuest = false
+	}
 	c.clearAutoResolvedSpaceID()
 }
 
@@ -83,6 +95,9 @@ func (c *httpClient) SetAPIKey(apiKey string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.apiKey = apiKey
+	if apiKey != "" {
+		c.authDowngradedToGuest = false
+	}
 	c.clearAutoResolvedSpaceID()
 }
 
@@ -241,25 +256,36 @@ func (c *httpClient) do(ctx context.Context, method string, path string, query u
 				return nil, paymentRequiredError(apiErr)
 			}
 			if apiErr.StatusCode == http.StatusUnauthorized && !authRetried {
-				if c.usesAPIKeyAuth() {
-					return nil, unauthorizedAPIKeyError(apiErr)
+				authRetried = true
+				oldSpaceID := spaceIDFromRequest(path, query, body)
+				if oldSpaceID == "" {
+					oldSpaceID = c.SpaceID()
 				}
-				if c.onUnauthorized != nil {
-					authRetried = true
-					oldSpaceID := c.SpaceID()
-					auth, err := c.refreshAuth(ctx)
-					if err != nil {
-						return nil, err
+
+				if c.onUnauthorized != nil && c.hasUserToken() && !c.usesAPIKeyAuth() {
+					auth, refreshErr := c.refreshAuth(ctx)
+					if refreshErr == nil {
+						c.SetToken(auth.Token)
+						if auth.SpaceID != "" {
+							c.SetSpaceID(auth.SpaceID)
+						}
+						path, body = rewriteSpaceID(path, query, body, oldSpaceID, auth.SpaceID)
+						attempt = -1
+						continue
 					}
-					c.SetToken(auth.Token)
-					if auth.SpaceID != "" {
-						c.SetSpaceID(auth.SpaceID)
-						body = rewriteSpaceID(query, body, oldSpaceID, auth.SpaceID)
+					// Refresh failed — fall through to guest mode.
+				}
+
+				if c.hasCredentials() || c.isAuthDowngradedToGuest() || c.hasGuestDowngradeInFlight() {
+					guestSpaceID, guestErr := c.ensureGuestMode(ctx)
+					if guestErr != nil {
+						return nil, guestErr
 					}
+					path, body = rewriteSpaceID(path, query, body, oldSpaceID, guestSpaceID)
 					attempt = -1
 					continue
 				}
-				return nil, unauthorizedTokenError(apiErr)
+				return nil, apiErr
 			}
 			if !isRetriableStatus(apiErr.StatusCode) {
 				return nil, err
@@ -278,6 +304,30 @@ func (c *httpClient) usesAPIKeyAuth() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.apiKey != "" && c.token == ""
+}
+
+func (c *httpClient) hasUserToken() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token != ""
+}
+
+func (c *httpClient) hasCredentials() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token != "" || c.apiKey != ""
+}
+
+func (c *httpClient) isAuthDowngradedToGuest() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.authDowngradedToGuest
+}
+
+func (c *httpClient) hasGuestDowngradeInFlight() bool {
+	c.guestDowngradeMu.Lock()
+	defer c.guestDowngradeMu.Unlock()
+	return c.guestDowngradeWait != nil
 }
 
 func (c *httpClient) refreshAuth(ctx context.Context) (AuthRefresh, error) {
@@ -310,6 +360,82 @@ func (c *httpClient) refreshAuth(ctx context.Context) (AuthRefresh, error) {
 	close(wait.done)
 
 	return wait.auth, wait.err
+}
+
+func (c *httpClient) ensureGuestMode(ctx context.Context) (string, error) {
+	c.mu.RLock()
+	alreadyGuest := c.authDowngradedToGuest && c.token == "" && c.apiKey == "" && c.spaceID != ""
+	existingSpace := c.spaceID
+	c.mu.RUnlock()
+
+	c.guestDowngradeMu.Lock()
+	inFlight := c.guestDowngradeWait != nil
+	c.guestDowngradeMu.Unlock()
+
+	if alreadyGuest && !inFlight {
+		return existingSpace, nil
+	}
+	return c.downgradeToGuest(ctx)
+}
+
+func (c *httpClient) downgradeToGuest(ctx context.Context) (string, error) {
+	c.guestDowngradeMu.Lock()
+	if waiting := c.guestDowngradeWait; waiting != nil {
+		c.guestDowngradeMu.Unlock()
+		select {
+		case <-waiting.done:
+			return waiting.spaceID, waiting.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
+	wait := &guestDowngradeWaiter{done: make(chan struct{})}
+	c.guestDowngradeWait = wait
+	c.guestDowngradeMu.Unlock()
+
+	c.mu.Lock()
+	c.authDowngradedToGuest = true
+	c.token = ""
+	c.apiKey = ""
+	c.spaceID = ""
+	c.spaceIDExplicit = false
+	c.mu.Unlock()
+
+	guestSpaceID, err := c.fetchUserSpaceID(ctx)
+	if err == nil {
+		c.mu.Lock()
+		c.spaceID = guestSpaceID
+		c.mu.Unlock()
+	}
+
+	wait.spaceID = guestSpaceID
+	wait.err = err
+
+	c.guestDowngradeMu.Lock()
+	if c.guestDowngradeWait == wait {
+		c.guestDowngradeWait = nil
+	}
+	c.guestDowngradeMu.Unlock()
+	close(wait.done)
+
+	return wait.spaceID, wait.err
+}
+
+// fetchUserSpaceID calls GET /user directly to avoid re-entering 401 guest handling.
+func (c *httpClient) fetchUserSpaceID(ctx context.Context) (string, error) {
+	res, err := c.doOnce(ctx, http.MethodGet, "/user", nil, nil, nil, false)
+	if err != nil {
+		return "", err
+	}
+	var user UserSelf
+	if err := decodeJSONBody(res.Body, &user); err != nil {
+		return "", err
+	}
+	if user.ID == "" {
+		return "", fmt.Errorf("Failed to resolve guest space id after auth downgrade")
+	}
+	return user.ID, nil
 }
 
 func (c *httpClient) doOnce(ctx context.Context, method string, path string, query url.Values, headers http.Header, body []byte, stream bool) (*httpResponse, error) {
@@ -383,25 +509,56 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func rewriteSpaceID(query url.Values, body []byte, oldSpaceID string, newSpaceID string) []byte {
-	if oldSpaceID == "" || newSpaceID == "" || oldSpaceID == newSpaceID {
-		return body
+func spaceIDFromRequest(path string, query url.Values, body []byte) string {
+	if query != nil {
+		if spaceID := query.Get("spaceId"); spaceID != "" {
+			return spaceID
+		}
 	}
+	if len(body) > 0 {
+		var payload map[string]any
+		if json.Unmarshal(body, &payload) == nil {
+			if spaceID, ok := payload["spaceId"].(string); ok && spaceID != "" {
+				return spaceID
+			}
+		}
+	}
+	if marker := "/spaces/"; strings.Contains(path, marker) {
+		rest := path[strings.Index(path, marker)+len(marker):]
+		if end := strings.IndexByte(rest, '/'); end > 0 {
+			spaceID, err := url.PathUnescape(rest[:end])
+			if err == nil && spaceID != "" {
+				return spaceID
+			}
+			return rest[:end]
+		}
+	}
+	return ""
+}
+
+func rewriteSpaceID(path string, query url.Values, body []byte, oldSpaceID string, newSpaceID string) (string, []byte) {
+	if oldSpaceID == "" || newSpaceID == "" || oldSpaceID == newSpaceID {
+		return path, body
+	}
+	escapedOld := url.PathEscape(oldSpaceID)
+	escapedNew := url.PathEscape(newSpaceID)
+	path = strings.ReplaceAll(path, "/spaces/"+escapedOld+"/", "/spaces/"+escapedNew+"/")
+	path = strings.ReplaceAll(path, "/spaces/"+oldSpaceID+"/", "/spaces/"+newSpaceID+"/")
 	if query != nil && query.Get("spaceId") == oldSpaceID {
 		query.Set("spaceId", newSpaceID)
 	}
 	if len(body) == 0 {
-		return body
+		return path, body
 	}
 	var payload map[string]any
 	if json.Unmarshal(body, &payload) == nil && payload["spaceId"] == oldSpaceID {
 		payload["spaceId"] = newSpaceID
 		next, err := json.Marshal(payload)
 		if err == nil {
-			return next
+			return path, next
 		}
 	}
-	return body
+	return path, body
 }
 
 func isEventStream(headers http.Header) bool {

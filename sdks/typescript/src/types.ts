@@ -137,7 +137,10 @@ export interface CreateDeckOptions {
   authUuid?: string;
   /** Custom UUID storage for SSR, tests, or embedded integrations. */
   authUuidStorage?: AuthUuidStorage;
-  /** Called once after a 401 response; returned token is saved and request is retried. */
+  /**
+   * Called once after a 401 when a user token is present. Returned token is saved and the request is
+   * retried. If omitted or refresh fails, credentials are cleared and the request is retried as guest.
+   */
   onUnauthorized?: () => Promise<{ token: string; spaceId?: string } | string>;
   /** Called once after a 402 response; request is retried after this resolves. */
   onPaymentRequired?: () => Promise<void>;
