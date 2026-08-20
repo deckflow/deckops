@@ -49,15 +49,15 @@ describe('CLI E2E Tests', () => {
   beforeAll(async () => {
     // Create temp directory for test files
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cli-e2e-'));
-    previousConfigDir = process.env.DECKOPS_CONFIG_DIR;
-    process.env.DECKOPS_CONFIG_DIR = path.join(tempDir, '.deckops');
+    previousConfigDir = process.env.DECKFLOW_CONFIG_DIR;
+    process.env.DECKFLOW_CONFIG_DIR = path.join(tempDir, '.deckflow');
   });
 
   afterAll(async () => {
     if (previousConfigDir === undefined) {
-      delete process.env.DECKOPS_CONFIG_DIR;
+      delete process.env.DECKFLOW_CONFIG_DIR;
     } else {
-      process.env.DECKOPS_CONFIG_DIR = previousConfigDir;
+      process.env.DECKFLOW_CONFIG_DIR = previousConfigDir;
     }
     // Cleanup
     await fs.rm(tempDir, { recursive: true, force: true });

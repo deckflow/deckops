@@ -43,7 +43,7 @@ const deck = createDeck({
 Каждый запрос к API Deckops автоматически включает `X-Auth-UUID` — стабильный UUID v4 для отслеживания клиента между сессиями.
 
 - **Браузер**: сохраняется в `localStorage` под ключом `df_uuid`.
-- **Node.js**: сохраняется в `~/.deckops/auth-uuid` (переопределите каталог через `DECKOPS_CONFIG_DIR`).
+- **Node.js**: сохраняется в `~/.deckflow/auth-uuid` (переопределите каталог через `DECKFLOW_CONFIG_DIR`).
 - **Явное переопределение**: передайте `authUuid` или задайте `DECKOPS_AUTH_UUID` (только Node) для фиксированных ID в CI, контейнерах или мультитенантных серверах.
 
 ```ts

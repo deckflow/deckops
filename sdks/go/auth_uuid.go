@@ -98,14 +98,16 @@ func resolveAuthUUIDWithStorage(ctx context.Context, storage AuthUUIDStorage) (s
 }
 
 func defaultConfigDir() string {
-	if dir := os.Getenv("DECKOPS_CONFIG_DIR"); dir != "" {
-		return dir
+	for _, key := range []string{"DECKFLOW_CONFIG_DIR", "DECKHTML_CONFIG_DIR", "DECKOPS_CONFIG_DIR"} {
+		if dir := os.Getenv(key); dir != "" {
+			return dir
+		}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".deckops")
+	return filepath.Join(home, ".deckflow")
 }
 
 func readDefaultAuthUUID() (string, error) {

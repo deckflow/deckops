@@ -28,8 +28,11 @@ def generate_auth_uuid() -> str:
 
 
 def _config_dir() -> Path:
-    configured = os.getenv("DECKOPS_CONFIG_DIR")
-    return Path(configured).expanduser() if configured else Path.home() / ".deckops"
+    for key in ("DECKFLOW_CONFIG_DIR", "DECKHTML_CONFIG_DIR", "DECKOPS_CONFIG_DIR"):
+        configured = os.getenv(key)
+        if configured:
+            return Path(configured).expanduser()
+    return Path.home() / ".deckflow"
 
 
 def _read_default() -> str | None:

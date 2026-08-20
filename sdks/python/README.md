@@ -29,7 +29,7 @@ deck = create_deck(
 ```
 
 Every API request includes a stable UUID v4 in `X-Auth-UUID`. By default it is
-stored in `~/.deckops/auth-uuid`. Set `DECKOPS_CONFIG_DIR` to change the directory
+stored in `~/.deckflow/auth-uuid`. Set `DECKFLOW_CONFIG_DIR` to change the directory
 or `DECKOPS_AUTH_UUID` to use a fixed value.
 
 ## Create and wait for tasks

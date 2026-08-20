@@ -43,7 +43,7 @@ Options :
 Chaque requête API Deckops inclut automatiquement `X-Auth-UUID`, un UUID v4 stable utilisé pour suivre le client entre les sessions.
 
 - **Navigateur** : persisté dans `localStorage` sous la clé `df_uuid`.
-- **Node.js** : persisté dans `~/.deckops/auth-uuid` (remplacez le répertoire avec `DECKOPS_CONFIG_DIR`).
+- **Node.js** : persisté dans `~/.deckflow/auth-uuid` (remplacez le répertoire avec `DECKFLOW_CONFIG_DIR`).
 - **Remplacement explicite** : passez `authUuid` ou définissez `DECKOPS_AUTH_UUID` (Node uniquement) pour des identifiants fixes en CI, conteneurs ou serveurs multi-locataires.
 
 ```ts

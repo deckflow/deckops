@@ -63,7 +63,12 @@ function writeBrowserStorage(value: string): void {
 async function getNodeConfigDir(): Promise<string> {
   const os = await import('node:os');
   const path = await import('node:path');
-  return process.env.DECKOPS_CONFIG_DIR ?? path.join(os.homedir(), '.deckops');
+  return (
+    process.env.DECKFLOW_CONFIG_DIR ||
+    process.env.DECKHTML_CONFIG_DIR ||
+    process.env.DECKOPS_CONFIG_DIR ||
+    path.join(os.homedir(), '.deckflow')
+  );
 }
 
 async function readNodeFile(): Promise<string | null> {

@@ -1,182 +1,181 @@
 /**
- * Configuration management for deckflow CLI
- * Manages CLI configuration stored in ~/.deckops/config.json
+ * Configuration management for deckflow CLI.
+ * Shared with deckhtml and other Deckflow tools at ~/.deckflow/credentials
  */
 
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { ConfigSchema, type ConfigData } from '../types/config.js';
+import { CONFIG_KEYS, ConfigSchema, type ConfigData } from '../types/config.js';
+
+const DEFAULT_API_BASE = 'https://app.deckflow.com/v1';
+
+function resolveConfigDir(explicit?: string): string {
+  return (
+    explicit ||
+    process.env.DECKFLOW_CONFIG_DIR ||
+    process.env.DECKHTML_CONFIG_DIR ||
+    process.env.DECKOPS_CONFIG_DIR ||
+    path.join(os.homedir(), '.deckflow')
+  );
+}
+
+function sanitizeConfig(raw: Record<string, unknown>): ConfigData {
+  const data: ConfigData = {};
+  for (const key of CONFIG_KEYS) {
+    const value = raw[key];
+    if (value !== undefined) {
+      (data as Record<string, unknown>)[key] = value;
+    }
+  }
+  const parsed = ConfigSchema.safeParse(data);
+  return parsed.success ? parsed.data : {};
+}
 
 export class Config {
-  private static readonly DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.deckops');
-  private static readonly CONFIG_FILE = 'config.json';
+  private static readonly CONFIG_FILE = 'credentials';
 
   private readonly configDir: string;
   private readonly configPath: string;
   private data: ConfigData;
 
   /**
-   * Initialize config manager
-   * @param configDir - Custom config directory (defaults to ~/.deckops)
+   * @param configDir - Custom config directory (defaults to ~/.deckflow)
    */
   constructor(configDir?: string) {
-    this.configDir = configDir || process.env.DECKOPS_CONFIG_DIR || Config.DEFAULT_CONFIG_DIR;
+    this.configDir = resolveConfigDir(configDir);
     this.configPath = path.join(this.configDir, Config.CONFIG_FILE);
-    this.data = ConfigSchema.parse({});
+    this.data = {};
   }
 
-  /**
-   * Load configuration from disk
-   */
   async load(): Promise<void> {
     try {
       const raw = await fs.readFile(this.configPath, 'utf-8');
-      const parsed = JSON.parse(raw) as unknown;
-      this.data = ConfigSchema.parse(parsed);
-    } catch (error) {
-      // If file doesn't exist or is invalid, start with empty config
-      this.data = ConfigSchema.parse({});
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      this.data = sanitizeConfig(parsed);
+    } catch {
+      this.data = {};
     }
   }
 
   /**
-   * Save configuration to disk
+   * Re-read the shared file before writing so other tools' keys
+   * (e.g. deckhtml `webhook` / `retentionHours`) are preserved.
    */
   async save(): Promise<void> {
     await fs.mkdir(this.configDir, { recursive: true });
-    const validated = ConfigSchema.parse(this.data);
-    await fs.writeFile(this.configPath, JSON.stringify(validated, null, 2), 'utf-8');
+
+    let existing: Record<string, unknown> = {};
+    try {
+      const raw = await fs.readFile(this.configPath, 'utf-8');
+      existing = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      // File may not exist yet.
+    }
+
+    // Overlay only keys present on this.data so we do not wipe fields
+    // owned by other tools when we never loaded them into memory.
+    const output: ConfigData = { ...sanitizeConfig(existing) };
+    for (const key of CONFIG_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(this.data, key)) {
+        continue;
+      }
+      const value = this.data[key];
+      if (value === undefined) {
+        delete output[key];
+      } else {
+        (output as Record<string, unknown>)[key] = value;
+      }
+    }
+
+    this.data = output;
+    await fs.writeFile(this.configPath, `${JSON.stringify(output, null, 2)}\n`, 'utf-8');
   }
 
-  /**
-   * Get configuration value
-   */
   get<K extends keyof ConfigData>(key: K, defaultValue?: ConfigData[K]): ConfigData[K] | undefined {
     return this.data[key] ?? defaultValue;
   }
 
-  /**
-   * Set configuration value and save
-   */
   async set<K extends keyof ConfigData>(key: K, value: ConfigData[K]): Promise<void> {
     this.data[key] = value;
     await this.save();
   }
 
-  /**
-   * Delete configuration key
-   */
   async delete<K extends keyof ConfigData>(key: K): Promise<void> {
-    delete this.data[key];
+    // Keep the own-property so save() can distinguish "unset" from "untouched".
+    this.data[key] = undefined;
     await this.save();
   }
 
-  /**
-   * Get all configuration
-   */
   all(): ConfigData {
-    return { ...this.data };
+    return sanitizeConfig(this.data as Record<string, unknown>);
   }
 
-  // Convenience getters and setters for common config keys
-
-  /**
-   * Get authentication token
-   */
   get token(): string | undefined {
     return this.data.token;
   }
 
-  /**
-   * Set authentication token
-   * Note: You must call save() manually after setting properties
-   */
   set token(value: string | undefined) {
     this.data.token = value;
   }
 
-  /**
-   * Get space ID
-   */
+  get apiKey(): string | undefined {
+    return this.data.apiKey;
+  }
+
+  set apiKey(value: string | undefined) {
+    this.data.apiKey = value;
+  }
+
   get spaceId(): string | undefined {
     return this.data.spaceId;
   }
 
-  /**
-   * Set space ID
-   * Note: You must call save() manually after setting properties
-   */
   set spaceId(value: string) {
     this.data.spaceId = value;
   }
 
-  /**
-   * Get API base URL
-   */
   get apiBase(): string {
-    return this.data.apiBase || 'https://app.deckflow.com/v1';
+    return this.data.apiBase || DEFAULT_API_BASE;
   }
 
-  /**
-   * Set API base URL
-   * Note: You must call save() manually after setting properties
-   */
   set apiBase(value: string) {
     this.data.apiBase = value;
   }
 
-  /**
-   * Get sign-in URI
-   */
-  get signURI(): string | undefined {
-    return this.data.signURI;
+  get webhook(): string | undefined {
+    return this.data.webhook;
   }
 
-  /**
-   * Set sign-in URI
-   * Note: You must call save() manually after setting properties
-   */
-  set signURI(value: string | undefined) {
-    this.data.signURI = value;
+  get retentionHours(): number | undefined {
+    return this.data.retentionHours;
   }
 
-  /**
-   * Convenience method to set token and save
-   */
   async setToken(value: string): Promise<void> {
     this.data.token = value;
     await this.save();
   }
 
-  /**
-   * Convenience method to set space ID and save
-   */
+  async setApiKey(value: string): Promise<void> {
+    this.data.apiKey = value;
+    await this.save();
+  }
+
   async setSpaceId(value: string): Promise<void> {
     this.data.spaceId = value;
     await this.save();
   }
 
-  /**
-   * Convenience method to set API base and save
-   */
   async setApiBase(value: string): Promise<void> {
     this.data.apiBase = value;
     await this.save();
   }
 
-  /**
-   * Convenience method to set sign-in URI and save
-   */
-  async setSignURI(value: string): Promise<void> {
-    this.data.signURI = value;
-    await this.save();
+  isConfigured(): boolean {
+    return Boolean(this.data.apiKey || this.data.token);
   }
 
-  /**
-   * Check if minimum configuration is present
-   */
-  isConfigured(): boolean {
-    return Boolean(this.token);
+  get configFilePath(): string {
+    return this.configPath;
   }
 }

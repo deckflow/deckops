@@ -82,4 +82,42 @@ describe('Config', () => {
     expect(allConfig.token).toBe('token');
     expect(allConfig.spaceId).toBe('space');
   });
+
+  it('should persist to credentials and preserve shared deckhtml keys', async () => {
+    await fs.writeFile(
+      path.join(tempDir, 'credentials'),
+      JSON.stringify(
+        {
+          apiKey: 'key-from-deckhtml',
+          webhook: 'https://example.com/hook',
+          retentionHours: 3,
+        },
+        null,
+        2
+      ) + '\n',
+      'utf-8'
+    );
+
+    await config.load();
+    expect(config.apiKey).toBe('key-from-deckhtml');
+    expect(config.webhook).toBe('https://example.com/hook');
+    expect(config.retentionHours).toBe(3);
+
+    await config.setToken('shared-token');
+
+    const raw = JSON.parse(await fs.readFile(path.join(tempDir, 'credentials'), 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    expect(raw.token).toBe('shared-token');
+    expect(raw.apiKey).toBe('key-from-deckhtml');
+    expect(raw.webhook).toBe('https://example.com/hook');
+    expect(raw.retentionHours).toBe(3);
+  });
+
+  it('should treat apiKey as configured', async () => {
+    expect(config.isConfigured()).toBe(false);
+    await config.setApiKey('key-1');
+    expect(config.isConfigured()).toBe(true);
+  });
 });

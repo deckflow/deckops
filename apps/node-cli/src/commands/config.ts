@@ -29,6 +29,23 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
       }
     });
 
+  // config set-api-key
+  config
+    .command('set-api-key <api-key>')
+    .description('Set API key (shared with deckhtml at ~/.deckflow/credentials)')
+    .action(async (apiKey: string) => {
+      try {
+        await ctx.config.setApiKey(apiKey);
+
+        ctx.output(
+          { apiKey, message: 'API key set successfully' },
+          () => chalk.green('✓ API key set successfully')
+        );
+      } catch (error) {
+        ctx.error(error);
+      }
+    });
+
   // config set-space
   config
     .command('set-space <space-id>')
@@ -70,12 +87,15 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
     .action(() => {
       try {
         const allConfig = ctx.config.all();
-        const shouldShowLoginHint = !allConfig.token;
+        const shouldShowLoginHint = !allConfig.token && !allConfig.apiKey;
 
         // Mask sensitive data in human-readable output
         const displayConfig = { ...allConfig };
         if (displayConfig.token && !ctx.jsonOutput) {
           displayConfig.token = `${displayConfig.token.slice(0, 8)}...`;
+        }
+        if (displayConfig.apiKey && !ctx.jsonOutput) {
+          displayConfig.apiKey = `${displayConfig.apiKey.slice(0, 8)}...`;
         }
 
         ctx.output(displayConfig, (data) => {
@@ -83,7 +103,7 @@ export function registerConfigCommands(program: Command, ctx: Context): void {
             .map(([key, value]) => `${chalk.cyan(key)}: ${value || chalk.gray('(not set)')}`)
             .join('\n');
           if (shouldShowLoginHint) {
-            return `${content}\n${chalk.yellow('Tip: token is missing. Please run `deckflow login` first.')}`;
+            return `${content}\n${chalk.yellow('Tip: credentials missing. Please run `deckops login` or set an API key first.')}`;
           }
           return content;
         });
