@@ -1,6 +1,14 @@
 import { FilesApi } from './files.js';
 import { HttpClient } from './http-client.js';
-import { createParse, type ParseOptions, type ParseResult, type ParseSource } from './parse-facade.js';
+import {
+  createParse,
+  type ConvertOptions,
+  type ConvertRef,
+  type ConvertResult,
+  type ParseOptions,
+  type ParseResult,
+  type ParseSource,
+} from './parse-facade.js';
 import { TasksApi } from './tasks.js';
 import type {
   CreateDeckOptions,
@@ -26,11 +34,13 @@ export * from './errors.js';
 export * from './types.js';
 export * from './parse/index.js';
 export type {
+  ConvertOptions,
+  ConvertRef,
+  ConvertResult,
   ParseFileIdSource,
   ParseFileSource,
   ParseLinkSource,
   ParseOptions,
-  ParseOutput,
   ParseResult,
   ParseSource,
 } from './parse-facade.js';
@@ -113,7 +123,7 @@ export interface DeckClient {
   generation(params: TaskShortcutParams<'generation'>): Promise<DeckTask<'generation'>>;
   translation(params: TaskShortcutParams<'translation'>): Promise<DeckTask<'translation'>>;
   revamp(params: TaskShortcutParams<'revamp'>): Promise<DeckTask<'revamp'>>;
-  /** 解析类原语：直通任务参数，markdown 由服务端按 `params.markdown` 生成 */
+  /** 解析类原语：直通任务参数，只产出 IR */
   pdfParse(params: TaskShortcutParams<'pdf.pdfParse'>): Promise<DeckTask<'pdf.pdfParse'>>;
   pptxParse(params: TaskShortcutParams<'pptx.parse'>): Promise<DeckTask<'pptx.parse'>>;
   docxParse(params: TaskShortcutParams<'docx.parseTextAndImage'>): Promise<DeckTask<'docx.parseTextAndImage'>>;
@@ -121,12 +131,17 @@ export interface DeckClient {
     params: TaskShortcutParams<'keynote.parseTextAndImage'>
   ): Promise<DeckTask<'keynote.parseTextAndImage'>>;
   htmlGetByURL(params: TaskShortcutParams<'html.getByURL'>): Promise<DeckTask<'html.getByURL'>>;
+  convertIr(params: TaskShortcutParams<'parse.convert'>): Promise<DeckTask<'parse.convert'>>;
   /**
-   * 一步到位：按扩展名/链接路由 → 等待 → 取结果。
+   * 文档 → IR：按扩展名/链接路由 → 等待 → 取结果。
    *
-   * `options.output` 决定要 markdown（默认）、原始结构（`'ir'`）、还是两者（`'all'`）。
+   * 产物里的 `irKey` 可以在保留期（7 天）内反复交给 `convert()`，源文件不必再传。
    */
   parse<R = unknown>(source: ParseSource, options?: ParseOptions): Promise<ParseResult<R>>;
+  /**
+   * IR → View：按 `irKey`（或产出它的 `taskId`）转成指定格式，**不重新解析源文件**。
+   */
+  convert(ref: ConvertRef, options?: ConvertOptions): Promise<ConvertResult>;
 }
 
 export function createDeck(options: CreateDeckOptions = {}): DeckClient {
@@ -143,7 +158,7 @@ export function createDeck(options: CreateDeckOptions = {}): DeckClient {
       });
   };
 
-  const { parse } = createParse({
+  const { parse, convert } = createParse({
     createTask: (params) => tasks.create(params as never),
     waitTask: (taskId, options) => tasks.wait(taskId, options),
     downTask: (taskId) => tasks.down(taskId),
@@ -188,6 +203,8 @@ export function createDeck(options: CreateDeckOptions = {}): DeckClient {
     docxParse: shortcut('docx.parseTextAndImage'),
     keynoteParse: shortcut('keynote.parseTextAndImage'),
     htmlGetByURL: shortcut('html.getByURL'),
+    convertIr: shortcut('parse.convert'),
     parse,
+    convert,
   };
 }

@@ -2,10 +2,9 @@
  * 解析类任务的类型与扩展名路由。
  *
  * 服务端把 slave 的解析原语原样暴露为 ttask 类型（`pdf.pdfParse` / `pptx.parse` /
- * `docx.parseTextAndImage` / `keynote.parseTextAndImage` / `html.getByURL`），
- * 每个都能按参数返回**结构化结果**、**markdown**、或两者兼有。
+ * `docx.parseTextAndImage` / `keynote.parseTextAndImage` / `html.getByURL`）。
  *
- * markdown 由服务端生成，SDK 侧不再有任何转换逻辑。
+ * **它们只产出 IR**：View 由 `parse.convert` 从已存储的 IR 派生，见 `../convert-facade.ts`。
  */
 
 export * from './types.js';
@@ -32,7 +31,7 @@ export const PARSE_TASK_TYPE_BY_EXTENSION: Record<string, ParseTaskType> = {
 /** 支持解析的文件扩展名 */
 export const PARSE_SUPPORTED_EXTENSIONS = Object.keys(PARSE_TASK_TYPE_BY_EXTENSION);
 
-/** 支持逐页 markdown（`markdownPages`）的任务类型 —— 只有分页格式有 */
+/** 支持逐页 markdown（convert 的 `markdownPages`）的任务类型 —— 只有分页格式有 */
 export const PARSE_PAGED_TASK_TYPES: ReadonlySet<ParseTaskType> = new Set<ParseTaskType>([
   'pptx.parse',
   'keynote.parseTextAndImage',

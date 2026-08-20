@@ -5,23 +5,37 @@ import {
   PARSE_PAGED_TASK_TYPES,
   PARSE_SUPPORTED_EXTENSIONS,
 } from '../../src/parse/index.js';
-import { createParse, type ParseOptions, type ParseSource } from '../../src/parse-facade.js';
+import {
+  createParse,
+  type ConvertOptions,
+  type ConvertRef,
+  type ParseOptions,
+  type ParseSource,
+} from '../../src/parse-facade.js';
 
-/** 建一个 parse 门面，记录它实际提交了什么任务、拿到了什么返回 */
+/** 建一对 parse / convert 门面，记录它们实际提交了什么任务、拿到了什么返回 */
 const harness = (downResult: unknown) => {
   const created: { type: string; params?: Record<string, unknown>; [k: string]: unknown }[] = [];
   const createTask = vi.fn(async (params: never) => {
     created.push(params as never);
     return { id: 'task-1' } as never;
   });
-  const { parse } = createParse({
+  const { parse, convert } = createParse({
     createTask: createTask as never,
     waitTask: async (taskId) => ({ id: taskId, status: 'completed' }) as never,
     downTask: async () => downResult,
   });
   const run = (source: ParseSource, options?: ParseOptions) => parse(source, options);
-  return { run, created };
+  const runConvert = (ref: ConvertRef, options?: ConvertOptions) => convert(ref, options);
+  return { run, runConvert, created };
 };
+
+/** parse 任务的最小合法返回：有 IR 引用才算数 */
+const ir = (extra: Record<string, unknown> = {}) => ({
+  irKey: '2026-08/ab/ir.json',
+  irSchemaVersion: 'pptx.v1',
+  ...extra,
+});
 
 describe('扩展名路由', () => {
   it('按扩展名映射到任务类型，大小写与查询串不影响判定', () => {
@@ -45,142 +59,123 @@ describe('扩展名路由', () => {
   });
 });
 
-describe('parse 门面：output 档位 → slave markdown 开关', () => {
-  it('默认只要 markdown，丢结构化结果', async () => {
-    const { run, created } = harness({ markdown: '# hi', markdownImages: { u: ['k', 1, 'h'] } });
+describe('parse：只出 IR', () => {
+  it('产出 IR 与它的引用，返回体原样透传', async () => {
+    const raw = ir({ slides: [{}], slideMasters: [] });
+    const { run, created } = harness(raw);
     const res = await run('./a.pptx');
 
     expect(created[0]).toMatchObject({ type: 'pptx.parse' });
-    expect(created[0].params).toEqual({ markdown: true, markdownOnly: true });
+    // 解析任务不再有任何 View 相关开关
+    expect(created[0].params).toEqual({});
     expect(res).toEqual({
       taskId: 'task-1',
       type: 'pptx.parse',
-      markdown: '# hi',
-      markdownImages: { u: ['k', 1, 'h'] },
+      irKey: '2026-08/ab/ir.json',
+      irSchemaVersion: 'pptx.v1',
+      ir: raw,
     });
-    // markdown 档位不回传原始结构
-    expect(res.result).toBeUndefined();
   });
 
-  it("output: 'ir' 不请求 markdown，只回传原始结构", async () => {
-    const raw = { slides: [{}], slideMasters: [] };
-    const { run, created } = harness(raw);
-    const res = await run('./a.pptx', { output: 'ir' });
-
-    expect(created[0].params).toEqual({});
-    expect(res.result).toBe(raw);
-    expect(res.markdown).toBeUndefined();
-  });
-
-  it("output: 'all' 两者都要，result 是返回体原样透传", async () => {
-    const raw = { slides: [{}], markdown: '# hi', markdownPages: ['# hi'] };
-    const { run, created } = harness(raw);
-    const res = await run('./a.pptx', { output: 'all', markdownPages: true });
-
-    expect(created[0].params).toEqual({ markdown: true, markdownPages: true });
-    expect(res.markdown).toBe('# hi');
-    expect(res.markdownPages).toEqual(['# hi']);
-    expect(res.result).toBe(raw);
-  });
-
-  it('返回体没有 markdown 键时报错，指向服务端版本', async () => {
-    // slave < 0.21.0 会静默忽略 markdown 参数，任务照样成功但没有该字段
+  /**
+   * 没有 irKey 说明服务端还没升到 parse/convert 拆分之后的版本：结果看着完整，却没有
+   * 任何东西能交给 convert。在这里失败，比让调用方拿着 undefined 去调 convert 强。
+   */
+  it('返回体没有 irKey 时报错，指向服务端版本', async () => {
     const { run } = harness({ slides: [{}], slideMasters: [] });
-    await expect(run('./a.pptx')).rejects.toThrow(/returned no markdown field/);
-    await expect(run('./a.pptx')).rejects.toThrow(/platform-slave 0\.21\.0/);
+    await expect(run('./a.pptx')).rejects.toThrow(/returned no irKey/);
+    await expect(run('./a.pptx')).rejects.toThrow(/platform-slave 0\.22\.0/);
   });
 
-  it('markdown 是空串但键存在时不报错 —— 那是空文档的合法结果', async () => {
-    const { run } = harness({ markdown: '' });
-    await expect(run('./a.pptx')).resolves.toMatchObject({ markdown: '' });
-  });
-
-  it("output: 'ir' 不看 markdown 键，老服务端照样可用", async () => {
-    const raw = { slides: [{}], slideMasters: [] };
-    const { run } = harness(raw);
-    await expect(run('./a.pptx', { output: 'ir' })).resolves.toMatchObject({ result: raw });
-  });
-
-  it('服务端容错降级时透出 markdownError，不抛错', async () => {
-    const { run } = harness({ markdown: '', markdownError: 'boom' });
-    const res = await run('./a.docx');
-    expect(res.markdown).toBe('');
-    expect(res.markdownError).toBe('boom');
-  });
-});
-
-describe('parse 门面：按任务类型直通参数', () => {
-  it('pdf 直通 password / parseProfile / includeImages / markdownMeta', async () => {
-    const { run, created } = harness({ markdown: '# pdf' });
-    await run('./a.pdf', {
-      output: 'all',
-      password: 'pw',
-      parseProfile: 'quality',
-      includeImages: false,
-      markdownMeta: true,
-      markdownStrict: true,
-    });
+  it('pdf 直通 password / parseProfile / includeImages', async () => {
+    const { run, created } = harness(ir());
+    await run('./a.pdf', { password: 'pw', parseProfile: 'quality', includeImages: false });
 
     expect(created[0].type).toBe('pdf.pdfParse');
-    expect(created[0].params).toEqual({
-      markdown: true,
-      markdownStrict: true,
-      password: 'pw',
-      parseProfile: 'quality',
-      includeImages: false,
-      markdownMeta: true,
-    });
+    expect(created[0].params).toEqual({ password: 'pw', parseProfile: 'quality', includeImages: false });
   });
 
-  it('pdf / docx / html 不支持 markdownPages，传了也不下发', async () => {
-    for (const source of ['./a.pdf', './a.docx'] as const) {
-      const { run, created } = harness({ markdown: '' });
-      await run(source, { markdownPages: true });
-      expect(created[0].params).not.toHaveProperty('markdownPages');
-    }
-
-    const { run, created } = harness({ markdown: '' });
-    await run({ url: 'https://example.com' }, { markdownPages: true });
-    expect(created[0].params).not.toHaveProperty('markdownPages');
-  });
-
-  it('keynote 直通 stayImageAreaRate 与 markdownPages', async () => {
-    const { run, created } = harness({ markdown: '' });
-    await run('./a.key', { markdownPages: true, stayImageAreaRate: 0.08 });
+  it('keynote 直通 stayImageAreaRate', async () => {
+    const { run, created } = harness(ir());
+    await run('./a.key', { stayImageAreaRate: 0.08 });
 
     expect(created[0].type).toBe('keynote.parseTextAndImage');
-    expect(created[0].params).toEqual({
-      markdown: true,
-      markdownOnly: true,
-      markdownPages: true,
-      stayImageAreaRate: 0.08,
-    });
+    expect(created[0].params).toEqual({ stayImageAreaRate: 0.08 });
   });
 
-  it('链接把 url / mode 与 markdown 开关一起下发', async () => {
-    const { run, created } = harness({ markdown: '# page' });
+  it('链接下发 url / mode，默认 runtime', async () => {
+    const { run, created } = harness(ir());
     const res = await run({ url: 'https://example.com/a', mode: 'source' });
 
     expect(created[0]).toMatchObject({ type: 'html.getByURL' });
-    expect(created[0].params).toEqual({
-      url: 'https://example.com/a',
-      mode: 'source',
-      markdown: true,
-      markdownOnly: true,
-    });
+    expect(created[0].params).toEqual({ url: 'https://example.com/a', mode: 'source' });
     expect(res.type).toBe('html.getByURL');
-  });
 
-  it('链接默认走 runtime 模式', async () => {
-    const { run, created } = harness({ markdown: '' });
-    await run({ url: 'https://example.com/a' });
-    expect(created[0].params).toMatchObject({ mode: 'runtime' });
+    const second = harness(ir());
+    await second.run({ url: 'https://example.com/a' });
+    expect(second.created[0].params).toMatchObject({ mode: 'runtime' });
   });
 });
 
-describe('parse 门面：输入形态', () => {
+describe('convert：IR → View', () => {
+  const view = {
+    format: 'pptx',
+    schemaVersion: 'pptx.v1',
+    to: 'markdown',
+    markdown: '# hi',
+    images: [],
+  };
+
+  it('按 irKey 转换，不重新上传源文件', async () => {
+    const { runConvert, created } = harness(view);
+    const res = await runConvert({ irKey: '2026-08/ab/ir.json' });
+
+    expect(created[0]).toMatchObject({ type: 'parse.convert' });
+    expect(created[0].params).toEqual({ irKey: '2026-08/ab/ir.json', to: 'markdown' });
+    // 转换任务不带任何文件
+    expect(created[0]).not.toHaveProperty('files');
+    expect(created[0]).not.toHaveProperty('fileIds');
+    expect(res).toEqual({ ...view, taskId: 'task-1' });
+  });
+
+  it('也可以直接引用产出该 IR 的 parse 任务', async () => {
+    const { runConvert, created } = harness(view);
+    await runConvert({ taskId: 'task-parse-1' });
+
+    expect(created[0].params).toEqual({ taskId: 'task-parse-1', to: 'markdown' });
+  });
+
+  it('只下发显式传入的 View 开关，不塞默认值', async () => {
+    const { runConvert, created } = harness(view);
+    await runConvert({ irKey: 'k' }, { markdownPages: true, markdownMeta: false });
+
+    expect(created[0].params).toEqual({ irKey: 'k', to: 'markdown', markdownPages: true, markdownMeta: false });
+    expect(created[0].params).not.toHaveProperty('markdownStrict');
+  });
+
+  it('容错模式下透出 markdownError，不抛错', async () => {
+    const { runConvert } = harness({ ...view, markdown: '', markdownError: 'boom' });
+    await expect(runConvert({ irKey: 'k' })).resolves.toMatchObject({ markdown: '', markdownError: 'boom' });
+  });
+
+  /** 解析一次、反复转换：后续转换不应该再产生任何解析任务。 */
+  it('同一份 IR 可以反复转换，源文件只解析一次', async () => {
+    const parseHarness = harness(ir());
+    const parsed = await parseHarness.run('./a.pptx');
+
+    const convertHarness = harness(view);
+    await convertHarness.runConvert({ irKey: parsed.irKey });
+    await convertHarness.runConvert({ irKey: parsed.irKey, to: 'markdown' } as never);
+
+    expect(parseHarness.created).toHaveLength(1);
+    expect(convertHarness.created).toHaveLength(2);
+    expect(convertHarness.created.every((task) => task.type === 'parse.convert')).toBe(true);
+  });
+});
+
+describe('parse：输入形态', () => {
   it('fileId 输入靠 name 判定扩展名', async () => {
-    const { run, created } = harness({ markdown: '' });
+    const { run, created } = harness(ir());
     await run({ fileId: 'f-1', name: 'report.docx' });
 
     expect(created[0]).toMatchObject({ type: 'docx.parseTextAndImage', fileIds: ['f-1'] });
@@ -188,14 +183,14 @@ describe('parse 门面：输入形态', () => {
   });
 
   it('非字符串文件必须给 name，否则报错并列出支持的扩展名', async () => {
-    const { run } = harness({ markdown: '' });
+    const { run } = harness(ir());
     await expect(run({ file: new Uint8Array([1]) as never })).rejects.toThrow(
       /Supported extensions: \.pdf, \.pptx, \.docx, \.key/
     );
   });
 
   it('不支持的扩展名直接报错，不发任务', async () => {
-    const { run, created } = harness({ markdown: '' });
+    const { run, created } = harness(ir());
     await expect(run('./a.txt')).rejects.toThrow(/Cannot determine parser for "\.\/a\.txt"/);
     expect(created).toHaveLength(0);
   });

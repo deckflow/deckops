@@ -267,46 +267,55 @@ await deck.revamp({
 
 ## Parse Documents
 
-`deck.parse()` picks a parser from the file extension or URL, creates the task,
-waits for it, and returns what `output` asked for. Markdown is rendered by the
-backend — the SDK does no conversion of its own.
+Parsing and view generation are two separate primitives:
+
+- `deck.parse()` turns a document into an **IR** — a structured representation
+  you can hold on to. It never returns Markdown.
+- `deck.convert()` turns a stored IR into a **view**, by reference. It never
+  re-parses the source.
+
+That split is the point: parse once, convert as many times as you like. The IR
+stays available for **7 days**, and converting costs no upload and no re-parse.
 
 ```ts
-// Markdown only (the default): the structured result is dropped server-side.
-const { markdown } = await deck.parse('./slides.pptx');
+const parsed = await deck.parse('./slides.pptx');
+parsed.ir;      // structured result, passed through verbatim
+parsed.irKey;   // the reference — this is what convert() consumes
+
+const { markdown } = await deck.convert({ irKey: parsed.irKey });
 ```
 
-`output` picks what comes back:
+`convert()` also accepts the parse task id, which is handy when you stored the
+task rather than the key:
 
-| `output`     | markdown fields | `result` | Sent to the backend                  |
-| ------------ | --------------- | -------- | ------------------------------------ |
-| `'markdown'` | ✅              | —        | `markdown: true, markdownOnly: true` |
-| `'ir'`       | —               | ✅       | *(no markdown params)*               |
-| `'all'`      | ✅              | ✅       | `markdown: true`                     |
+```ts
+await deck.convert({ taskId: parsed.taskId }, { to: 'markdown' });
+```
 
-`result` is the response body passed through verbatim, so type it with the task
+`ir` is the response body passed through verbatim, so type it with the task
 type's result:
 
 ```ts
-import type { PdfParseStructuredResult, PptxParseStructuredResult } from '@deckops/sdk';
+import type { PdfParseResult, PptxParseResult } from '@deckops/sdk';
 
-const ir = await deck.parse<PdfParseStructuredResult>('./report.pdf', { output: 'ir' });
-ir.result?.document.elements;
-
-const both = await deck.parse<PptxParseStructuredResult>('./slides.pptx', {
-  output: 'all',
-  markdownPages: true,
-});
-both.markdown; both.markdownPages; both.result;
+const report = await deck.parse<PdfParseResult>('./report.pdf');
+report.ir.document.elements;
 ```
 
-Per-parser params ride on the same options object and are only sent to the task
-types that accept them — `markdownPages` for `.pptx` / `.key`, `password`,
-`parseProfile`, `includeImages`, `markdownMeta` for `.pdf`, `stayImageAreaRate`
-for `.key`:
+Parse params ride on the parse options and are only sent to the task types that
+accept them — `password`, `parseProfile`, `includeImages` for `.pdf`,
+`stayImageAreaRate` for `.key`:
 
 ```ts
-await deck.parse('./report.pdf', { output: 'all', parseProfile: 'quality', password: 'pw' });
+await deck.parse('./report.pdf', { parseProfile: 'quality', password: 'pw' });
+```
+
+View params belong to `convert()`, not to parsing — `markdownPages` for
+`.pptx` / `.key`, `markdownMeta` (per-element provenance comments) for `.pdf`:
+
+```ts
+await deck.convert({ irKey }, { markdownPages: true });
+await deck.convert({ irKey }, { markdownMeta: true });
 ```
 
 Already-uploaded files take `{ fileId, name }`; links take `{ url, mode }`:
@@ -318,18 +327,21 @@ await deck.parse({ url: 'https://example.com/article', mode: 'runtime' });
 
 Supported extensions are `.pdf`, `.pptx`, `.docx`, and `.key`. The low-level
 helpers (`deck.pdfParse` → `pdf.pdfParse`, `deck.pptxParse`, `deck.docxParse`,
-`deck.keynoteParse`, `deck.htmlGetByURL`) take the backend params directly,
-including `markdown`, `markdownOnly`, `markdownPages`, and `markdownStrict`.
+`deck.keynoteParse`, `deck.htmlGetByURL`, `deck.convertIr` → `parse.convert`)
+take the backend params directly.
 
-The backend degrades rather than fails by default: when Markdown rendering
-breaks, `markdownError` explains why and `markdown` is empty. Pass
+Images in a converted view are signed URLs that expire. `convert()` returns an
+`images[]` manifest — the same shape for every format — mapping each URL to its
+persistent key and a suggested on-disk path, so a client that wants to keep the
+Markdown can download them and rewrite the links.
+
+Conversion degrades rather than fails by default: when rendering breaks,
+`markdownError` explains why and `markdown` is empty. Pass
 `markdownStrict: true` to make the task fail instead.
 
-Markdown needs a backend running `@deckflow/platform-slave` 0.21.0 or newer.
-Older servers ignore the markdown params silently instead of rejecting them, so
-`parse()` throws rather than handing back an empty string that would read as an
-empty document. `{ output: 'ir' }` does not need the markdown params and works
-against older backends.
+This needs a backend running `@deckflow/platform-slave` 0.22.0 or newer. Against
+older servers `parse()` throws instead of returning a result with no `irKey`,
+which would be a result nothing could convert.
 
 ## Browser and Node.js Notes
 

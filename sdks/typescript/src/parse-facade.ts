@@ -1,22 +1,23 @@
 /**
- * `deck.parse()` 门面：按扩展名/链接路由到对应解析任务 → 等待完成 → 取结果。
+ * `deck.parse()` 与 `deck.convert()`：两个正交的原语。
  *
- * markdown 由服务端生成（slave >= 0.21.0），这里只做三件事：路由、翻译 `output` 档位
- * 为 slave 的 markdown 开关、把结果分拣成 `{ markdown, result }`。没有任何格式转换。
+ * - **parse**：文档 → IR。按扩展名/链接路由到对应解析任务，等完成，取结果。产物是一份
+ *   可以长期持有的 IR，以及指向它的 `irKey`。
+ * - **convert**：IR → View。按 `irKey`（或产出它的 `taskId`）把已存储的 IR 转成指定格式，
+ *   **不重新解析源文件**。
+ *
+ * 这就是 "Parse once, operate repeatedly"：解析一次，在保留期（7 天）内反复转换。
  *
  * 想完全自己控参数的调用方走底层即可，不必经过这里：
  * ```ts
- * const task = await deck.pptxParse({ files: ['./a.pptx'], params: { markdown: true } });
- * const raw  = await deck.tasks.down<'pptx.parse'>((await deck.tasks.wait(task.id)).id);
+ * const task = await deck.pptxParse({ files: ['./a.pptx'] });
+ * const ir   = await deck.tasks.down<'pptx.parse'>((await deck.tasks.wait(task.id)).id);
  * ```
  */
 
 import { parseTaskTypeFor, PARSE_SUPPORTED_EXTENSIONS, type ParseTaskType } from './parse/index.js';
-import type { MarkdownResult, PdfParseProfile } from './parse/types.js';
+import type { ConvertTarget, ConvertTaskResult, IrResult } from './parse/types.js';
 import type { DeckTask, TaskUploadInput, WaitForTaskOptions } from './types.js';
-
-/** 要什么：只要 markdown、只要原始结构（IR）、还是两者都要 */
-export type ParseOutput = 'markdown' | 'ir' | 'all';
 
 /** 要解析的文件 */
 export interface ParseFileSource {
@@ -46,42 +47,52 @@ export interface ParseLinkSource {
 export type ParseSource = string | ParseFileSource | ParseFileIdSource | ParseLinkSource;
 
 export interface ParseOptions {
-  /** 要什么，默认 `'markdown'` */
-  output?: ParseOutput;
   /** 空间 id */
   spaceId?: string;
   /** 等待任务完成的选项 */
   wait?: WaitForTaskOptions;
 
-  /** 是否额外返回逐页 markdown，仅分页格式（pptx / keynote）有 */
-  markdownPages?: boolean;
-  /** markdown 生成失败时抛错；默认 false，容错返回 `markdownError` */
-  markdownStrict?: boolean;
-
   /** pdf：加密文档的打开口令 */
   password?: string;
   /** pdf：精度/成本档位，默认 balanced */
-  parseProfile?: PdfParseProfile;
+  parseProfile?: 'fast' | 'balanced' | 'quality';
   /** pdf：是否抽取图片并落盘，默认 true */
   includeImages?: boolean;
-  /** pdf：markdown 是否写入逐元素溯源注释，默认 false */
-  markdownMeta?: boolean;
 
   /** keynote：图片区域保留率 0-1，默认 0.05 */
   stayImageAreaRate?: number;
 }
 
-export interface ParseResult<R = unknown> extends MarkdownResult {
-  /** 产出该结果的任务 id，便于回查 */
+export interface ParseResult<R = unknown> extends IrResult {
+  /** 产出该 IR 的任务 id，可交给 `convert()` 或用于回查 */
   taskId: string;
   /** 实际使用的任务类型 */
   type: ParseTaskType | 'html.getByURL';
-  /**
-   * 原始结构化结果，`output` 为 `'ir'` / `'all'` 时返回。
-   *
-   * 是服务端返回体的原样透传 —— `'all'` 下 markdown 字段同时也在这里面。
-   */
-  result?: R;
+  /** IR：服务端结构化结果的原样透传 */
+  ir: R;
+}
+
+/** convert 的入口引用：给 irKey 或产出它的 taskId，二选一 */
+export type ConvertRef = { irKey: string; taskId?: never } | { taskId: string; irKey?: never };
+
+export interface ConvertOptions {
+  /** 目标 View，默认 markdown */
+  to?: ConvertTarget;
+  /** 空间 id */
+  spaceId?: string;
+  /** 等待任务完成的选项 */
+  wait?: WaitForTaskOptions;
+  /** pdf：markdown 是否写入逐元素溯源注释，默认 false */
+  markdownMeta?: boolean;
+  /** 分页格式（pptx / keynote）：是否额外返回逐页数组 */
+  markdownPages?: boolean;
+  /** 渲染失败时抛错；默认 false，容错返回 `markdownError` */
+  markdownStrict?: boolean;
+}
+
+export interface ConvertResult extends ConvertTaskResult {
+  /** 产出该 View 的任务 id，便于回查 */
+  taskId: string;
 }
 
 interface ParseDeps {
@@ -121,47 +132,22 @@ const unsupported = (name: string): Error =>
       `Pass { name } to specify the file name.`
   );
 
-/**
- * `output` 档位 → slave 的 markdown 开关。
- *
- * - `markdown`：只要 markdown，丢结构化结果压缩响应体
- * - `ir`：不生成 markdown，省掉服务端一次渲染
- * - `all`：两者都要
- */
-const markdownSwitches = (output: ParseOutput): { markdown?: boolean; markdownOnly?: boolean } => {
-  switch (output) {
-    case 'markdown':
-      return { markdown: true, markdownOnly: true };
-    case 'all':
-      return { markdown: true };
-    case 'ir':
-      return {};
-  }
-};
-
-/** 组装任务参数：markdown 档位 + 该任务类型认得的直通参数 */
-const taskParams = (
+/** 组装解析参数：只有该任务类型认得的直通参数，没有任何 View 相关开关。 */
+const parseParams = (
   type: ParseTaskType | 'html.getByURL',
   options: ParseOptions
 ): Record<string, unknown> => {
-  const params: Record<string, unknown> = markdownSwitches(options.output ?? 'markdown');
-  if (options.markdownStrict !== undefined) params.markdownStrict = options.markdownStrict;
-
+  const params: Record<string, unknown> = {};
   switch (type) {
     case 'pdf.pdfParse':
       if (options.password !== undefined) params.password = options.password;
       if (options.parseProfile !== undefined) params.parseProfile = options.parseProfile;
       if (options.includeImages !== undefined) params.includeImages = options.includeImages;
-      if (options.markdownMeta !== undefined) params.markdownMeta = options.markdownMeta;
-      break;
-    case 'pptx.parse':
-      if (options.markdownPages !== undefined) params.markdownPages = options.markdownPages;
       break;
     case 'keynote.parseTextAndImage':
-      if (options.markdownPages !== undefined) params.markdownPages = options.markdownPages;
-      if (options.stayImageAreaRate !== undefined)
-        params.stayImageAreaRate = options.stayImageAreaRate;
+      if (options.stayImageAreaRate !== undefined) params.stayImageAreaRate = options.stayImageAreaRate;
       break;
+    case 'pptx.parse':
     case 'docx.parseTextAndImage':
     case 'html.getByURL':
       break;
@@ -170,55 +156,47 @@ const taskParams = (
 };
 
 /**
- * 把服务端返回体分拣成 `{ markdown 字段…, result? }`。
+ * 把服务端返回体整理成 `{ ir, irKey, … }`。
  *
- * 「没有 markdown 键」与「markdown 是空串」必须区分：前者说明服务端根本不认识
- * markdown 参数（早于 slave 0.21.0，未知参数会被静默忽略而非报错），后者是文档
- * 本身没内容的合法结果。混成一个空串会让调用方以为文件解析出来是空的。
+ * **没有 `irKey` 必须报错而不是放过**：那说明服务端还没升到 parse 出 IR 的版本，此时
+ * 结果虽然看着是完整的解析结果，却没有任何东西能交给 `convert()`。让它在这里失败，
+ * 比让调用方拿着 undefined 去调 convert、再收到一个语焉不详的参数错误强得多。
  */
-const toParseResult = (
+const toParseResult = <R>(
   raw: unknown,
   taskId: string,
-  type: ParseTaskType | 'html.getByURL',
-  output: ParseOutput
-): ParseResult => {
-  const body = (typeof raw === 'object' && raw !== null ? raw : {}) as MarkdownResult;
-  const result: ParseResult = { taskId, type };
-
-  if (output !== 'ir') {
-    if (!('markdown' in body)) {
-      throw new Error(
-        `${type} returned no markdown field. The backend is likely older than ` +
-          `@deckflow/platform-slave 0.21.0, which silently ignores the markdown params. ` +
-          `Use { output: 'ir' } for the structured result until it is upgraded.`
-      );
-    }
-    result.markdown = body.markdown ?? '';
-    if (body.markdownPages !== undefined) result.markdownPages = body.markdownPages;
-    if (body.markdownImages !== undefined) result.markdownImages = body.markdownImages;
-    if (body.markdownError !== undefined) result.markdownError = body.markdownError;
+  type: ParseTaskType | 'html.getByURL'
+): ParseResult<R> => {
+  const body = (typeof raw === 'object' && raw !== null ? raw : {}) as Partial<IrResult>;
+  if (typeof body.irKey !== 'string' || !body.irKey) {
+    throw new Error(
+      `${type} returned no irKey. The backend is likely older than the parse/convert split ` +
+        `(@deckflow/platform-slave 0.22.0); its result cannot be converted without re-parsing.`
+    );
   }
-  if (output !== 'markdown') result.result = raw;
-
-  return result;
+  return {
+    taskId,
+    type,
+    irKey: body.irKey,
+    irSchemaVersion: body.irSchemaVersion ?? '',
+    ir: raw as R,
+  };
 };
 
 export const createParse = (deps: ParseDeps) => {
   /**
-   * 解析一个文件或链接。
+   * 解析一个文件或链接，产出 IR。
    *
    * ```ts
-   * (await deck.parse('./a.pptx')).markdown                      // 只要 markdown
-   * (await deck.parse('./a.pdf', { output: 'ir' })).result       // 只要结构化 IR
-   * await deck.parse({ url: 'https://…' }, { output: 'all' })    // 两者都要
+   * const parsed = await deck.parse('./a.pdf');
+   * parsed.ir;      // 结构化 IR
+   * parsed.irKey;   // 拿它去 convert，源文件不必再传
    * ```
    */
   const parse = async <R = unknown>(
     source: ParseSource,
     options: ParseOptions = {}
   ): Promise<ParseResult<R>> => {
-    const output = options.output ?? 'markdown';
-
     if (isLinkSource(source)) {
       const task = await deps.createTask({
         type: 'html.getByURL',
@@ -226,12 +204,12 @@ export const createParse = (deps: ParseDeps) => {
         params: {
           url: source.url,
           mode: source.mode ?? 'runtime',
-          ...taskParams('html.getByURL', options),
+          ...parseParams('html.getByURL', options),
         },
       });
       const done = await deps.waitTask(task.id, options.wait);
       const raw = await deps.downTask(done.id);
-      return toParseResult(raw, done.id, 'html.getByURL', output) as ParseResult<R>;
+      return toParseResult<R>(raw, done.id, 'html.getByURL');
     }
 
     const normalized: ParseFileSource | ParseFileIdSource =
@@ -244,7 +222,7 @@ export const createParse = (deps: ParseDeps) => {
     const task = await deps.createTask({
       type,
       spaceId: options.spaceId,
-      params: taskParams(type, options),
+      params: parseParams(type, options),
       ...(isFileIdSource(normalized)
         ? { fileIds: [normalized.fileId] }
         : { files: [normalized.file] }),
@@ -252,8 +230,34 @@ export const createParse = (deps: ParseDeps) => {
     const done = await deps.waitTask(task.id, options.wait);
     const raw = await deps.downTask(done.id);
 
-    return toParseResult(raw, done.id, type, output) as ParseResult<R>;
+    return toParseResult<R>(raw, done.id, type);
   };
 
-  return { parse };
+  /**
+   * 把已存储的 IR 转换成指定 View，不重新解析源文件。
+   *
+   * ```ts
+   * const parsed = await deck.parse('./a.pdf');
+   * const md = await deck.convert({ irKey: parsed.irKey }, { to: 'markdown' });
+   * // 隔天再要一份别的 View，仍然不必重传源文件（7 天保留期内）
+   * ```
+   */
+  const convert = async (ref: ConvertRef, options: ConvertOptions = {}): Promise<ConvertResult> => {
+    const task = await deps.createTask({
+      type: 'parse.convert',
+      spaceId: options.spaceId,
+      params: {
+        ...(ref.irKey ? { irKey: ref.irKey } : { taskId: ref.taskId }),
+        to: options.to ?? 'markdown',
+        ...(options.markdownMeta === undefined ? {} : { markdownMeta: options.markdownMeta }),
+        ...(options.markdownPages === undefined ? {} : { markdownPages: options.markdownPages }),
+        ...(options.markdownStrict === undefined ? {} : { markdownStrict: options.markdownStrict }),
+      },
+    });
+    const done = await deps.waitTask(task.id, options.wait);
+    const raw = (await deps.downTask(done.id)) as ConvertTaskResult;
+    return { ...raw, taskId: done.id };
+  };
+
+  return { parse, convert };
 };

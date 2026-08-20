@@ -4,46 +4,117 @@
  * 这些结构由服务端的 slave 解析器产出，此处**照抄而非引用** `@deckflow/platform-slave` ——
  * 公开 SDK 不能依赖私有 registry 上的服务端包。字段随服务端演进时需同步更新。
  *
- * markdown 由服务端生成（slave >= 0.21.0），SDK 不再做任何格式转换，只负责传参与取值。
+ * **parse 只出 IR，markdown 由 `parse.convert` 从已存储的 IR 派生。** 解析结果里不再有
+ * 任何 markdown 字段：View 是按需派生的，不是解析的副产品。
  *
- * 注意：任务结果经服务端 `key2url` 处理后，所有 OSS key 字段已被展开为可访问 URL；
- * markdown 正文里的图片地址由 slave 直接签好，是带有效期的访问地址而非持久 key。
+ * 注意：任务结果经服务端 `key2url` 处理后，OSS key 字段已被展开为可访问 URL —— 唯独
+ * `irKey` 例外，它是引用不是产物，原样保留（展开成签名地址会让引用几小时后失效，而 IR
+ * 承诺活 7 天）。
  */
 
 import type { FileResult } from '../types.js';
 
-// ------------------------------------------------------------------ markdown
+// ------------------------------------------------------------------------ IR
 
-/** 解析类任务共用的 markdown 开关，与 slave 的 `MarkdownParams` 一一对应 */
-export interface MarkdownParams {
-  /** 是否额外返回 markdown，默认 false */
-  markdown?: boolean;
-  /** 只返回 markdown 与必要元数据，丢弃结构化结果，默认 false */
-  markdownOnly?: boolean;
-  /** markdown 生成失败时抛错；默认 false，容错返回 `markdownError` */
+/** 支持解析的格式，与 IR 信封的 `format` 一一对应。 */
+export type IrFormat = 'pdf' | 'pptx' | 'docx' | 'keynote' | 'html';
+
+/**
+ * 每个 parse 任务结果都带的两个字段，指向这次解析存下来的 IR。
+ *
+ * 拿着 `irKey` 就能在保留期内反复调 `deck.convert()` 派生不同 View，源文件不必再传一次。
+ */
+export interface IrResult {
+  /** 已存储 IR 的 key */
+  irKey: string;
+  /** 该 IR 的版本标签，convert 的门禁按它判断认不认 */
+  irSchemaVersion: string;
+}
+
+/** IR 保留期：7 天。过期后引用会得到 `irExpired`，重新 parse 即可。 */
+export const IR_RETENTION_DAYS = 7;
+
+/** IR 中被引用的二进制资源。**只存持久 key，不存带效期的地址。** */
+export interface IrResource {
+  /** body 里引用这份资源用的标识：pdf 用工件内相对路径，pptx 用 zip 内路径，其余即 key */
+  ref: string;
+  key: string;
+  bytes: number;
+  hash: string;
+  /** 建议的落盘相对路径，形如 `assets/p1_i0000.png` */
+  suggestedPath: string;
+}
+
+/**
+ * IR 信封：自描述信头 + 解析器原样输出。
+ *
+ * 这是 IR 的**存储形态**。parse 任务的响应仍是扁平的（`slides` / `content` / `document`
+ * 直接在顶层），信封只在存储里出现，`deck.convert()` 按 `irKey` 读它。
+ */
+export interface IrEnvelope<B = unknown> {
+  format: IrFormat;
+  schemaVersion: string;
+  producer: { name: string; version: string };
+  source: { sha256?: string; name?: string; bytes?: number };
+  /** ISO 8601 */
+  createdAt: string;
+  body: B;
+  resources?: IrResource[];
+}
+
+// ------------------------------------------------------------------- convert
+
+/** convert 支持的 View 目标。v1 只有 markdown，枚举位是给后续 html / text 预留的。 */
+export type ConvertTarget = 'markdown';
+
+/** 分页 markdown 的页分隔符，`markdown.split(PAGE_SEPARATOR)` 可还原分页。 */
+export const PAGE_SEPARATOR = '\n\n---\n\n';
+
+/**
+ * convert 交付的图片清单，四种格式同一形状。
+ *
+ * 下游据此把 markdown 里的图片下载到本地并改写为相对路径 —— 因为正文里的地址带有效期，
+ * 直接存盘几小时后就是死链。
+ */
+export interface ConvertImage {
+  /** 该图片在 markdown 正文里出现的引用，即现签的访问地址 */
+  ref: string;
+  /** OSS 持久 key */
+  key: string;
+  /** 建议落盘相对路径 */
+  suggestedPath: string;
+  bytes?: number;
+  hash?: string;
+}
+
+export interface ConvertTaskParams {
+  /** 已存储 IR 的 key，与 `taskId` 二选一 */
+  irKey?: string;
+  /** 产出该 IR 的 parse 任务 id，与 `irKey` 二选一 */
+  taskId?: string;
+  /** 目标 View，默认 markdown */
+  to?: ConvertTarget;
+  /** pdf：markdown 是否写入逐元素溯源注释，默认 false（注释体积通常是正文的数倍） */
+  markdownMeta?: boolean;
+  /** 分页格式（pptx / keynote）：是否额外返回逐页数组 */
+  markdownPages?: boolean;
+  /** 渲染失败时抛错；默认 false，容错返回 `markdownError` */
   markdownStrict?: boolean;
 }
 
-/** 分页格式（pptx / keynote）额外支持逐页 markdown */
-export interface MarkdownPagesParams {
-  /** 是否额外返回逐页 markdown 数组，默认 false */
-  markdownPages?: boolean;
-}
-
-/** 解析类任务共用的 markdown 响应字段 */
-export interface MarkdownResult {
+export interface ConvertTaskResult {
+  /** IR 的格式，由信封给出而不是调用方声明 */
+  format: IrFormat;
+  schemaVersion: string;
+  to: ConvertTarget;
   /** 完整 markdown；分页格式按页用 `PAGE_SEPARATOR` 连接 */
-  markdown?: string;
+  markdown: string;
   /** 逐页 markdown，仅 `markdownPages: true` 且格式分页时返回 */
   markdownPages?: string[];
-  /** `markdownOnly: true` 时返回：markdown 中的图片访问地址 → 持久 key */
-  markdownImages?: Record<string, FileResult>;
-  /** 容错模式下 markdown 生成失败的原因 */
+  /** 容错模式下渲染失败的原因；有它就说明 markdown 不可信 */
   markdownError?: string;
+  images: ConvertImage[];
 }
-
-/** 分页 markdown 的页分隔符，`markdown.split(PAGE_SEPARATOR)` 可还原分页 */
-export const PAGE_SEPARATOR = '\n\n---\n\n';
 
 /** 图片在文档中的位置 */
 export interface ParseLocator {
@@ -59,20 +130,24 @@ export type PdfParseProfile = 'fast' | 'balanced' | 'quality';
 /** `[x0, y0, x1, y1]`，单位 pt，左上原点 */
 export type PdfBbox = [number, number, number, number];
 
-/** 图片落盘后的标识 */
+/**
+ * 图片落盘后的持久标识。
+ *
+ * **只有 key，没有访问地址**：这份标识写在 IR 里，而 IR 要活 7 天，签名地址活不了那么久。
+ */
 export interface StoredPdfAsset {
   /** 持久化 key，长期标识用它 */
   key: string;
   bytes: number;
   hash: string;
-  /** 访问地址；带签名有有效期 */
-  accessURL: string;
 }
 
 /** 落盘后的图片；`assetPath` 与 IR 中 `figure.assetPath` 关联 */
 export interface ParsedPdfAsset extends StoredPdfAsset {
   /** 工件内相对路径，形如 `assets/p1_i0000.png` */
   assetPath: string;
+  /** 现签的访问地址；只在响应里出现，不进 IR */
+  accessURL: string;
 }
 
 /**
@@ -91,7 +166,7 @@ export interface PdfElement {
   /** unknown / heading / paragraph / list_item / table / figure / chart / caption / … */
   type: string;
   text?: string;
-  /** figure 与 chart 共用；落盘后就地带上 key/bytes/hash/accessURL */
+  /** figure 与 chart 共用；落盘后就地带上 key/bytes/hash */
   figure?: {
     assetPath: string | null;
     kind: 'raster' | 'vector';
@@ -113,7 +188,7 @@ export interface PdfDocInfo {
   lang: string | null;
 }
 
-/** IR 顶层形状，figure/chart 已带落盘后的 accessURL */
+/** IR 顶层形状 */
 export interface PdfDocument {
   version: string;
   schemaVersion: string;
@@ -130,33 +205,22 @@ export interface PdfDocument {
   [field: string]: unknown;
 }
 
-export interface PdfParseTaskParams extends MarkdownParams {
+export interface PdfParseTaskParams {
   /** 加密文档的打开口令 */
   password?: string;
   /** 精度/成本档位，默认 balanced */
   parseProfile?: PdfParseProfile;
-  /** 是否抽取图片并落盘，默认 true；关掉时 markdown 里的图片是工件内相对路径 */
+  /** 是否抽取图片并落盘，默认 true */
   includeImages?: boolean;
-  /** markdown 是否写入逐元素溯源注释，默认 false（注释体积通常是正文的数倍） */
-  markdownMeta?: boolean;
 }
 
-/** `pdf.pdfParse` 的结构化结果 */
-export interface PdfParseStructuredResult extends MarkdownResult {
-  /** 结构化文档模型，figure/chart 已带 accessURL */
+/** `pdf.pdfParse` 的结果 */
+export interface PdfParseResult extends IrResult {
+  /** 结构化文档模型，figure/chart 已带落盘后的持久 key */
   document: PdfDocument;
   /** 落盘图片的平铺索引，省去遍历元素树 */
   images: ParsedPdfAsset[];
 }
-
-/** `pdf.pdfParse` 在 `markdownOnly: true` 下的精简结果 */
-export interface PdfParseMarkdownOnlyResult extends MarkdownResult {
-  pageNum: number;
-  parseProfile: PdfParseProfile;
-  docInfo: PdfDocInfo;
-}
-
-export type PdfParseResult = PdfParseStructuredResult | PdfParseMarkdownOnlyResult;
 
 // ------------------------------------------------- keynote.parseTextAndImage
 
@@ -183,12 +247,12 @@ export interface KeynoteImageItem {
   key: string;
 }
 
-export interface KeynoteParseTaskParams extends MarkdownParams, MarkdownPagesParams {
+export interface KeynoteParseTaskParams {
   /** 图片区域保留率 0-1，默认 0.05 */
   stayImageAreaRate?: number;
 }
 
-export interface KeynoteParseStructuredResult extends MarkdownResult {
+export interface KeynoteParseResult extends IrResult {
   pageNum: number;
   width: number;
   height: number;
@@ -199,14 +263,6 @@ export interface KeynoteParseStructuredResult extends MarkdownResult {
   }[];
   images?: KeynoteImageItem[];
 }
-
-export interface KeynoteParseMarkdownOnlyResult extends MarkdownResult {
-  pageNum: number;
-  width: number;
-  height: number;
-}
-
-export type KeynoteParseResult = KeynoteParseStructuredResult | KeynoteParseMarkdownOnlyResult;
 
 // --------------------------------------------------- docx.parseTextAndImage
 
@@ -306,9 +362,9 @@ export type DocxElement =
   | DocxWsp
   | DocxSdt;
 
-export type DocxParseTaskParams = MarkdownParams;
+export type DocxParseTaskParams = Record<string, never>;
 
-export interface DocxParseStructuredResult extends MarkdownResult {
+export interface DocxParseResult extends IrResult {
   width: number;
   height: number;
   /** 页数，上游标注为非可靠信息 */
@@ -316,24 +372,16 @@ export interface DocxParseStructuredResult extends MarkdownResult {
   content: DocxElement[];
 }
 
-export interface DocxParseMarkdownOnlyResult extends MarkdownResult {
-  width: number;
-  height: number;
-  pageNum: number;
-}
-
-export type DocxParseResult = DocxParseStructuredResult | DocxParseMarkdownOnlyResult;
-
 // ------------------------------------------------------------------ pptx.parse
 
 /**
- * `pptx.parse` 的结构化结果：PPTX 对象模型。
+ * `pptx.parse` 的结果：PPTX 对象模型。
  *
  * 完整形状见 `@deckflow/presentation` 的 `PresentationAttrs`；这里是**宽松镜像**，
  * 只固定下游最常用的三个顶层字段，其余由索引签名兜住 —— 公开 SDK 不能依赖
  * 私有 registry 上的 `@deckflow/presentation`。需要完整类型的调用方自行引它。
  */
-export interface PptxParseStructuredResult extends MarkdownResult {
+export interface PptxParseResult extends IrResult {
   slides: Record<string, unknown>[];
   slideMasters: Record<string, unknown>[];
   slideSize?: { cx: number; cy: number };
@@ -342,29 +390,17 @@ export interface PptxParseStructuredResult extends MarkdownResult {
   [field: string]: unknown;
 }
 
-export interface PptxParseMarkdownOnlyResult extends MarkdownResult {
-  slideSize?: { cx: number; cy: number };
-  files?: Record<string, FileResult>;
-}
-
-export type PptxParseTaskParams = MarkdownParams & MarkdownPagesParams;
-
-export type PptxParseResult = PptxParseStructuredResult | PptxParseMarkdownOnlyResult;
+export type PptxParseTaskParams = Record<string, never>;
 
 // ------------------------------------------------------------- html.getByURL
 
-export interface HtmlGetByUrlTaskParams extends MarkdownParams {
+export interface HtmlGetByUrlTaskParams {
   /** 目标 http(s) 链接 */
   url: string;
   /** 取源码还是运行后的代码，默认 runtime */
   mode?: 'source' | 'runtime';
 }
 
-export interface HtmlGetByUrlStructuredResult extends MarkdownResult {
+export interface HtmlGetByUrlResult extends IrResult {
   html: string;
 }
-
-/** `markdownOnly: true` 时不返回 html —— 源码常有数 MB */
-export type HtmlGetByUrlMarkdownOnlyResult = MarkdownResult;
-
-export type HtmlGetByUrlResult = HtmlGetByUrlStructuredResult | HtmlGetByUrlMarkdownOnlyResult;

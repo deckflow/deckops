@@ -257,64 +257,72 @@ await deck.revamp({
 
 ## 解析文档
 
-`deck.parse()` 按扩展名/链接选解析器、建任务、等完成，再按 `output` 返回对应内容。
-markdown 由服务端生成，SDK 不做任何格式转换。
+解析与出 View 是两个独立原语：
+
+- `deck.parse()` 把文档变成 **IR** —— 一份可以长期持有的结构化表示。它不返回 markdown。
+- `deck.convert()` 按引用把已存储的 IR 转成 **View**。它不重新解析源文件。
+
+拆开的意义就在这里：**解析一次，反复转换**。IR 保留 **7 天**，这期间转换既不用重新上传，
+也不用重新解析。
 
 ```ts
-// 默认只要 markdown：结构化结果在服务端就被丢掉，响应体更小
-const { markdown } = await deck.parse('./slides.pptx');
+const parsed = await deck.parse('./slides.pptx');
+parsed.ir;      // 结构化结果，原样透传
+parsed.irKey;   // 引用 —— convert() 吃的就是它
+
+const { markdown } = await deck.convert({ irKey: parsed.irKey });
 ```
 
-`output` 决定返回什么：
-
-| `output`     | markdown 系字段 | `result` | 下发给服务端                         |
-| ------------ | --------------- | -------- | ------------------------------------ |
-| `'markdown'` | ✅              | —        | `markdown: true, markdownOnly: true` |
-| `'ir'`       | —               | ✅       | *（不带 markdown 参数）*             |
-| `'all'`      | ✅              | ✅       | `markdown: true`                     |
-
-`result` 是服务端返回体的原样透传，用对应任务类型的结果类型标注即可：
+只记了任务、没记 key 时，`convert()` 也认 parse 任务的 id：
 
 ```ts
-import type { PdfParseStructuredResult, PptxParseStructuredResult } from '@deckops/sdk';
-
-const ir = await deck.parse<PdfParseStructuredResult>('./report.pdf', { output: 'ir' });
-ir.result?.document.elements;
-
-const both = await deck.parse<PptxParseStructuredResult>('./slides.pptx', {
-  output: 'all',
-  markdownPages: true,
-});
-both.markdown; both.markdownPages; both.result;
+await deck.convert({ taskId: parsed.taskId }, { to: 'markdown' });
 ```
 
-各解析器的直通参数写在同一个 options 上，只会下发给认得它的任务类型 ——
-`markdownPages` 只对 `.pptx` / `.key` 有效，`password` / `parseProfile` /
-`includeImages` / `markdownMeta` 只对 `.pdf` 有效，`stayImageAreaRate` 只对
-`.key` 有效：
+`ir` 是返回体原样透传，用对应任务类型的结果类型标注它：
 
 ```ts
-await deck.parse('./report.pdf', { output: 'all', parseProfile: 'quality', password: 'pw' });
+import type { PdfParseResult, PptxParseResult } from '@deckops/sdk';
+
+const report = await deck.parse<PdfParseResult>('./report.pdf');
+report.ir.document.elements;
 ```
 
-已上传的文件传 `{ fileId, name }`，链接传 `{ url, mode }`：
+解析参数挂在 parse 的 options 上，且只下发给认得它的任务类型 —— `.pdf` 的 `password`、
+`parseProfile`、`includeImages`，`.key` 的 `stayImageAreaRate`：
+
+```ts
+await deck.parse('./report.pdf', { parseProfile: 'quality', password: 'pw' });
+```
+
+View 参数属于 `convert()` 而不是解析 —— `.pptx` / `.key` 的 `markdownPages`，`.pdf` 的
+`markdownMeta`（逐元素溯源注释）：
+
+```ts
+await deck.convert({ irKey }, { markdownPages: true });
+await deck.convert({ irKey }, { markdownMeta: true });
+```
+
+已上传的文件用 `{ fileId, name }`，链接用 `{ url, mode }`：
 
 ```ts
 await deck.parse({ fileId: 'uploaded-file-id', name: 'slides.pptx' });
 await deck.parse({ url: 'https://example.com/article', mode: 'runtime' });
 ```
 
-支持的扩展名是 `.pdf`、`.pptx`、`.docx`、`.key`。底层辅助方法
-（`deck.pdfParse` → `pdf.pdfParse`、`deck.pptxParse`、`deck.docxParse`、
-`deck.keynoteParse`、`deck.htmlGetByURL`）直接收服务端参数，包括
-`markdown` / `markdownOnly` / `markdownPages` / `markdownStrict`。
+支持的扩展名是 `.pdf`、`.pptx`、`.docx`、`.key`。底层辅助方法（`deck.pdfParse` →
+`pdf.pdfParse`、`deck.pptxParse`、`deck.docxParse`、`deck.keynoteParse`、
+`deck.htmlGetByURL`、`deck.convertIr` → `parse.convert`）直接收后端参数。
 
-服务端默认容错而非失败：markdown 生成出错时 `markdownError` 说明原因、
-`markdown` 为空。要它直接失败就传 `markdownStrict: true`。
+View 里的图片地址带签名、会过期。`convert()` 会返回 `images[]` 清单 —— 四种格式同一形状 ——
+把每个地址映射到持久 key 与建议落盘路径，想把 markdown 存下来的调用方据此下载图片并改写
+链接即可。
 
-markdown 需要服务端跑 `@deckflow/platform-slave` 0.21.0 及以上。老服务端会**静默忽略**
-markdown 参数而不是报错，所以 `parse()` 会主动抛错，而不是给你一个看起来像「空文档」的空串。
-`{ output: 'ir' }` 不依赖 markdown 参数，对老服务端照样可用。
+渲染默认容错而不是失败：出问题时 `markdownError` 说明原因、`markdown` 为空。要让任务直接
+失败就传 `markdownStrict: true`。
+
+这套接口需要后端跑 `@deckflow/platform-slave` 0.22.0 或更新版本。对更老的服务端，
+`parse()` 会直接报错，而不是交回一个没有 `irKey`、谁也转不了的结果。
 
 ## 浏览器与 Node.js 说明
 

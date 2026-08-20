@@ -1,4 +1,6 @@
 import type {
+  ConvertTaskParams,
+  ConvertTaskResult,
   DocxParseResult,
   DocxParseTaskParams,
   HtmlGetByUrlResult,
@@ -47,6 +49,7 @@ export const DECK_TASK_TYPES = [
   'docx.parseTextAndImage',
   'keynote.parseTextAndImage',
   'html.getByURL',
+  'parse.convert',
   'generation',
   'translation',
   'revamp',
@@ -843,6 +846,8 @@ export interface HtmlToPptxResult {
  * 免得同一份服务端契约在两个文件里各写一遍、各自漂移。
  */
 export type {
+  ConvertTaskParams,
+  ConvertTaskResult,
   DocxParseTaskParams,
   HtmlGetByUrlTaskParams,
   KeynoteParseTaskParams,
@@ -882,6 +887,7 @@ export interface DeckTaskTypeParams {
   'docx.parseTextAndImage': DocxParseTaskParams;
   'keynote.parseTextAndImage': KeynoteParseTaskParams;
   'html.getByURL': HtmlGetByUrlTaskParams;
+  'parse.convert': ConvertTaskParams;
   generation: GenerationParams;
   translation: TranslationParams;
   revamp: RevampParams;
@@ -912,10 +918,11 @@ export interface DeckTaskTypeResult {
   'image.convertWebp': FileResult;
   'image.resize': FileResult;
   'pdf.pdfParse': PdfParseResult;
-  'pptx.parse': PptxTaskParseResult;
+  'pptx.parse': PptxParseResult;
   'docx.parseTextAndImage': DocxParseResult;
   'keynote.parseTextAndImage': KeynoteParseResult;
   'html.getByURL': HtmlGetByUrlResult;
+  'parse.convert': ConvertTaskResult;
   generation: Required<{ image?: FileResult; pptx?: FileResult; html?: FileResult }>;
   translation: FileResult;
   revamp: Required<{ image?: FileResult; pptx?: FileResult; html?: FileResult }>;
@@ -949,6 +956,7 @@ export interface DeckTaskTypePreview {
   'html.buildPlayer': never;
   'image.convertWebp': never;
   'pdf.pdfParse': never;
+  'parse.convert': never;
   'pptx.parse': never;
   'docx.parseTextAndImage': never;
   'keynote.parseTextAndImage': never;
