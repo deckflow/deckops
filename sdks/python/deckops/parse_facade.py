@@ -161,11 +161,22 @@ class ParseFacade:
 
 
 def _to_parse_result(raw: Any, task_id: str, task_type: str, output: str) -> ParseResult:
-    """把服务端返回体分拣成 markdown 字段 + result。"""
+    """把服务端返回体分拣成 markdown 字段 + result。
+
+    「没有 markdown 键」与「markdown 是空串」必须区分：前者说明服务端根本不认识
+    markdown 参数（早于 slave 0.21.0，未知参数会被静默忽略而非报错），后者是文档
+    本身没内容的合法结果。混成一个空串会让调用方以为文件解析出来是空的。
+    """
     body: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
     result: ParseResult = {"taskId": task_id, "type": task_type}
 
     if output != "ir":
+        if "markdown" not in body:
+            raise RuntimeError(
+                f"{task_type} returned no markdown field. The backend is likely older than "
+                "@deckflow/platform-slave 0.21.0, which silently ignores the markdown params. "
+                'Use output="ir" for the structured result until it is upgraded.'
+            )
         result["markdown"] = str(body.get("markdown") or "")
         for key in ("markdownPages", "markdownImages", "markdownError"):
             if key in body:

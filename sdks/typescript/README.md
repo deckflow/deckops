@@ -325,6 +325,12 @@ The backend degrades rather than fails by default: when Markdown rendering
 breaks, `markdownError` explains why and `markdown` is empty. Pass
 `markdownStrict: true` to make the task fail instead.
 
+Markdown needs a backend running `@deckflow/platform-slave` 0.21.0 or newer.
+Older servers ignore the markdown params silently instead of rejecting them, so
+`parse()` throws rather than handing back an empty string that would read as an
+empty document. `{ output: 'ir' }` does not need the markdown params and works
+against older backends.
+
 ## Browser and Node.js Notes
 
 - Task helpers accept files directly and upload them before task creation.

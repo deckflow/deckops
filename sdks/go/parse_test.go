@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -270,6 +271,62 @@ func TestParseURLSendsModeAndMarkdownSwitches(t *testing.T) {
 	}
 	if result.Type != TaskHTMLGetByURL || result.Markdown != "# page" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestParseErrorsWhenBackendReturnsNoMarkdownField(t *testing.T) {
+	// slave < 0.21.0 silently ignores the markdown params: the task succeeds but
+	// the response carries no markdown key at all.
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	var seen []map[string]any
+	server := parseServer(t, TaskPptxParse, `{"slides":[{}]}`, &seen)
+	defer server.Close()
+
+	_, err := newTestDeck(t, ctx, server.URL).Parse(ctx,
+		ParseSource{FileID: "f", Name: "a.pptx"},
+		ParseOptions{Wait: testWait()},
+	)
+	if err == nil || !strings.Contains(err.Error(), "returned no markdown field") {
+		t.Fatalf("err = %v; want a missing-markdown error", err)
+	}
+}
+
+func TestParseAcceptsPresentButEmptyMarkdown(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	var seen []map[string]any
+	server := parseServer(t, TaskPptxParse, `{"markdown":""}`, &seen)
+	defer server.Close()
+
+	result, err := newTestDeck(t, ctx, server.URL).Parse(ctx,
+		ParseSource{FileID: "f", Name: "a.pptx"},
+		ParseOptions{Wait: testWait()},
+	)
+	if err != nil {
+		t.Fatalf("an empty document is a legitimate result, got %v", err)
+	}
+	if result.Markdown != "" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+}
+
+func TestParseOutputIRWorksAgainstOldBackend(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	var seen []map[string]any
+	server := parseServer(t, TaskPptxParse, `{"slides":[{}]}`, &seen)
+	defer server.Close()
+
+	result, err := newTestDeck(t, ctx, server.URL).Parse(ctx,
+		ParseSource{FileID: "f", Name: "a.pptx"},
+		ParseOptions{Output: ParseOutputIR, Wait: testWait()},
+	)
+	if err != nil {
+		t.Fatalf("ir output must not depend on the markdown key: %v", err)
+	}
+	if result.Result == nil {
+		t.Fatal("raw payload not passed through")
 	}
 }
 

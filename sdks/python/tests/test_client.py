@@ -424,6 +424,31 @@ def test_parse_link_sends_url_mode_and_markdown_switches() -> None:
     assert result["markdown"] == "# page"
 
 
+def test_parse_errors_when_backend_returns_no_markdown_field() -> None:
+    # slave < 0.21.0 会静默忽略 markdown 参数，任务照样成功但没有该字段
+    seen: list[dict[str, Any]] = []
+    deck = _client(_parse_handler("pptx.parse", {"slides": [{}]}, seen))
+    with pytest.raises(RuntimeError, match="returned no markdown field"):
+        deck.parse({"file_id": "f", "name": "a.pptx", "wait": {"use_event_stream": False}})
+
+
+def test_parse_accepts_present_but_empty_markdown() -> None:
+    seen: list[dict[str, Any]] = []
+    deck = _client(_parse_handler("pptx.parse", {"markdown": ""}, seen))
+    res = deck.parse({"file_id": "f", "name": "a.pptx", "wait": {"use_event_stream": False}})
+    assert res["markdown"] == ""
+
+
+def test_parse_output_ir_works_against_old_backend() -> None:
+    seen: list[dict[str, Any]] = []
+    raw = {"slides": [{}]}
+    deck = _client(_parse_handler("pptx.parse", raw, seen))
+    res = deck.parse(
+        {"file_id": "f", "name": "a.pptx", "wait": {"use_event_stream": False}}, output="ir"
+    )
+    assert res["result"] == raw
+
+
 def test_parse_rejects_unsupported_extension() -> None:
     deck = _client(_parse_handler("pdf.pdfParse", {}, []))
     with pytest.raises(ValueError, match=r"Supported extensions: \.pdf, \.pptx, \.docx, \.key"):

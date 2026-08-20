@@ -83,6 +83,23 @@ func (c *Client) finishParse(
 
 	result := &ParseResult{TaskID: done.ID, Type: taskType}
 	if output != ParseOutputIR {
+		// An absent markdown key and an empty markdown string mean different things:
+		// the first says the backend does not know the markdown params at all
+		// (older than slave 0.21.0, which ignores unknown params silently), the
+		// second is a document that genuinely has no content. Collapsing both into
+		// "" would read as "this file parsed to nothing".
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			return nil, fmt.Errorf("%s result: %w", taskType, err)
+		}
+		if _, ok := probe["markdown"]; !ok {
+			return nil, fmt.Errorf(
+				"%s returned no markdown field; the backend is likely older than "+
+					"@deckflow/platform-slave 0.21.0, which silently ignores the markdown params. "+
+					"Use ParseOutputIR for the structured result until it is upgraded",
+				taskType,
+			)
+		}
 		var body markdownResult
 		if err := json.Unmarshal(raw, &body); err != nil {
 			return nil, fmt.Errorf("%s result: %w", taskType, err)

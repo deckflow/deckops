@@ -83,6 +83,24 @@ describe('parse 门面：output 档位 → slave markdown 开关', () => {
     expect(res.result).toBe(raw);
   });
 
+  it('返回体没有 markdown 键时报错，指向服务端版本', async () => {
+    // slave < 0.21.0 会静默忽略 markdown 参数，任务照样成功但没有该字段
+    const { run } = harness({ slides: [{}], slideMasters: [] });
+    await expect(run('./a.pptx')).rejects.toThrow(/returned no markdown field/);
+    await expect(run('./a.pptx')).rejects.toThrow(/platform-slave 0\.21\.0/);
+  });
+
+  it('markdown 是空串但键存在时不报错 —— 那是空文档的合法结果', async () => {
+    const { run } = harness({ markdown: '' });
+    await expect(run('./a.pptx')).resolves.toMatchObject({ markdown: '' });
+  });
+
+  it("output: 'ir' 不看 markdown 键，老服务端照样可用", async () => {
+    const raw = { slides: [{}], slideMasters: [] };
+    const { run } = harness(raw);
+    await expect(run('./a.pptx', { output: 'ir' })).resolves.toMatchObject({ result: raw });
+  });
+
   it('服务端容错降级时透出 markdownError，不抛错', async () => {
     const { run } = harness({ markdown: '', markdownError: 'boom' });
     const res = await run('./a.docx');

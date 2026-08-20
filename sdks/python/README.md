@@ -118,6 +118,10 @@ res = deck.parse({"url": "https://example.com/article", "mode": "runtime"})
 服务端默认容错而非失败：markdown 生成出错时 `res["markdownError"]` 说明原因、
 `res["markdown"]` 为空。要它直接失败就传 `markdown_strict=True`。
 
+markdown 需要服务端跑 `@deckflow/platform-slave` 0.21.0 及以上。老服务端会**静默忽略**
+markdown 参数而不是报错，所以 `parse()` 会抛 `RuntimeError`，而不是给你一个看起来像
+「空文档」的空串。`output="ir"` 不依赖 markdown 参数，对老服务端照样可用。
+
 The client is synchronous and owns its HTTP connection pool. Use
 `with create_deck(...) as deck:` or call `deck.close()` when the client has a
 short lifetime.

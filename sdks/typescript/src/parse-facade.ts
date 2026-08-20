@@ -169,7 +169,13 @@ const taskParams = (
   return params;
 };
 
-/** 把服务端返回体分拣成 `{ markdown 字段…, result? }` */
+/**
+ * 把服务端返回体分拣成 `{ markdown 字段…, result? }`。
+ *
+ * 「没有 markdown 键」与「markdown 是空串」必须区分：前者说明服务端根本不认识
+ * markdown 参数（早于 slave 0.21.0，未知参数会被静默忽略而非报错），后者是文档
+ * 本身没内容的合法结果。混成一个空串会让调用方以为文件解析出来是空的。
+ */
 const toParseResult = (
   raw: unknown,
   taskId: string,
@@ -180,6 +186,13 @@ const toParseResult = (
   const result: ParseResult = { taskId, type };
 
   if (output !== 'ir') {
+    if (!('markdown' in body)) {
+      throw new Error(
+        `${type} returned no markdown field. The backend is likely older than ` +
+          `@deckflow/platform-slave 0.21.0, which silently ignores the markdown params. ` +
+          `Use { output: 'ir' } for the structured result until it is upgraded.`
+      );
+    }
     result.markdown = body.markdown ?? '';
     if (body.markdownPages !== undefined) result.markdownPages = body.markdownPages;
     if (body.markdownImages !== undefined) result.markdownImages = body.markdownImages;

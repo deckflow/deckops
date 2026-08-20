@@ -163,6 +163,12 @@ By default the backend degrades rather than fails: if Markdown rendering breaks,
 `res.MarkdownError` explains why and `res.Markdown` is empty. Set
 `MarkdownStrict` to make the task fail instead.
 
+Markdown needs a backend running `@deckflow/platform-slave` 0.21.0 or newer.
+Older servers ignore the markdown params silently instead of rejecting them, so
+`Parse` returns an error rather than an empty string that would read as an empty
+document. `ParseOutputIR` does not need the markdown params and works against
+older backends.
+
 ## Uploads
 
 ```go

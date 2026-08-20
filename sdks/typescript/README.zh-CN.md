@@ -312,6 +312,10 @@ await deck.parse({ url: 'https://example.com/article', mode: 'runtime' });
 服务端默认容错而非失败：markdown 生成出错时 `markdownError` 说明原因、
 `markdown` 为空。要它直接失败就传 `markdownStrict: true`。
 
+markdown 需要服务端跑 `@deckflow/platform-slave` 0.21.0 及以上。老服务端会**静默忽略**
+markdown 参数而不是报错，所以 `parse()` 会主动抛错，而不是给你一个看起来像「空文档」的空串。
+`{ output: 'ir' }` 不依赖 markdown 参数，对老服务端照样可用。
+
 ## 浏览器与 Node.js 说明
 
 - 任务辅助方法直接接受文件，在创建任务前上传。
