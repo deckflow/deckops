@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 /**
  * 把 `html.getByURL` 抓到的 html 提取正文并转为 markdown，首行为 `# 标题`。
  *
@@ -5,6 +6,8 @@
  * 惰性加载 `linkedom`（2.5MB、零传递依赖）。**不能用 turndown 自带的 domino** ——
  * 它的 `querySelectorAll()` 返回不可迭代的 NodeList，`Readability.parse()` 会抛
  * `TypeError: nodeList is not iterable`。
+ *
+ * 顶部 `lib="dom"`：本包 types 指向源码，消费者 tsconfig 可能无 DOM，需在此显式引入。
  */
 
 import { Readability } from '@mozilla/readability';
