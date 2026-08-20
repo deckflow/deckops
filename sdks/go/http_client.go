@@ -187,6 +187,17 @@ func (c *httpClient) postJSON(ctx context.Context, path string, in any, out any)
 	return res, nil
 }
 
+func (c *httpClient) postMultipart(ctx context.Context, path string, headers http.Header, body []byte, out any) (*httpResponse, error) {
+	res, err := c.do(ctx, http.MethodPost, path, nil, headers, body, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := decodeJSONBody(res.Body, out); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 func (c *httpClient) putJSON(ctx context.Context, path string, query url.Values, in any, out any) (*httpResponse, error) {
 	var body []byte
 	var err error
@@ -457,6 +468,7 @@ func (c *httpClient) doOnce(ctx context.Context, method string, path string, que
 	}
 	c.applyHeaders(req.Header)
 	for key, values := range headers {
+		req.Header.Del(key)
 		for _, value := range values {
 			req.Header.Add(key, value)
 		}

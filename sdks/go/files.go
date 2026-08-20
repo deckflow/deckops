@@ -52,11 +52,20 @@ func (f *FilesClient) RequestUpload(ctx context.Context, params RequestUploadPar
 }
 
 func (f *FilesClient) Upload(ctx context.Context, input UploadInput, options UploadOptions) (*FileUploadResult, error) {
-	normalized, err := normalizeUploadInput(input, options)
+	normalized, err := f.Prepare(ctx, input, options)
 	if err != nil {
 		return nil, err
 	}
+	return f.UploadPrepared(ctx, normalized, options)
+}
 
+// Prepare normalizes a local input into bytes/name/hash without uploading.
+func (f *FilesClient) Prepare(ctx context.Context, input UploadInput, options UploadOptions) (*normalizedUpload, error) {
+	_ = ctx
+	return normalizeUploadInput(input, options)
+}
+
+func (f *FilesClient) UploadPrepared(ctx context.Context, normalized *normalizedUpload, options UploadOptions) (*FileUploadResult, error) {
 	auth, err := f.RequestUpload(ctx, RequestUploadParams{
 		SpaceID:   options.SpaceID,
 		Name:      normalized.Name,

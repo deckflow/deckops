@@ -431,6 +431,84 @@ describe('@deckops/sdk', () => {
     expect(task.fileIds).toEqual(['existing-file', 'uploaded-file-1']);
   });
 
+  it('attaches small files inline on task create instead of async upload', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+
+    mock.onPost('http://localhost:3000/api/spaces/space-1/file/auth').reply(() => {
+      throw new Error('async upload should be skipped for small files');
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(config.data).toBeInstanceOf(FormData);
+      const form = config.data as FormData;
+      expect(form.get('type')).toBe('convertor.ppt2pdf');
+      expect(form.get('spaceId')).toBe('space-1');
+      expect(form.get('params')).toBe('{}');
+      expect(form.get('fileIds')).toBeNull();
+      const file = form.get('files');
+      expect(file).toBeInstanceOf(Blob);
+      expect((file as File).name).toBe('slides.pptx');
+      return [
+        200,
+        {
+          id: 'task-inline',
+          spaceId: 'space-1',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+        },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({
+      files: [{ input: new Uint8Array([97, 98, 99]), name: 'slides.pptx' }],
+    });
+
+    expect(task.id).toBe('task-inline');
+  });
+
+  it('uses async upload when inline files reach the 10MB threshold', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    const large = new Uint8Array(10 * 1024 * 1024);
+
+    mock.onPost('http://localhost:3000/api/spaces/space-1/file/auth').reply((config) => {
+      const body = JSON.parse(String(config.data));
+      expect(body.bytes).toBe(large.byteLength);
+      return [
+        200,
+        {
+          id: 'uploaded-large',
+          key: 'files/large.bin',
+          hash: body.hash,
+          platform: 'oss',
+          multipart: false,
+        },
+      ];
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(JSON.parse(String(config.data))).toMatchObject({
+        fileIds: ['uploaded-large'],
+        type: 'convertor.ppt2pdf',
+      });
+      return [
+        200,
+        {
+          id: 'task-large',
+          spaceId: 'space-1',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+          fileIds: ['uploaded-large'],
+        },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({
+      files: [{ input: large, name: 'large.bin' }],
+    });
+
+    expect(task.fileIds).toEqual(['uploaded-large']);
+  });
+
   it('calculates hashes for Blob uploads', async () => {
     const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
     const file = new File([new Uint8Array([97, 98, 99])], 'browser.txt');

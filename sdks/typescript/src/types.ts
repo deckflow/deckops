@@ -10,6 +10,8 @@ export const DEFAULT_ROOT = 'https://app.deckflow.com/v1';
 export const DEFAULT_TIMEOUT = 300;
 export const DEFAULT_POLL_INTERVAL = 2000;
 export const DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024;
+/** When creating a task with files under this total size, attach them inline as `files` instead of async upload + `fileIds`. */
+export const INLINE_TASK_FILES_MAX_BYTES = 10 * 1024 * 1024;
 
 export const DECK_TASK_TYPES = [
   'file.compress',
@@ -156,7 +158,11 @@ export interface CreateTaskParams<T extends DeckTaskType = DeckTaskType> {
   spaceId?: string;
   /** Ordered input file ids. Required for most tasks except generation/html.buildPlayer. */
   fileIds?: string[];
-  /** Files to upload before task creation. Uploaded ids are appended after fileIds. */
+  /**
+   * Local files for the task. When total size is under {@link INLINE_TASK_FILES_MAX_BYTES}
+   * and no `fileIds` are also provided, they are sent inline on task creation as `files`.
+   * Otherwise they are uploaded first and the resulting ids are appended after `fileIds`.
+   */
   files?: TaskUploadInput[];
   /** Task type. */
   type: T;
@@ -304,6 +310,15 @@ export type TaskUploadInput =
       /** File-like value, Node.js path, or binary data to upload. Paths are Node.js-only. */
       input: UploadInput;
     } & TaskUploadOptions);
+
+/** Normalized local file ready for inline task creation or async upload. */
+export interface PreparedUpload {
+  name: string;
+  bytes: number;
+  hash: string;
+  data: Uint8Array | Blob;
+  chunkSize: number;
+}
 
 export interface FileUploadResult {
   /** File id to use in task fileIds. */

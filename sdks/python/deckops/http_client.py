@@ -286,11 +286,14 @@ class HTTPClient:
         *,
         params: Mapping[str, Any] | None = None,
         json: Any = None,
+        data: Mapping[str, Any] | None = None,
+        files: Any = None,
         headers: Mapping[str, str] | None = None,
     ) -> httpx.Response:
         url = self.url(path)
         mutable_params = dict(params) if params else None
         json_body = json
+        form_data = dict(data) if data else None
         auth_retried = False
         payment_retried = False
         network_attempt = 0
@@ -300,12 +303,16 @@ class HTTPClient:
                 time.sleep(RETRY_DELAYS[min(network_attempt - 1, len(RETRY_DELAYS) - 1)])
             request_token = self.token
             merged_headers = {**self._auth_headers(), **dict(headers or {})}
+            if files is not None or form_data is not None:
+                merged_headers.pop("Content-Type", None)
             try:
                 response = self.client.request(
                     method,
                     url,
                     params=mutable_params,
                     json=json_body,
+                    data=form_data,
+                    files=files,
                     headers=merged_headers,
                 )
             except Exception as error:
@@ -336,10 +343,14 @@ class HTTPClient:
                     request_token=request_token,
                     url=url,
                     mutable_params=mutable_params,
-                    json_body=json_body,
+                    json_body=json_body if json_body is not None else form_data,
                 )
                 if rewritten is not None:
-                    url, mutable_params, json_body = rewritten
+                    url, mutable_params, rewritten_body = rewritten
+                    if json_body is not None:
+                        json_body = rewritten_body
+                    elif form_data is not None and isinstance(rewritten_body, dict):
+                        form_data = rewritten_body
                     network_attempt = 0
                     continue
                 raise base

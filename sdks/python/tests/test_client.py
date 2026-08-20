@@ -127,6 +127,73 @@ def test_upload_hashes_bytes_and_task_helper_uses_uploaded_id() -> None:
     assert seen == ["existing", "uploaded-1"]
 
 
+def test_small_files_are_sent_inline_on_task_create() -> None:
+    seen_auth = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal seen_auth
+        if request.url.path.endswith("/file/auth"):
+            seen_auth = True
+            return httpx.Response(500, json={"message": "should not upload"})
+        content_type = request.headers.get("content-type", "")
+        assert "multipart/form-data" in content_type
+        assert b'name="fileIds"' not in request.content
+        assert b'name="files"' in request.content
+        assert b'filename="slides.pptx"' in request.content
+        assert b'name="type"' in request.content
+        return httpx.Response(
+            200,
+            json={
+                "id": "task-inline",
+                "spaceId": "space-1",
+                "type": "convertor.ppt2pdf",
+                "status": "pending",
+            },
+        )
+
+    deck = _client(handler)
+    task = deck.convert_ppt_to_pdf(files=[{"input": b"abc", "name": "slides.pptx"}])
+    assert task["id"] == "task-inline"
+    assert seen_auth is False
+
+
+def test_large_files_still_use_async_upload() -> None:
+    large = b"x" * (10 * 1024 * 1024)
+    seen_file_ids: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/file/auth"):
+            body = json.loads(request.content)
+            assert body["bytes"] == len(large)
+            return httpx.Response(
+                200,
+                json={
+                    "id": "uploaded-large",
+                    "key": "files/large.bin",
+                    "hash": body["hash"],
+                    "platform": "oss",
+                    "multipart": False,
+                },
+            )
+        body = json.loads(request.content)
+        seen_file_ids.extend(body["fileIds"])
+        return httpx.Response(
+            200,
+            json={
+                "id": "task-large",
+                "spaceId": "space-1",
+                "type": "convertor.ppt2pdf",
+                "status": "pending",
+                "fileIds": body["fileIds"],
+            },
+        )
+
+    deck = _client(handler)
+    task = deck.convert_ppt_to_pdf(files=[{"input": large, "name": "large.bin"}])
+    assert seen_file_ids == ["uploaded-large"]
+    assert task["fileIds"] == ["uploaded-large"]
+
+
 def test_multipart_oss_upload_completes_sorted_parts() -> None:
     completed_xml = ""
     progress: list[float] = []

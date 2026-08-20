@@ -59,6 +59,10 @@ export class HttpClient {
     this.client.interceptors.request.use(async (config) => {
       const authUuid = await this.authUuidPromise;
       const authHeaders = this.buildAuthHeaders();
+      const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData;
+      if (isFormData) {
+        delete authHeaders['Content-Type'];
+      }
       const headers = config.headers;
 
       if (headers && typeof (headers as { set?: unknown }).set === 'function') {
@@ -68,6 +72,9 @@ export class HttpClient {
         };
         mutable.delete?.('X-Auth-Token');
         mutable.delete?.('Authorization');
+        if (isFormData) {
+          mutable.delete?.('Content-Type');
+        }
         for (const [key, value] of Object.entries(authHeaders)) {
           mutable.set(key, value);
         }
@@ -78,6 +85,9 @@ export class HttpClient {
       const plain = { ...(headers as Record<string, string> | undefined) };
       delete plain['X-Auth-Token'];
       delete plain.Authorization;
+      if (isFormData) {
+        delete plain['Content-Type'];
+      }
       config.headers = AxiosHeaders.from({
         ...plain,
         ...authHeaders,

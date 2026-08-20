@@ -1,6 +1,7 @@
 package deckops
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -250,6 +251,106 @@ func TestTaskHelperUploadsBeforeCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(task.FileIDs) != 2 {
+		t.Fatalf("file ids = %#v", task.FileIDs)
+	}
+}
+
+func TestSmallFilesInlineOnTaskCreate(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/spaces/space-1/file/auth" {
+			t.Fatal("async upload should be skipped for small files")
+		}
+		if r.URL.Path != "/tools/tasks" {
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+		contentType := r.Header.Get("Content-Type")
+		if !strings.Contains(contentType, "multipart/form-data") {
+			t.Fatalf("content-type = %q", contentType)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.FormValue("type"); got != "convertor.ppt2pdf" {
+			t.Fatalf("type = %q", got)
+		}
+		if _, ok := r.MultipartForm.Value["fileIds"]; ok {
+			t.Fatal("fileIds should not be present for inline uploads")
+		}
+		files := r.MultipartForm.File["files"]
+		if len(files) != 1 || files[0].Filename != "slides.pptx" {
+			t.Fatalf("files = %#v", files)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"task-inline","spaceId":"space-1","type":"convertor.ppt2pdf","status":"pending"}`))
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{Root: server.URL, SpaceID: "space-1", AuthUUID: testAuthUUID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := deck.ConvertPptToPDF(ctx, TaskShortcutParams{
+		Files: []TaskUploadInput{{
+			Input:   UploadInput{Data: []byte("abc")},
+			Options: UploadOptions{Name: "slides.pptx"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ID != "task-inline" {
+		t.Fatalf("task id = %q", task.ID)
+	}
+}
+
+func TestLargeFilesStillUseAsyncUpload(t *testing.T) {
+	resetAuthUUIDCacheForTests()
+	ctx := context.Background()
+	large := bytes.Repeat([]byte("x"), InlineTaskFilesMaxBytes)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/spaces/space-1/file/auth":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if int(body["bytes"].(float64)) != len(large) {
+				t.Fatalf("bytes = %#v", body["bytes"])
+			}
+			_, _ = w.Write([]byte(`{"id":"uploaded-large","key":"files/large.bin","hash":"hash","platform":"oss","multipart":false}`))
+		case "/tools/tasks":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			fileIDs := body["fileIds"].([]any)
+			if len(fileIDs) != 1 || fileIDs[0] != "uploaded-large" {
+				t.Fatalf("unexpected fileIds: %#v", fileIDs)
+			}
+			_, _ = w.Write([]byte(`{"id":"task-large","spaceId":"space-1","type":"convertor.ppt2pdf","status":"pending","fileIds":["uploaded-large"]}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	deck, err := New(ctx, ClientOptions{Root: server.URL, SpaceID: "space-1", AuthUUID: testAuthUUID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := deck.ConvertPptToPDF(ctx, TaskShortcutParams{
+		Files: []TaskUploadInput{{
+			Input:   UploadInput{Data: large},
+			Options: UploadOptions{Name: "large.bin"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(task.FileIDs) != 1 || task.FileIDs[0] != "uploaded-large" {
 		t.Fatalf("file ids = %#v", task.FileIDs)
 	}
 }

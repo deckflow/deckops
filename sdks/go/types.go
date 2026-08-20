@@ -12,6 +12,9 @@ const (
 	DefaultTimeout      = 300 * time.Second
 	DefaultPollInterval = 2 * time.Second
 	DefaultChunkSize    = 10 * 1024 * 1024
+	// InlineTaskFilesMaxBytes: when creating a task with files under this total size,
+	// attach them inline as `files` instead of async upload + `fileIds`.
+	InlineTaskFilesMaxBytes = 10 * 1024 * 1024
 )
 
 type TaskType string

@@ -63,6 +63,22 @@ class FilesClient:
             raise TypeError("upload authorization response must be an object")
         return payload
 
+    def prepare(
+        self,
+        input: UploadInput,
+        *,
+        name: str | None = None,
+        hash: str | None = None,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+    ) -> _NormalizedUpload:
+        """Normalize a local input into bytes/name/hash without uploading."""
+        return self._normalize_input(
+            input,
+            name=name,
+            supplied_hash=hash,
+            chunk_size=chunk_size,
+        )
+
     def upload(
         self,
         input: UploadInput,
@@ -73,18 +89,31 @@ class FilesClient:
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         on_progress: ProgressCallback | None = None,
     ) -> FileUploadResult:
-        normalized = self._normalize_input(
+        normalized = self.prepare(
             input,
             name=name,
-            supplied_hash=hash,
+            hash=hash,
             chunk_size=chunk_size,
         )
+        return self.upload_prepared(
+            normalized,
+            space_id=space_id,
+            on_progress=on_progress,
+        )
+
+    def upload_prepared(
+        self,
+        file: _NormalizedUpload,
+        *,
+        space_id: str | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> FileUploadResult:
         auth = self.request_upload(
             space_id=space_id,
-            name=normalized.name,
-            bytes=normalized.size,
-            hash=normalized.hash,
-            chunk_size=normalized.chunk_size,
+            name=file.name,
+            bytes=file.size,
+            hash=file.hash,
+            chunk_size=file.chunk_size,
         )
 
         upload_auth = auth.get("auth")
@@ -92,15 +121,15 @@ class FilesClient:
             if on_progress:
                 on_progress(1.0)
         elif auth.get("multipart"):
-            self._upload_multipart(normalized, auth, on_progress)
+            self._upload_multipart(file, auth, on_progress)
         else:
-            self._upload_single(normalized, auth, on_progress)
+            self._upload_single(file, auth, on_progress)
 
         result: FileUploadResult = {
             "id": str(auth.get("id") or ""),
-            "name": normalized.name,
-            "bytes": normalized.size,
-            "hash": normalized.hash,
+            "name": file.name,
+            "bytes": file.size,
+            "hash": file.hash,
         }
         key = auth.get("key")
         if isinstance(key, str):
