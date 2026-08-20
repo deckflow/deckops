@@ -265,6 +265,66 @@ await deck.revamp({
 });
 ```
 
+## Parse Documents
+
+`deck.parse()` picks a parser from the file extension or URL, creates the task,
+waits for it, and returns what `output` asked for. Markdown is rendered by the
+backend — the SDK does no conversion of its own.
+
+```ts
+// Markdown only (the default): the structured result is dropped server-side.
+const { markdown } = await deck.parse('./slides.pptx');
+```
+
+`output` picks what comes back:
+
+| `output`     | markdown fields | `result` | Sent to the backend                  |
+| ------------ | --------------- | -------- | ------------------------------------ |
+| `'markdown'` | ✅              | —        | `markdown: true, markdownOnly: true` |
+| `'ir'`       | —               | ✅       | *(no markdown params)*               |
+| `'all'`      | ✅              | ✅       | `markdown: true`                     |
+
+`result` is the response body passed through verbatim, so type it with the task
+type's result:
+
+```ts
+import type { PdfParseStructuredResult, PptxParseStructuredResult } from '@deckops/sdk';
+
+const ir = await deck.parse<PdfParseStructuredResult>('./report.pdf', { output: 'ir' });
+ir.result?.document.elements;
+
+const both = await deck.parse<PptxParseStructuredResult>('./slides.pptx', {
+  output: 'all',
+  markdownPages: true,
+});
+both.markdown; both.markdownPages; both.result;
+```
+
+Per-parser params ride on the same options object and are only sent to the task
+types that accept them — `markdownPages` for `.pptx` / `.key`, `password`,
+`parseProfile`, `includeImages`, `markdownMeta` for `.pdf`, `stayImageAreaRate`
+for `.key`:
+
+```ts
+await deck.parse('./report.pdf', { output: 'all', parseProfile: 'quality', password: 'pw' });
+```
+
+Already-uploaded files take `{ fileId, name }`; links take `{ url, mode }`:
+
+```ts
+await deck.parse({ fileId: 'uploaded-file-id', name: 'slides.pptx' });
+await deck.parse({ url: 'https://example.com/article', mode: 'runtime' });
+```
+
+Supported extensions are `.pdf`, `.pptx`, `.docx`, and `.key`. The low-level
+helpers (`deck.pdfParse` → `pdf.pdfParse`, `deck.pptxParse`, `deck.docxParse`,
+`deck.keynoteParse`, `deck.htmlGetByURL`) take the backend params directly,
+including `markdown`, `markdownOnly`, `markdownPages`, and `markdownStrict`.
+
+The backend degrades rather than fails by default: when Markdown rendering
+breaks, `markdownError` explains why and `markdown` is empty. Pass
+`markdownStrict: true` to make the task fail instead.
+
 ## Browser and Node.js Notes
 
 - Task helpers accept files directly and upload them before task creation.

@@ -1,50 +1,103 @@
+"""``deck.parse()`` 门面：按扩展名/链接路由到对应解析任务 → 等待完成 → 取结果。
+
+markdown 由服务端生成（slave >= 0.21.0），这里只做三件事：路由、翻译 ``output`` 档位
+为 slave 的 markdown 开关、把结果分拣成 ``{"markdown": ..., "result": ...}``。
+没有任何格式转换。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
-from .parse import (
-    docx_result_to_markdown,
-    html_to_markdown,
-    keynote_result_to_markdown,
-    parse_task_type_for,
-    pdf_result_to_markdown,
-    pptx_result_to_markdown,
-)
+from .parse import parse_task_type_for
 from .tasks import TasksClient
 from .types import PARSE_SUPPORTED_EXTENSIONS, ParseResult, TaskUploadInput
+
+#: ``output`` 档位 → slave 的 markdown 开关
+_MARKDOWN_SWITCHES: dict[str, dict[str, bool]] = {
+    # 只要 markdown，丢结构化结果压缩响应体
+    "markdown": {"markdown": True, "markdownOnly": True},
+    # 两者都要
+    "all": {"markdown": True},
+    # 不生成 markdown，省掉服务端一次渲染
+    "ir": {},
+}
+
+#: 各任务类型认得的直通参数：SDK 侧参数名 → slave 参数名
+_PASSTHROUGH: dict[str, dict[str, str]] = {
+    "pdf.pdfParse": {
+        "password": "password",
+        "parse_profile": "parseProfile",
+        "parseProfile": "parseProfile",
+        "include_images": "includeImages",
+        "includeImages": "includeImages",
+        "markdown_meta": "markdownMeta",
+        "markdownMeta": "markdownMeta",
+    },
+    "pptx.parse": {
+        "markdown_pages": "markdownPages",
+        "markdownPages": "markdownPages",
+    },
+    "keynote.parseTextAndImage": {
+        "markdown_pages": "markdownPages",
+        "markdownPages": "markdownPages",
+        "stay_image_area_rate": "stayImageAreaRate",
+        "stayImageAreaRate": "stayImageAreaRate",
+    },
+    "docx.parseTextAndImage": {},
+    "html.getByURL": {},
+}
+
+#: 所有任务类型共用的直通参数
+_COMMON_PASSTHROUGH = {
+    "markdown_strict": "markdownStrict",
+    "markdownStrict": "markdownStrict",
+}
 
 
 class ParseFacade:
     def __init__(self, tasks: TasksClient) -> None:
         self._tasks = tasks
 
-    def parse(self, input: Any) -> str:
-        return self.parse_detailed(input)["markdown"]
+    def parse(
+        self,
+        source: Any,
+        options: Mapping[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> ParseResult:
+        """解析一个文件或链接。
 
-    def parse_detailed(self, input: Any) -> ParseResult:
-        if isinstance(input, Mapping) and "url" in input:
-            url = str(input["url"])
-            task = self._tasks.create(
-                type="html.getByURL",
-                space_id=_value(input, "space_id", "spaceId"),
-                params={"url": url, "mode": input.get("mode") or "runtime"},
-            )
-            done = self._wait(task, input.get("wait"))
-            raw = self._tasks.down(str(done["id"]))
-            html = raw.get("html") if isinstance(raw, Mapping) else ""
-            return {
-                "markdown": html_to_markdown(str(html or ""), url=url),
-                "taskId": str(done["id"]),
-                "type": "html.getByURL",
+        ``output`` 决定要 markdown（默认）、原始结构（``"ir"``）、还是两者（``"all"``）::
+
+            deck.parse("./a.pptx")["markdown"]
+            deck.parse("./a.pdf", output="ir")["result"]
+            deck.parse({"url": "https://…"}, output="all")
+        """
+        opts: dict[str, Any] = {**dict(options or {}), **kwargs}
+        output = str(opts.get("output") or "markdown")
+        if output not in _MARKDOWN_SWITCHES:
+            raise ValueError(f"unsupported output: {output!r}; expected 'markdown', 'ir' or 'all'")
+        space_id = _value(opts, "space_id", "spaceId")
+        wait = opts.get("wait")
+
+        if isinstance(source, Mapping) and "url" in source:
+            params = {
+                "url": str(source["url"]),
+                "mode": source.get("mode") or "runtime",
+                **self._task_params("html.getByURL", output, opts),
             }
+            task = self._tasks.create(type="html.getByURL", space_id=space_id, params=params)
+            done = self._wait(task, wait)
+            raw = self._tasks.down(str(done["id"]))
+            return _to_parse_result(raw, str(done["id"]), "html.getByURL", output)
 
         normalized: Mapping[str, Any]
-        if isinstance(input, (str, Path)):
-            normalized = {"file": input}
-        elif isinstance(input, Mapping):
-            normalized = input
+        if isinstance(source, (str, Path)):
+            normalized = {"file": source}
+        elif isinstance(source, Mapping):
+            normalized = source
         else:
             raise self._unsupported("")
 
@@ -56,23 +109,29 @@ class ParseFacade:
         if not task_type:
             raise self._unsupported(name)
 
-        source = normalized.get("file")
-        if file_id is None and source is None:
+        file_source = normalized.get("file")
+        if file_id is None and file_source is None:
             raise self._unsupported(name)
         task = self._tasks.create(
             type=task_type,
-            space_id=_value(normalized, "space_id", "spaceId"),
+            space_id=space_id,
             file_ids=[str(file_id)] if file_id is not None else None,
-            files=None if file_id is not None else [cast(TaskUploadInput, source)],
+            files=None if file_id is not None else [cast(TaskUploadInput, file_source)],
+            params=self._task_params(task_type, output, opts),
         )
-        done = self._wait(task, normalized.get("wait"))
+        done = self._wait(task, wait)
         raw = self._tasks.down(str(done["id"]))
-        markdown = self._to_markdown(task_type, raw)
-        return {
-            "markdown": markdown,
-            "taskId": str(done["id"]),
-            "type": task_type,
-        }
+        return _to_parse_result(raw, str(done["id"]), task_type, output)
+
+    @staticmethod
+    def _task_params(task_type: str, output: str, opts: Mapping[str, Any]) -> dict[str, Any]:
+        """markdown 档位 + 该任务类型认得的直通参数。"""
+        params: dict[str, Any] = dict(_MARKDOWN_SWITCHES[output])
+        allowed = {**_COMMON_PASSTHROUGH, **_PASSTHROUGH.get(task_type, {})}
+        for key, slave_key in allowed.items():
+            if key in opts and opts[key] is not None:
+                params[slave_key] = opts[key]
+        return params
 
     def _wait(self, task: Mapping[str, Any], options: Any) -> dict[str, Any]:
         kwargs = _snake_options(options) if isinstance(options, Mapping) else {}
@@ -92,20 +151,6 @@ class ParseFacade:
         return str(name or "")
 
     @staticmethod
-    def _to_markdown(task_type: str, result: Any) -> str:
-        if not isinstance(result, Mapping):
-            raise TypeError(f"{task_type} result must be an object")
-        if task_type == "pdf.parse":
-            return pdf_result_to_markdown(result)
-        if task_type == "pptx.parse":
-            return pptx_result_to_markdown(result)
-        if task_type == "docx.parseTextAndImage":
-            return docx_result_to_markdown(result)
-        if task_type == "keynote.parseTextAndImage":
-            return keynote_result_to_markdown(result)
-        raise ValueError(f"unsupported parser task type: {task_type}")
-
-    @staticmethod
     def _unsupported(name: str) -> ValueError:
         label = f'"{name}"' if name else "input"
         supported = ", ".join(PARSE_SUPPORTED_EXTENSIONS)
@@ -113,6 +158,23 @@ class ParseFacade:
             f"Cannot determine parser for {label}. Supported extensions: {supported}. "
             "Pass { name } to specify the file name."
         )
+
+
+def _to_parse_result(raw: Any, task_id: str, task_type: str, output: str) -> ParseResult:
+    """把服务端返回体分拣成 markdown 字段 + result。"""
+    body: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
+    result: ParseResult = {"taskId": task_id, "type": task_type}
+
+    if output != "ir":
+        result["markdown"] = str(body.get("markdown") or "")
+        for key in ("markdownPages", "markdownImages", "markdownError"):
+            if key in body:
+                result[key] = body[key]  # type: ignore[literal-required]
+    if output != "markdown":
+        # 原样透传：'all' 下 markdown 字段同时也在这里面
+        result["result"] = raw
+
+    return result
 
 
 def _value(mapping: Mapping[str, Any], *names: str) -> Any:

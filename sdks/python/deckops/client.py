@@ -64,11 +64,17 @@ class DeckClient:
     def get_auth_uuid(self) -> str:
         return self._http.auth_uuid
 
-    def parse(self, input: Any) -> str:
-        return self._parse_facade.parse(input)
+    def parse(
+        self,
+        source: Any,
+        options: Mapping[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> ParseResult:
+        """按扩展名/链接路由 → 等待 → 取结果。
 
-    def parse_detailed(self, input: Any) -> ParseResult:
-        return self._parse_facade.parse_detailed(input)
+        ``output`` 决定要 markdown（默认）、原始结构（``"ir"``）、还是两者（``"all"``）。
+        """
+        return self._parse_facade.parse(source, options, **kwargs)
 
     def _shortcut(self, task_type: str, **kwargs: Any) -> Task:
         kwargs.pop("type", None)
@@ -158,7 +164,7 @@ class DeckClient:
         return self._shortcut("revamp", **kwargs)
 
     def pdf_parse(self, **kwargs: Any) -> Task:
-        return self._shortcut("pdf.parse", **kwargs)
+        return self._shortcut("pdf.pdfParse", **kwargs)
 
     def pptx_parse(self, **kwargs: Any) -> Task:
         return self._shortcut("pptx.parse", **kwargs)
@@ -177,7 +183,6 @@ class DeckClient:
     setApiKey = set_api_key
     setSpaceId = set_space_id
     getAuthUuid = get_auth_uuid
-    parseDetailed = parse_detailed
     fileCompress = file_compress
     imageOcr = image_ocr
     imageConvertWebp = image_convert_webp

@@ -87,49 +87,81 @@ _ = done
 
 `deck.TTask` is an alias for `deck.Tasks`, matching the backend `ttask` naming used by existing integrations.
 
-## Parse documents to Markdown
+## Parse documents
 
-`Parse` follows the same pipeline as the TypeScript SDK: choose a parser from
-the file extension or URL, create the task, wait for it, download the
-structured result, and convert that result to Markdown.
+`Parse` picks a parser from the file extension or URL, creates the task, waits
+for it, and returns what `Output` asked for. Markdown is rendered by the
+backend — the SDK does no conversion of its own.
 
 ```go
 input := deckops.TaskUploadInput{
 	Input: deckops.UploadInput{Path: "./slides.pptx"},
 }
 
-markdown, err := deck.Parse(ctx, deckops.ParseInput{File: &input})
+// Markdown only (the default): the structured result is dropped server-side.
+res, err := deck.Parse(ctx, deckops.ParseSource{File: &input}, deckops.ParseOptions{})
 if err != nil {
 	log.Fatal(err)
 }
-log.Println(markdown)
+log.Println(res.Markdown)
+```
 
-detailed, err := deck.ParseDetailed(ctx, deckops.ParseInput{
-	URL:  "https://example.com/article",
-	Mode: deckops.ParseModeRuntime,
+`ParseOptions.Output` picks what comes back:
+
+| `Output`              | Markdown fields | `Result` | Sent to the backend               |
+| --------------------- | --------------- | -------- | --------------------------------- |
+| `ParseOutputMarkdown` | ✅              | —        | `markdown: true, markdownOnly: true` |
+| `ParseOutputIR`       | —               | ✅       | *(no markdown params)*            |
+| `ParseOutputAll`      | ✅              | ✅       | `markdown: true`                  |
+
+`Result` is the raw response body, so unmarshal it into the shape your task type
+returns:
+
+```go
+res, err := deck.Parse(ctx, deckops.ParseSource{File: &input}, deckops.ParseOptions{
+	Output: deckops.ParseOutputIR,
 })
 if err != nil {
 	log.Fatal(err)
 }
-log.Printf("task=%s type=%s", detailed.TaskID, detailed.Type)
+var document deckops.PptxParseResult
+if err := json.Unmarshal(res.Result, &document); err != nil {
+	log.Fatal(err)
+}
+```
+
+Per-parser params ride on `ParseOptions` and are only sent to the task types
+that accept them — `MarkdownPages` for `.pptx` / `.key`, `Password`,
+`ParseProfile`, `IncludeImages`, `MarkdownMeta` for `.pdf`, `StayImageAreaRate`
+for `.key`:
+
+```go
+pages := true
+res, err := deck.Parse(ctx, deckops.ParseSource{File: &input}, deckops.ParseOptions{
+	Output:        deckops.ParseOutputAll,
+	MarkdownPages: &pages,
+})
+// res.MarkdownPages[i] is page i; res.Markdown joins them with deckops.PageSeparator.
+```
+
+Links go through the same call:
+
+```go
+res, err := deck.Parse(ctx, deckops.ParseSource{
+	URL:  "https://example.com/article",
+	Mode: deckops.ParseModeRuntime,
+}, deckops.ParseOptions{})
 ```
 
 Supported file extensions are `.pdf`, `.pptx`, `.docx`, and `.key`. For an
 already uploaded file, pass `FileID` and `Name`. The low-level task shortcuts
-are `PDFParse`, `PptxParse`, `DocxParse`, `KeynoteParse`, and `HTMLGetByURL`.
+are `PDFParse` (`pdf.pdfParse`), `PptxParse`, `DocxParse`, `KeynoteParse`, and
+`HTMLGetByURL`; they take the backend params directly, including `markdown`,
+`markdownOnly`, `markdownPages`, and `markdownStrict`.
 
-Structured download results can be converted independently:
-
-```go
-var result deckops.PDFParseResult
-if err := deck.Tasks.Down(ctx, task.ID, deckops.TaskDownloadOptions{}, &result); err != nil {
-	log.Fatal(err)
-}
-markdown := deckops.PDFResultToMarkdown(result)
-```
-
-Equivalent converters are available as `PptxResultToMarkdown`,
-`DocxResultToMarkdown`, `KeynoteResultToMarkdown`, and `HTMLToMarkdown`.
+By default the backend degrades rather than fails: if Markdown rendering breaks,
+`res.MarkdownError` explains why and `res.Markdown` is empty. Set
+`MarkdownStrict` to make the task fail instead.
 
 ## Uploads
 

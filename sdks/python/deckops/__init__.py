@@ -13,21 +13,11 @@ from .errors import APIError
 from .files import FilesApi, FilesClient
 from .parse import (
     PAGE_SEPARATOR,
-    PptxConvertOptions,
-    docx_result_to_markdown,
-    docxResult2Markdown,
+    PARSE_PAGED_TASK_TYPES,
     extension_of,
     extensionOf,
-    html2markdown,
-    html_to_markdown,
-    keynote_result_to_markdown,
-    keynoteResult2Markdown,
     parse_task_type_for,
     parseTaskTypeFor,
-    pdf_result_to_markdown,
-    pdfResult2Markdown,
-    pptx_result_to_markdown,
-    pptxResult2Markdown,
 )
 from .tasks import TasksApi, TasksClient
 from .types import (
@@ -46,7 +36,7 @@ from .types import (
     TaskListResponse,
 )
 
-__version__ = "0.7.2"
+__version__ = "0.8.0"
 
 __all__ = [
     "APIError",
@@ -64,34 +54,24 @@ __all__ = [
     "FilesApi",
     "FilesClient",
     "PAGE_SEPARATOR",
+    "PARSE_PAGED_TASK_TYPES",
     "PARSE_SUPPORTED_EXTENSIONS",
     "PARSE_TASK_TYPE_BY_EXTENSION",
     "ParseResult",
-    "PptxConvertOptions",
     "Task",
     "TaskListResponse",
     "TasksApi",
     "TasksClient",
     "create_deck",
     "createDeck",
-    "docx_result_to_markdown",
-    "docxResult2Markdown",
     "extension_of",
     "extensionOf",
     "generate_auth_uuid",
     "generateAuthUuid",
-    "html_to_markdown",
-    "html2markdown",
     "is_valid_auth_uuid",
     "isValidAuthUuid",
-    "keynote_result_to_markdown",
-    "keynoteResult2Markdown",
     "parse_task_type_for",
     "parseTaskTypeFor",
-    "pdf_result_to_markdown",
-    "pdfResult2Markdown",
-    "pptx_result_to_markdown",
-    "pptxResult2Markdown",
     "resolve_auth_uuid",
     "resolveAuthUuid",
 ]

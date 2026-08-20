@@ -33,7 +33,7 @@ DECK_TASK_TYPES = (
     "video.compress",
     "image.convertWebp",
     "image.resize",
-    "pdf.parse",
+    "pdf.pdfParse",
     "pptx.parse",
     "docx.parseTextAndImage",
     "keynote.parseTextAndImage",
@@ -44,7 +44,7 @@ DECK_TASK_TYPES = (
 )
 
 PARSE_TASK_TYPE_BY_EXTENSION = {
-    ".pdf": "pdf.parse",
+    ".pdf": "pdf.pdfParse",
     ".pptx": "pptx.parse",
     ".docx": "docx.parseTextAndImage",
     ".key": "keynote.parseTextAndImage",
@@ -96,10 +96,20 @@ class FileUploadResult(TypedDict, total=False):
     hash: str
 
 
-class ParseResult(TypedDict):
-    markdown: str
+class ParseResult(TypedDict, total=False):
+    """``deck.parse()`` 的返回。
+
+    ``markdown`` 系字段在 ``output`` 为 ``"markdown"`` / ``"all"`` 时出现；
+    ``result`` 在 ``output`` 为 ``"ir"`` / ``"all"`` 时出现，是服务端返回体的原样透传。
+    """
+
     taskId: str
     type: str
+    markdown: str
+    markdownPages: list[str]
+    markdownImages: dict[str, Any]
+    markdownError: str
+    result: Any
 
 
 Headers: TypeAlias = MutableMapping[str, str]

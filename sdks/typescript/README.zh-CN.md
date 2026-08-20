@@ -255,6 +255,63 @@ await deck.revamp({
 });
 ```
 
+## 解析文档
+
+`deck.parse()` 按扩展名/链接选解析器、建任务、等完成，再按 `output` 返回对应内容。
+markdown 由服务端生成，SDK 不做任何格式转换。
+
+```ts
+// 默认只要 markdown：结构化结果在服务端就被丢掉，响应体更小
+const { markdown } = await deck.parse('./slides.pptx');
+```
+
+`output` 决定返回什么：
+
+| `output`     | markdown 系字段 | `result` | 下发给服务端                         |
+| ------------ | --------------- | -------- | ------------------------------------ |
+| `'markdown'` | ✅              | —        | `markdown: true, markdownOnly: true` |
+| `'ir'`       | —               | ✅       | *（不带 markdown 参数）*             |
+| `'all'`      | ✅              | ✅       | `markdown: true`                     |
+
+`result` 是服务端返回体的原样透传，用对应任务类型的结果类型标注即可：
+
+```ts
+import type { PdfParseStructuredResult, PptxParseStructuredResult } from '@deckops/sdk';
+
+const ir = await deck.parse<PdfParseStructuredResult>('./report.pdf', { output: 'ir' });
+ir.result?.document.elements;
+
+const both = await deck.parse<PptxParseStructuredResult>('./slides.pptx', {
+  output: 'all',
+  markdownPages: true,
+});
+both.markdown; both.markdownPages; both.result;
+```
+
+各解析器的直通参数写在同一个 options 上，只会下发给认得它的任务类型 ——
+`markdownPages` 只对 `.pptx` / `.key` 有效，`password` / `parseProfile` /
+`includeImages` / `markdownMeta` 只对 `.pdf` 有效，`stayImageAreaRate` 只对
+`.key` 有效：
+
+```ts
+await deck.parse('./report.pdf', { output: 'all', parseProfile: 'quality', password: 'pw' });
+```
+
+已上传的文件传 `{ fileId, name }`，链接传 `{ url, mode }`：
+
+```ts
+await deck.parse({ fileId: 'uploaded-file-id', name: 'slides.pptx' });
+await deck.parse({ url: 'https://example.com/article', mode: 'runtime' });
+```
+
+支持的扩展名是 `.pdf`、`.pptx`、`.docx`、`.key`。底层辅助方法
+（`deck.pdfParse` → `pdf.pdfParse`、`deck.pptxParse`、`deck.docxParse`、
+`deck.keynoteParse`、`deck.htmlGetByURL`）直接收服务端参数，包括
+`markdown` / `markdownOnly` / `markdownPages` / `markdownStrict`。
+
+服务端默认容错而非失败：markdown 生成出错时 `markdownError` 说明原因、
+`markdown` 为空。要它直接失败就传 `markdownStrict: true`。
+
 ## 浏览器与 Node.js 说明
 
 - 任务辅助方法直接接受文件，在创建任务前上传。

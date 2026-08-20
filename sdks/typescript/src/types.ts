@@ -1,9 +1,14 @@
-import type { PptxParseResult } from './parse/pptx.js';
 import type {
   DocxParseResult,
+  DocxParseTaskParams,
   HtmlGetByUrlResult,
+  HtmlGetByUrlTaskParams,
   KeynoteParseResult,
+  KeynoteParseTaskParams,
   PdfParseResult,
+  PdfParseTaskParams,
+  PptxParseResult,
+  PptxParseTaskParams,
 } from './parse/types.js';
 
 export const DEFAULT_ROOT = 'https://app.deckflow.com/v1';
@@ -35,7 +40,7 @@ export const DECK_TASK_TYPES = [
   'video.compress',
   'image.convertWebp',
   'image.resize',
-  'pdf.parse',
+  'pdf.pdfParse',
   'pptx.parse',
   'docx.parseTextAndImage',
   'keynote.parseTextAndImage',
@@ -815,29 +820,19 @@ export interface HtmlToPptxResult {
   usedFonts: string[];
 }
 
-export interface PdfParseTaskParams {
-  /** 是否提取文本，默认 true */
-  includeText?: boolean;
-  /** 是否提取图片，默认 true */
-  includeImages?: boolean;
-  /** 最小图片面积占比过滤，0-1 */
-  minImageAreaRatio?: number;
-  /** 是否返回 rawTextItems（调试用） */
-  debug?: boolean;
-}
+/**
+ * 解析类任务的参数与结果定义在 `./parse/types.ts`，此处只做转出，
+ * 免得同一份服务端契约在两个文件里各写一遍、各自漂移。
+ */
+export type {
+  DocxParseTaskParams,
+  HtmlGetByUrlTaskParams,
+  KeynoteParseTaskParams,
+  PdfParseTaskParams,
+  PptxParseTaskParams,
+};
 
-export type PptxParseTaskParams = Record<never, never>;
-export type DocxParseTaskParams = Record<never, never>;
-export type KeynoteParseTaskParams = Record<never, never>;
-
-export interface HtmlGetByUrlTaskParams {
-  /** 目标 http(s) 链接 */
-  url: string;
-  /** 取源码还是取运行后的代码，默认 runtime */
-  mode?: 'source' | 'runtime';
-}
-
-/** `pptx.parse` 的结果：PPTX 对象模型，字段结构见 @deckflow/presentation */
+/** `pptx.parse` 的结果：PPTX 对象模型 */
 export type PptxTaskParseResult = PptxParseResult;
 
 export interface DeckTaskTypeParams {
@@ -864,7 +859,7 @@ export interface DeckTaskTypeParams {
   'video.compress': VideoCompressParams;
   'image.convertWebp': ImageConvertWebpParams;
   'image.resize': ImageResizeParams;
-  'pdf.parse': PdfParseTaskParams;
+  'pdf.pdfParse': PdfParseTaskParams;
   'pptx.parse': PptxParseTaskParams;
   'docx.parseTextAndImage': DocxParseTaskParams;
   'keynote.parseTextAndImage': KeynoteParseTaskParams;
@@ -898,7 +893,7 @@ export interface DeckTaskTypeResult {
   'video.compress': FileResult;
   'image.convertWebp': FileResult;
   'image.resize': FileResult;
-  'pdf.parse': PdfParseResult;
+  'pdf.pdfParse': PdfParseResult;
   'pptx.parse': PptxTaskParseResult;
   'docx.parseTextAndImage': DocxParseResult;
   'keynote.parseTextAndImage': KeynoteParseResult;
@@ -935,7 +930,7 @@ export interface DeckTaskTypePreview {
   'convertor.markdown2png': never;
   'html.buildPlayer': never;
   'image.convertWebp': never;
-  'pdf.parse': never;
+  'pdf.pdfParse': never;
   'pptx.parse': never;
   'docx.parseTextAndImage': never;
   'keynote.parseTextAndImage': never;

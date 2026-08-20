@@ -321,34 +321,110 @@ def test_payment_callback_is_invoked_once_then_request_retries() -> None:
     assert checkout_calls == 1
 
 
-def test_parse_facade_routes_waits_downloads_and_converts() -> None:
+def _parse_handler(task_type: str, download: dict[str, Any], seen: list[dict[str, Any]]):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
             body = json.loads(request.content)
-            assert body["type"] == "pdf.parse"
-            assert body["fileIds"] == ["file-1"]
+            seen.append(body)
+            assert body["type"] == task_type
             return httpx.Response(200, json={"id": "parse-1", "status": "pending"})
         if request.url.path.endswith("/download"):
-            return httpx.Response(
-                200,
-                json={"textBlocks": [{"text": "解析完成", "locator": {"pageIndex": 0}}]},
-            )
+            return httpx.Response(200, json=download)
         return httpx.Response(
             200,
             json={"id": "parse-1", "status": "completed"},
             headers={"content-type": "application/json"},
         )
 
-    deck = _client(handler)
-    result = deck.parse_detailed(
+    return handler
+
+
+def test_parse_facade_routes_and_defaults_to_markdown_only() -> None:
+    seen: list[dict[str, Any]] = []
+    deck = _client(_parse_handler("pdf.pdfParse", {"markdown": "# 解析完成"}, seen))
+    result = deck.parse(
         {
             "file_id": "file-1",
             "name": "document.pdf",
             "wait": {"use_event_stream": False},
         }
     )
+
+    assert seen[0]["fileIds"] == ["file-1"]
+    assert seen[0]["params"] == {"markdown": True, "markdownOnly": True}
     assert result == {
-        "markdown": "解析完成",
         "taskId": "parse-1",
-        "type": "pdf.parse",
+        "type": "pdf.pdfParse",
+        "markdown": "# 解析完成",
     }
+
+
+def test_parse_output_ir_skips_markdown_and_returns_raw() -> None:
+    seen: list[dict[str, Any]] = []
+    raw = {"document": {"elements": []}, "images": []}
+    deck = _client(_parse_handler("pdf.pdfParse", raw, seen))
+    result = deck.parse(
+        {"file_id": "file-1", "name": "a.pdf", "wait": {"use_event_stream": False}},
+        output="ir",
+    )
+
+    assert seen[0]["params"] == {}
+    assert result["result"] == raw
+    assert "markdown" not in result
+
+
+def test_parse_output_all_passes_through_task_params() -> None:
+    seen: list[dict[str, Any]] = []
+    raw = {"slides": [{}], "markdown": "# a", "markdownPages": ["# a"]}
+    deck = _client(_parse_handler("pptx.parse", raw, seen))
+    result = deck.parse(
+        {"file_id": "file-1", "name": "a.pptx", "wait": {"use_event_stream": False}},
+        output="all",
+        markdown_pages=True,
+        markdown_strict=True,
+    )
+
+    assert seen[0]["params"] == {
+        "markdown": True,
+        "markdownPages": True,
+        "markdownStrict": True,
+    }
+    assert result["markdown"] == "# a"
+    assert result["markdownPages"] == ["# a"]
+    assert result["result"] == raw
+
+
+def test_parse_drops_params_the_task_type_does_not_accept() -> None:
+    seen: list[dict[str, Any]] = []
+    deck = _client(_parse_handler("docx.parseTextAndImage", {"markdown": ""}, seen))
+    deck.parse(
+        {"file_id": "file-1", "name": "a.docx", "wait": {"use_event_stream": False}},
+        markdown_pages=True,
+        stay_image_area_rate=0.08,
+    )
+
+    assert seen[0]["params"] == {"markdown": True, "markdownOnly": True}
+
+
+def test_parse_link_sends_url_mode_and_markdown_switches() -> None:
+    seen: list[dict[str, Any]] = []
+    deck = _client(_parse_handler("html.getByURL", {"markdown": "# page"}, seen))
+    result = deck.parse(
+        {"url": "https://example.com/a", "mode": "source"},
+        wait={"use_event_stream": False},
+    )
+
+    assert seen[0]["params"] == {
+        "url": "https://example.com/a",
+        "mode": "source",
+        "markdown": True,
+        "markdownOnly": True,
+    }
+    assert result["type"] == "html.getByURL"
+    assert result["markdown"] == "# page"
+
+
+def test_parse_rejects_unsupported_extension() -> None:
+    deck = _client(_parse_handler("pdf.pdfParse", {}, []))
+    with pytest.raises(ValueError, match=r"Supported extensions: \.pdf, \.pptx, \.docx, \.key"):
+        deck.parse("./a.txt")
