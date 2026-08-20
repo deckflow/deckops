@@ -3,10 +3,12 @@ import type { HttpClient, NodeReadableLike } from './http-client.js';
 import {
   DEFAULT_POLL_INTERVAL,
   DEFAULT_TIMEOUT,
+  INLINE_TASK_FILES_MAX_BYTES,
   type CreateTaskParams,
   type DeckTask,
   type DeckTaskType,
   type ListTasksParams,
+  type PreparedUpload,
   type SubscribeTaskHandlers,
   type TaskDownloadOptions,
   type TaskDownResult,
@@ -18,6 +20,11 @@ import {
 } from './types.js';
 
 type FilesLike = {
+  prepare(input: UploadInput, options?: TaskUploadOptions & { spaceId?: string }): Promise<PreparedUpload>;
+  uploadPrepared(
+    file: PreparedUpload,
+    options?: TaskUploadOptions & { spaceId?: string }
+  ): Promise<{ id: string }>;
   upload(input: UploadInput, options?: TaskUploadOptions & { spaceId?: string }): Promise<{ id: string }>;
 };
 
@@ -36,7 +43,18 @@ export class TasksApi {
 
   async create<T extends DeckTaskType>(params: CreateTaskParams<T>): Promise<DeckTask<T>> {
     const spaceId = await this.resolveSpaceId(params.spaceId);
-    const fileIds = await this.resolveFileIds(spaceId, params);
+    const prepared = await this.prepareTaskFiles(params);
+    const totalBytes = prepared.reduce((sum, file) => sum + file.bytes, 0);
+    const canInlineFiles =
+      prepared.length > 0 &&
+      !(params.fileIds?.length) &&
+      totalBytes < INLINE_TASK_FILES_MAX_BYTES;
+
+    if (canInlineFiles) {
+      return await this.createWithInlineFiles(spaceId, params, prepared);
+    }
+
+    const fileIds = await this.resolveFileIds(spaceId, params, prepared);
     const payload: Record<string, unknown> = {
       fileIds,
       type: params.type,
@@ -52,6 +70,44 @@ export class TasksApi {
 
     const res = await this.http.post<DeckTask<T>>('/tools/tasks', payload);
     return res.data;
+  }
+
+  private async createWithInlineFiles<T extends DeckTaskType>(
+    spaceId: string | undefined,
+    params: CreateTaskParams<T>,
+    files: PreparedUpload[]
+  ): Promise<DeckTask<T>> {
+    if (typeof globalThis.FormData === 'undefined' || typeof globalThis.Blob === 'undefined') {
+      throw new Error('FormData and Blob are required for inline task file uploads in this runtime');
+    }
+
+    const form = new FormData();
+    if (spaceId) {
+      form.append('spaceId', spaceId);
+    }
+    form.append('type', params.type);
+    form.append('params', JSON.stringify(params.params ?? {}));
+    if (params.name) {
+      form.append('name', params.name);
+    }
+
+    for (const file of files) {
+      const blob =
+        typeof Blob !== 'undefined' && file.data instanceof Blob
+          ? file.data
+          : new Blob([this.toArrayBuffer(file.data as Uint8Array)]);
+      form.append('files', blob, file.name);
+      params.upload?.onProgress?.(1);
+    }
+
+    const res = await this.http.post<DeckTask<T>>('/tools/tasks', form);
+    return res.data;
+  }
+
+  private toArrayBuffer(data: Uint8Array): ArrayBuffer {
+    const copy = new ArrayBuffer(data.byteLength);
+    new Uint8Array(copy).set(data);
+    return copy;
   }
 
   /**
@@ -70,12 +126,31 @@ export class TasksApi {
     return res.data;
   }
 
+  private async prepareTaskFiles<T extends DeckTaskType>(
+    params: CreateTaskParams<T>
+  ): Promise<PreparedUpload[]> {
+    if (!params.files?.length) {
+      return [];
+    }
+    if (!this.files) {
+      throw new Error('File upload is not available for this task client');
+    }
+
+    return await Promise.all(
+      params.files.map(async (file) => {
+        const { input, options } = this.normalizeTaskUpload(file, params.upload);
+        return await this.files!.prepare(input, options);
+      })
+    );
+  }
+
   private async resolveFileIds<T extends DeckTaskType>(
     spaceId: string | undefined,
-    params: CreateTaskParams<T>
+    params: CreateTaskParams<T>,
+    prepared: PreparedUpload[]
   ): Promise<string[]> {
     const fileIds = [...(params.fileIds ?? [])];
-    if (!params.files?.length) {
+    if (!prepared.length) {
       return fileIds;
     }
     if (!this.files) {
@@ -83,9 +158,10 @@ export class TasksApi {
     }
 
     const uploaded = await Promise.all(
-      params.files.map(async (file) => {
-        const { input, options } = this.normalizeTaskUpload(file, params.upload);
-        const result = await this.files!.upload(input, {
+      prepared.map(async (file, index) => {
+        const source = params.files![index]!;
+        const { options } = this.normalizeTaskUpload(source, params.upload);
+        const result = await this.files!.uploadPrepared(file, {
           ...options,
           spaceId,
         });

@@ -47,3 +47,5 @@ release:
     owner: deckflow
     name: deckops
   name_template: "go-cli v{{ .Env.RELEASE_VERSION }}"
+  extra_files:
+    - glob: ./scripts/deckops-installer.sh

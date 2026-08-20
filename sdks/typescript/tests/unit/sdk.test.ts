@@ -431,6 +431,84 @@ describe('@deckops/sdk', () => {
     expect(task.fileIds).toEqual(['existing-file', 'uploaded-file-1']);
   });
 
+  it('attaches small files inline on task create instead of async upload', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+
+    mock.onPost('http://localhost:3000/api/spaces/space-1/file/auth').reply(() => {
+      throw new Error('async upload should be skipped for small files');
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(config.data).toBeInstanceOf(FormData);
+      const form = config.data as FormData;
+      expect(form.get('type')).toBe('convertor.ppt2pdf');
+      expect(form.get('spaceId')).toBe('space-1');
+      expect(form.get('params')).toBe('{}');
+      expect(form.get('fileIds')).toBeNull();
+      const file = form.get('files');
+      expect(file).toBeInstanceOf(Blob);
+      expect((file as File).name).toBe('slides.pptx');
+      return [
+        200,
+        {
+          id: 'task-inline',
+          spaceId: 'space-1',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+        },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({
+      files: [{ input: new Uint8Array([97, 98, 99]), name: 'slides.pptx' }],
+    });
+
+    expect(task.id).toBe('task-inline');
+  });
+
+  it('uses async upload when inline files reach the 10MB threshold', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    const large = new Uint8Array(10 * 1024 * 1024);
+
+    mock.onPost('http://localhost:3000/api/spaces/space-1/file/auth').reply((config) => {
+      const body = JSON.parse(String(config.data));
+      expect(body.bytes).toBe(large.byteLength);
+      return [
+        200,
+        {
+          id: 'uploaded-large',
+          key: 'files/large.bin',
+          hash: body.hash,
+          platform: 'oss',
+          multipart: false,
+        },
+      ];
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(JSON.parse(String(config.data))).toMatchObject({
+        fileIds: ['uploaded-large'],
+        type: 'convertor.ppt2pdf',
+      });
+      return [
+        200,
+        {
+          id: 'task-large',
+          spaceId: 'space-1',
+          type: 'convertor.ppt2pdf',
+          status: 'pending',
+          fileIds: ['uploaded-large'],
+        },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({
+      files: [{ input: large, name: 'large.bin' }],
+    });
+
+    expect(task.fileIds).toEqual(['uploaded-large']);
+  });
+
   it('calculates hashes for Blob uploads', async () => {
     const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
     const file = new File([new Uint8Array([97, 98, 99])], 'browser.txt');
@@ -673,7 +751,7 @@ describe('@deckops/sdk', () => {
     await expect(deck.getAuthUuid()).resolves.toBe(TEST_AUTH_UUID);
   });
 
-  it('prompts api-key users to update credentials on 401', async () => {
+  it('falls back to guest mode on api-key 401', async () => {
     const deck = createDeck({
       root: 'http://localhost:3000/api',
       apiKey: 'key-1',
@@ -683,20 +761,28 @@ describe('@deckops/sdk', () => {
 
     mock
       .onGet('http://localhost:3000/api/tools/tasks/task-1')
-      .reply(401, { message: 'invalid key' }, { 'x-request-id': 'req-auth-1' });
-
-    await expect(deck.tasks.get('task-1')).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(APIError);
-      const apiError = error as APIError;
-      expect(apiError.statusCode).toBe(401);
-      expect(apiError.requestId).toBe('req-auth-1');
-      expect(apiError.message).toContain('API key');
-      expect(apiError.message).toContain('X-RequestId: req-auth-1');
-      return true;
+      .replyOnce(401, { message: 'invalid key' }, { 'x-request-id': 'req-auth-1' });
+    mock.onGet('http://localhost:3000/api/user').reply((config) => {
+      expect(config.headers?.Authorization).toBeUndefined();
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
+      return [200, { id: 'guest-space' }];
     });
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply((config) => {
+      expect(config.headers?.Authorization).toBeUndefined();
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
+      expect(config.params?.spaceId).toBe('guest-space');
+      return [
+        200,
+        { id: 'task-1', spaceId: 'guest-space', type: 'image.ocr', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    const task = await deck.tasks.get('task-1');
+    expect(task.spaceId).toBe('guest-space');
   });
 
-  it('prompts token users to log in again on 401 without onUnauthorized', async () => {
+  it('falls back to guest mode on token 401 without onUnauthorized', async () => {
     const deck = createDeck({
       root: 'http://localhost:3000/api',
       token: 'expired-token',
@@ -704,13 +790,91 @@ describe('@deckops/sdk', () => {
       authUuid: TEST_AUTH_UUID,
     });
 
-    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply(401, { message: 'expired' });
-
-    await expect(deck.tasks.get('task-1')).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(APIError);
-      expect((error as APIError).message).toContain('log in again');
-      return true;
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').replyOnce(401, { message: 'expired' });
+    mock.onGet('http://localhost:3000/api/user').reply((config) => {
+      expect(config.headers?.['X-Auth-Token']).toBeUndefined();
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
+      return [200, { id: 'guest-space' }];
     });
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply((config) => {
+      expect(config.headers?.['X-Auth-Token']).toBeUndefined();
+      expect(config.headers?.['X-Auth-UUID']).toBe(TEST_AUTH_UUID);
+      expect(config.params?.spaceId).toBe('guest-space');
+      return [
+        200,
+        { id: 'task-1', spaceId: 'guest-space', type: 'image.ocr', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+
+    const task = await deck.tasks.get('task-1');
+    expect(task.spaceId).toBe('guest-space');
+  });
+
+  it('falls back to guest mode when onUnauthorized refresh fails', async () => {
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'expired-token',
+      spaceId: 'space-1',
+      authUuid: TEST_AUTH_UUID,
+      onUnauthorized: async () => {
+        throw new Error('refresh unavailable');
+      },
+    });
+
+    mock.onPost('http://localhost:3000/api/tools/tasks').replyOnce(401, { message: 'expired' });
+    mock.onGet('http://localhost:3000/api/user').reply(200, { id: 'guest-space' });
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
+      expect(config.headers?.['X-Auth-Token']).toBeUndefined();
+      expect(JSON.parse(String(config.data))).toMatchObject({
+        spaceId: 'guest-space',
+        type: 'convertor.ppt2pdf',
+      });
+      return [
+        200,
+        { id: 'task-guest', spaceId: 'guest-space', type: 'convertor.ppt2pdf', status: 'pending' },
+      ];
+    });
+
+    const task = await deck.convertPptToPdf({ fileIds: ['file-1'] });
+    expect(task.id).toBe('task-guest');
+  });
+
+  it('dedupes concurrent guest downgrade across parallel 401 responses', async () => {
+    let userCalls = 0;
+    const deck = createDeck({
+      root: 'http://localhost:3000/api',
+      token: 'expired-token',
+      spaceId: 'space-old',
+      authUuid: TEST_AUTH_UUID,
+    });
+
+    mock.onGet(/http:\/\/localhost:3000\/api\/tools\/tasks\/task-[12]$/).reply((config) => {
+      if (config.headers?.['X-Auth-Token'] === 'expired-token') {
+        return [401, { message: 'expired' }];
+      }
+      const taskId = String(config.url).endsWith('/task-1') ? 'task-1' : 'task-2';
+      expect(config.headers?.['X-Auth-Token']).toBeUndefined();
+      expect(config.params?.spaceId).toBe('guest-space');
+      return [
+        200,
+        { id: taskId, spaceId: 'guest-space', type: 'image.ocr', status: 'completed' },
+        { 'content-type': 'application/json' },
+      ];
+    });
+    mock.onGet('http://localhost:3000/api/user').reply(() => {
+      userCalls += 1;
+      return [200, { id: 'guest-space' }];
+    });
+
+    const [task1, task2] = await Promise.all([
+      deck.tasks.get('task-1'),
+      deck.tasks.get('task-2'),
+    ]);
+
+    expect(userCalls).toBe(1);
+    expect(task1.id).toBe('task-1');
+    expect(task2.id).toBe('task-2');
   });
 
   it('prompts users to complete checkout on 402 without onPaymentRequired', async () => {

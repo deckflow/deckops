@@ -43,7 +43,7 @@ const deck = createDeck({
 すべての Deckops API リクエストには、セッション間でクライアントを追跡するための安定した UUID v4 である `X-Auth-UUID` が自動的に含まれます。
 
 - **ブラウザ**: `localStorage` の `df_uuid` キーに永続化。
-- **Node.js**: `~/.deckops/auth-uuid` に永続化（`DECKOPS_CONFIG_DIR` でディレクトリを上書き可能）。
+- **Node.js**: `~/.deckflow/auth-uuid` に永続化（`DECKFLOW_CONFIG_DIR` でディレクトリを上書き可能）。
 - **明示的な上書き**: CI、コンテナ、マルチテナントサーバーで固定 ID を使う場合は `authUuid` を渡すか `DECKOPS_AUTH_UUID`（Node のみ）を設定。
 
 ```ts

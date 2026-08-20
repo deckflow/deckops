@@ -7,19 +7,12 @@ import {
   type FileUploadResult,
   type PartAuth,
   type PartResult,
+  type PreparedUpload,
   type RequestUploadParams,
   type UploadAuthResponse,
   type UploadInput,
   type UploadOptions,
 } from './types.js';
-
-type NormalizedUpload = {
-  name: string;
-  bytes: number;
-  hash: string;
-  data: Uint8Array | Blob;
-  chunkSize: number;
-};
 
 export class FilesApi {
   constructor(private readonly http: HttpClient) {}
@@ -38,14 +31,23 @@ export class FilesApi {
     return res.data;
   }
 
+  /** Normalize a local input into bytes/name/hash without uploading. */
+  async prepare(input: UploadInput, options: UploadOptions = {}): Promise<PreparedUpload> {
+    return await this.normalizeInput(input, options);
+  }
+
   async upload(input: UploadInput, options: UploadOptions = {}): Promise<FileUploadResult> {
-    const normalized = await this.normalizeInput(input, options);
+    const normalized = await this.prepare(input, options);
+    return await this.uploadPrepared(normalized, options);
+  }
+
+  async uploadPrepared(file: PreparedUpload, options: UploadOptions = {}): Promise<FileUploadResult> {
     const auth = await this.requestUpload({
       spaceId: options.spaceId,
-      name: normalized.name,
-      bytes: normalized.bytes,
-      hash: normalized.hash,
-      chunkSize: normalized.chunkSize,
+      name: file.name,
+      bytes: file.bytes,
+      hash: file.hash,
+      chunkSize: file.chunkSize,
     });
 
     if (!auth.auth) {
@@ -53,24 +55,24 @@ export class FilesApi {
       return {
         id: auth.id,
         key: auth.key,
-        name: normalized.name,
-        bytes: normalized.bytes,
-        hash: normalized.hash,
+        name: file.name,
+        bytes: file.bytes,
+        hash: file.hash,
       };
     }
 
     if (auth.multipart) {
-      await this.uploadMultipart(normalized, auth, options.onProgress);
+      await this.uploadMultipart(file, auth, options.onProgress);
     } else {
-      await this.uploadSingle(normalized, auth, options.onProgress);
+      await this.uploadSingle(file, auth, options.onProgress);
     }
 
     return {
       id: auth.id,
       key: auth.key,
-      name: normalized.name,
-      bytes: normalized.bytes,
-      hash: normalized.hash,
+      name: file.name,
+      bytes: file.bytes,
+      hash: file.hash,
     };
   }
 
@@ -78,7 +80,7 @@ export class FilesApi {
     return this.http.resolveSpaceId(spaceId);
   }
 
-  private async normalizeInput(input: UploadInput, options: UploadOptions): Promise<NormalizedUpload> {
+  private async normalizeInput(input: UploadInput, options: UploadOptions): Promise<PreparedUpload> {
     const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
 
     if (typeof input === 'string') {
@@ -128,7 +130,7 @@ export class FilesApi {
     };
   }
 
-  private isBlob(input: UploadInput): input is Blob {
+  private isBlob(input: UploadInput | Blob | Uint8Array): input is Blob {
     return typeof Blob !== 'undefined' && input instanceof Blob;
   }
 
@@ -214,7 +216,7 @@ export class FilesApi {
   }
 
   private async uploadSingle(
-    file: NormalizedUpload,
+    file: PreparedUpload,
     authResponse: UploadAuthResponse,
     onProgress?: (percentage: number) => void
   ): Promise<void> {
@@ -240,7 +242,7 @@ export class FilesApi {
   }
 
   private async uploadMultipart(
-    file: NormalizedUpload,
+    file: PreparedUpload,
     authResponse: UploadAuthResponse,
     onProgress?: (percentage: number) => void
   ): Promise<void> {

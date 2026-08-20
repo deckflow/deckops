@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: Shared credentials now live at `~/.deckflow/credentials` (same file/format as deckhtml: `apiKey` / `token` / `spaceId` / `apiBase` / `webhook` / `retentionHours`). Override with `DECKFLOW_CONFIG_DIR` (also accepts `DECKHTML_CONFIG_DIR` / `DECKOPS_CONFIG_DIR`). SDK `auth-uuid` moved to `~/.deckflow/auth-uuid`. Migrate with:
+  ```bash
+  mkdir -p ~/.deckflow
+  # if you only have the old deckops file:
+  mv ~/.deckops/config.json ~/.deckflow/credentials
+  # or merge token/spaceId/apiBase into an existing ~/.deckflow/credentials from deckhtml
+  ```
+
 ### Fixed
 
 - **Task polling / detail 404**: `getTask`, SSE subscribe, and `deleteTask` now send `spaceId` as a query parameter when the client is configured with a space (same as `task list`), fixing backends that require space scope for `/tools/tasks/:id`.

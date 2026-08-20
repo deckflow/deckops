@@ -8,6 +8,9 @@ DEFAULT_ROOT = "https://app.deckflow.com/v1"
 DEFAULT_TIMEOUT = 300.0
 DEFAULT_POLL_INTERVAL = 2.0
 DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024
+# When creating a task with files under this total size, attach them inline as `files`
+# instead of async upload + `fileIds`.
+INLINE_TASK_FILES_MAX_BYTES = 10 * 1024 * 1024
 
 DECK_TASK_TYPES = (
     "file.compress",

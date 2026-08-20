@@ -50,7 +50,7 @@ await deck.generation({ params: { inputText: 'Write a launch plan', pageCount: 8
 Every Deckops API request automatically includes `X-Auth-UUID`, a stable UUID v4 used to track the client across sessions.
 
 - **Browser**: persisted in `localStorage` under `df_uuid`.
-- **Node.js**: persisted in `~/.deckops/auth-uuid` (override the directory with `DECKOPS_CONFIG_DIR`).
+- **Node.js**: persisted in `~/.deckflow/auth-uuid` (override the directory with `DECKFLOW_CONFIG_DIR`).
 - **Explicit override**: pass `authUuid` or set `DECKOPS_AUTH_UUID` (Node only) for fixed IDs in CI, containers, or multi-tenant servers.
 
 ```ts

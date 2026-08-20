@@ -11,11 +11,12 @@ from urllib.parse import quote
 import httpx
 
 from .errors import APIError
-from .files import FilesClient
+from .files import FilesClient, _NormalizedUpload
 from .http_client import HTTPClient
 from .types import (
     DEFAULT_POLL_INTERVAL,
     DEFAULT_TIMEOUT,
+    INLINE_TASK_FILES_MAX_BYTES,
     ErrorCallback,
     Task,
     TaskCallback,
@@ -51,19 +52,62 @@ class TasksClient:
             raise ValueError("task type is required")
         resolved_space_id = self._http.resolve_space_id(space_id)
         resolved_file_ids = list(file_ids or ())
+        prepared: list[_NormalizedUpload] = []
         if files:
             if self._files is None:
                 raise RuntimeError("file upload is not available for this task client")
             files_client = self._files
             defaults = dict(upload or {})
 
-            def upload_one(item: TaskUploadInput) -> str:
+            def prepare_one(item: TaskUploadInput) -> _NormalizedUpload:
                 source, options = self._normalize_task_upload(item, defaults)
-                result = files_client.upload(source, space_id=resolved_space_id, **options)
-                return result["id"]
+                prepare_options = {
+                    key: value
+                    for key, value in options.items()
+                    if key in {"name", "hash", "chunk_size"}
+                }
+                return files_client.prepare(source, **prepare_options)
 
             with ThreadPoolExecutor(max_workers=min(5, len(files))) as pool:
-                resolved_file_ids.extend(pool.map(upload_one, files))
+                prepared.extend(pool.map(prepare_one, files))
+
+        total_bytes = sum(item.size for item in prepared)
+        can_inline = (
+            bool(prepared)
+            and not resolved_file_ids
+            and total_bytes < INLINE_TASK_FILES_MAX_BYTES
+        )
+        if can_inline:
+            return self._create_with_inline_files(
+                resolved_space_id,
+                resolved_type,
+                prepared,
+                name=name,
+                params=params,
+                upload=upload,
+            )
+
+        if prepared:
+            if self._files is None:
+                raise RuntimeError("file upload is not available for this task client")
+            files_client = self._files
+            defaults = dict(upload or {})
+
+            def upload_one(item: tuple[_NormalizedUpload, TaskUploadInput]) -> str:
+                normalized, source = item
+                _, options = self._normalize_task_upload(source, defaults)
+                on_progress = options.get("on_progress")
+                result = files_client.upload_prepared(
+                    normalized,
+                    space_id=resolved_space_id,
+                    on_progress=on_progress,
+                )
+                return result["id"]
+
+            with ThreadPoolExecutor(max_workers=min(5, len(prepared))) as pool:
+                resolved_file_ids.extend(
+                    pool.map(upload_one, zip(prepared, files or (), strict=True))
+                )
 
         payload: dict[str, Any] = {
             "spaceId": resolved_space_id,
@@ -74,6 +118,41 @@ class TasksClient:
         if name:
             payload["name"] = name
         response = self._http.request("POST", "/tools/tasks", json=payload)
+        result = response.json()
+        if not isinstance(result, dict):
+            raise TypeError("task creation response must be an object")
+        return result
+
+    def _create_with_inline_files(
+        self,
+        space_id: str,
+        task_type: str,
+        files: Sequence[_NormalizedUpload],
+        *,
+        name: str | None,
+        params: Mapping[str, Any] | None,
+        upload: Mapping[str, Any] | None,
+    ) -> Task:
+        form_fields: dict[str, str] = {
+            "spaceId": space_id,
+            "type": task_type,
+            "params": json.dumps(dict(params or {})),
+        }
+        if name:
+            form_fields["name"] = name
+
+        multipart_files = [("files", (file.name, file.data)) for file in files]
+        on_progress = (upload or {}).get("onProgress") or (upload or {}).get("on_progress")
+        if callable(on_progress):
+            for _ in files:
+                on_progress(1.0)
+
+        response = self._http.request(
+            "POST",
+            "/tools/tasks",
+            data=form_fields,
+            files=multipart_files,
+        )
         result = response.json()
         if not isinstance(result, dict):
             raise TypeError("task creation response must be an object")

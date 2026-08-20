@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 
@@ -13,6 +15,8 @@ from .errors import RETRIABLE_STATUS_CODES, RETRY_DELAYS, APIError, is_retriable
 from .types import DEFAULT_ROOT, AuthUUIDStorage
 
 AuthRefresh = str | Mapping[str, str]
+
+_SPACE_PATH_RE = re.compile(r"/spaces/([^/?#]+)/")
 
 
 class HTTPClient:
@@ -41,6 +45,11 @@ class HTTPClient:
         self._owns_client = client is None
         self._state_lock = threading.RLock()
         self._refresh_lock = threading.Lock()
+        self._guest_downgrade_lock = threading.Lock()
+        self._guest_downgrade_waiters: list[threading.Event] = []
+        self._guest_downgrade_error: BaseException | None = None
+        self._guest_downgrade_in_flight = False
+        self._auth_downgraded_to_guest = False
 
     def close(self) -> None:
         if self._owns_client:
@@ -49,11 +58,15 @@ class HTTPClient:
     def set_token(self, token: str | None) -> None:
         with self._state_lock:
             self.token = token
+            if token:
+                self._auth_downgraded_to_guest = False
             self._clear_auto_space_id()
 
     def set_api_key(self, api_key: str | None) -> None:
         with self._state_lock:
             self.api_key = api_key
+            if api_key:
+                self._auth_downgraded_to_guest = False
             self._clear_auto_space_id()
 
     def set_space_id(self, space_id: str | None) -> None:
@@ -71,9 +84,9 @@ class HTTPClient:
         with self._state_lock:
             if self.space_id:
                 return self.space_id
-            if not self.token and not self.api_key:
-                raise ValueError("spaceId is required")
 
+        # Resolve from GET /user. Only X-Auth-UUID is required, so this works
+        # for authenticated users and guests.
         response = self.request("GET", "/user")
         user = response.json()
         resolved = user.get("id") if isinstance(user, Mapping) else None
@@ -100,6 +113,10 @@ class HTTPClient:
         with self._state_lock:
             return bool(self.api_key and not self.token)
 
+    def _has_credentials(self) -> bool:
+        with self._state_lock:
+            return bool(self.token or self.api_key)
+
     def _refresh(self, request_token: str | None) -> tuple[str, str | None]:
         if self.on_unauthorized is None:
             raise RuntimeError("on_unauthorized is not configured")
@@ -121,6 +138,84 @@ class HTTPClient:
                 self.set_space_id(next_space)
             return next_token, next_space
 
+    def _ensure_guest_mode(self) -> str:
+        with self._state_lock:
+            if (
+                self._auth_downgraded_to_guest
+                and not self.token
+                and not self.api_key
+                and self.space_id
+                and not self._guest_downgrade_in_flight
+            ):
+                return self.space_id
+
+        with self._guest_downgrade_lock:
+            if self._guest_downgrade_in_flight:
+                waiter = threading.Event()
+                self._guest_downgrade_waiters.append(waiter)
+            else:
+                waiter = None
+                self._guest_downgrade_in_flight = True
+                self._guest_downgrade_error = None
+                with self._state_lock:
+                    self._auth_downgraded_to_guest = True
+                    self.token = None
+                    self.api_key = None
+                    self.space_id = None
+                    self._space_id_explicit = False
+
+        if waiter is not None:
+            waiter.wait()
+            if self._guest_downgrade_error is not None:
+                raise self._guest_downgrade_error
+            with self._state_lock:
+                if not self.space_id:
+                    raise RuntimeError("Failed to resolve guest space id after auth downgrade")
+                return self.space_id
+
+        try:
+            # Bypass request() so a nested 401 cannot re-enter guest downgrade.
+            response = self.client.request(
+                "GET",
+                self.url("/user"),
+                headers=self._auth_headers(),
+            )
+            if not response.is_success:
+                raise APIError.from_response(response)
+            user = response.json()
+            guest_space = user.get("id") if isinstance(user, Mapping) else None
+            if not isinstance(guest_space, str) or not guest_space:
+                raise RuntimeError("Failed to resolve guest space id after auth downgrade")
+            with self._state_lock:
+                self.space_id = guest_space
+            return guest_space
+        except BaseException as error:
+            self._guest_downgrade_error = error
+            raise
+        finally:
+            with self._guest_downgrade_lock:
+                self._guest_downgrade_in_flight = False
+                waiters = list(self._guest_downgrade_waiters)
+                self._guest_downgrade_waiters.clear()
+            for pending in waiters:
+                pending.set()
+
+    @staticmethod
+    def _space_id_from_request(
+        *,
+        url: str,
+        params: dict[str, Any] | None,
+        json_body: Any,
+    ) -> str | None:
+        if params and isinstance(params.get("spaceId"), str):
+            return params["spaceId"]
+        if isinstance(json_body, Mapping) and isinstance(json_body.get("spaceId"), str):
+            return json_body["spaceId"]
+        match = _SPACE_PATH_RE.search(url)
+        if match:
+            return unquote(match.group(1))
+        return None
+
     @staticmethod
     def _rewrite_space(
         *,
@@ -139,6 +234,51 @@ class HTTPClient:
             json_body = {**json_body, "spaceId": new_space}
         return url, params, json_body
 
+    def _handle_unauthorized(
+        self,
+        *,
+        request_token: str | None,
+        url: str,
+        mutable_params: dict[str, Any] | None,
+        json_body: Any,
+    ) -> tuple[str, dict[str, Any] | None, Any] | None:
+        """Try token refresh, then guest downgrade. Returns rewritten request parts, or None to raise."""
+        old_space = self._space_id_from_request(
+            url=url, params=mutable_params, json_body=json_body
+        ) or self.space_id
+
+        if self.on_unauthorized is not None and self.token and not self._is_api_key_auth():
+            try:
+                _, next_space = self._refresh(request_token)
+                return self._rewrite_space(
+                    url=url,
+                    params=mutable_params,
+                    json_body=json_body,
+                    old_space=old_space,
+                    new_space=next_space,
+                )
+            except Exception:
+                # Refresh failed — fall through to guest mode.
+                pass
+
+        with self._state_lock:
+            can_downgrade = bool(
+                self.token
+                or self.api_key
+                or self._auth_downgraded_to_guest
+                or self._guest_downgrade_in_flight
+            )
+        if can_downgrade:
+            guest_space = self._ensure_guest_mode()
+            return self._rewrite_space(
+                url=url,
+                params=mutable_params,
+                json_body=json_body,
+                old_space=old_space,
+                new_space=guest_space,
+            )
+        return None
+
     def request(
         self,
         method: str,
@@ -146,11 +286,14 @@ class HTTPClient:
         *,
         params: Mapping[str, Any] | None = None,
         json: Any = None,
+        data: Mapping[str, Any] | None = None,
+        files: Any = None,
         headers: Mapping[str, str] | None = None,
     ) -> httpx.Response:
         url = self.url(path)
         mutable_params = dict(params) if params else None
         json_body = json
+        form_data = dict(data) if data else None
         auth_retried = False
         payment_retried = False
         network_attempt = 0
@@ -160,12 +303,16 @@ class HTTPClient:
                 time.sleep(RETRY_DELAYS[min(network_attempt - 1, len(RETRY_DELAYS) - 1)])
             request_token = self.token
             merged_headers = {**self._auth_headers(), **dict(headers or {})}
+            if files is not None or form_data is not None:
+                merged_headers.pop("Content-Type", None)
             try:
                 response = self.client.request(
                     method,
                     url,
                     params=mutable_params,
                     json=json_body,
+                    data=form_data,
+                    files=files,
                     headers=merged_headers,
                 )
             except Exception as error:
@@ -191,22 +338,22 @@ class HTTPClient:
                 continue
 
             if response.status_code == 401 and not auth_retried:
-                if self._is_api_key_auth():
-                    raise APIError.auth_api_key(base)
-                if self.on_unauthorized is None:
-                    raise APIError.auth_token(base)
                 auth_retried = True
-                old_space = self.space_id
-                _, next_space = self._refresh(request_token)
-                url, mutable_params, json_body = self._rewrite_space(
+                rewritten = self._handle_unauthorized(
+                    request_token=request_token,
                     url=url,
-                    params=mutable_params,
-                    json_body=json_body,
-                    old_space=old_space,
-                    new_space=next_space,
+                    mutable_params=mutable_params,
+                    json_body=json_body if json_body is not None else form_data,
                 )
-                network_attempt = 0
-                continue
+                if rewritten is not None:
+                    url, mutable_params, rewritten_body = rewritten
+                    if json_body is not None:
+                        json_body = rewritten_body
+                    elif form_data is not None and isinstance(rewritten_body, dict):
+                        form_data = rewritten_body
+                    network_attempt = 0
+                    continue
+                raise base
 
             if response.status_code in RETRIABLE_STATUS_CODES and network_attempt < len(
                 RETRY_DELAYS
@@ -265,22 +412,18 @@ class HTTPClient:
                 network_attempt = 0
                 continue
             if response.status_code == 401 and not auth_retried:
-                if self._is_api_key_auth():
-                    raise APIError.auth_api_key(base)
-                if self.on_unauthorized is None:
-                    raise APIError.auth_token(base)
                 auth_retried = True
-                old_space = self.space_id
-                _, next_space = self._refresh(request_token)
-                url, mutable_params, _ = self._rewrite_space(
+                rewritten = self._handle_unauthorized(
+                    request_token=request_token,
                     url=url,
-                    params=mutable_params,
+                    mutable_params=mutable_params,
                     json_body=None,
-                    old_space=old_space,
-                    new_space=next_space,
                 )
-                network_attempt = 0
-                continue
+                if rewritten is not None:
+                    url, mutable_params, _ = rewritten
+                    network_attempt = 0
+                    continue
+                raise base
             if response.status_code in RETRIABLE_STATUS_CODES and network_attempt < len(
                 RETRY_DELAYS
             ):

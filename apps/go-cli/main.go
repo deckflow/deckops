@@ -98,11 +98,14 @@ var targetLanguages = []string{"zh", "zh-hans", "zh-hant", "en", "ja", "ko", "de
 var generationExtensions = []string{".html", ".pdf", ".docx", ".pptx", ".txt", ".md", ".mm", ".xmind", ".ipynb"}
 var translationExtensions = []string{".docx", ".pptx", ".pdf", ".xlsx", ".key"}
 
+// Shared with deckhtml / other Deckflow tools at ~/.deckflow/credentials.
 type configData struct {
-	Token   string `json:"token,omitempty"`
-	SpaceID string `json:"spaceId,omitempty"`
-	APIBase string `json:"apiBase,omitempty"`
-	SignURI string `json:"signURI,omitempty"`
+	APIKey         string `json:"apiKey,omitempty"`
+	Token          string `json:"token,omitempty"`
+	SpaceID        string `json:"spaceId,omitempty"`
+	APIBase        string `json:"apiBase,omitempty"`
+	Webhook        string `json:"webhook,omitempty"`
+	RetentionHours *int   `json:"retentionHours,omitempty"`
 }
 
 type appContext struct {
@@ -176,18 +179,24 @@ func run(args []string) error {
 	return nil
 }
 
+func resolveConfigDir(home string) string {
+	for _, key := range []string{"DECKFLOW_CONFIG_DIR", "DECKHTML_CONFIG_DIR", "DECKOPS_CONFIG_DIR"} {
+		if dir := os.Getenv(key); dir != "" {
+			return dir
+		}
+	}
+	return filepath.Join(home, ".deckflow")
+}
+
 func newAppContext(jsonOut bool) (*appContext, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	dir := os.Getenv("DECKOPS_CONFIG_DIR")
-	if dir == "" {
-		dir = filepath.Join(home, ".deckops")
-	}
+	dir := resolveConfigDir(home)
 	ctx := &appContext{
 		configDir:  dir,
-		configPath: filepath.Join(dir, "config.json"),
+		configPath: filepath.Join(dir, "credentials"),
 		json:       jsonOut,
 	}
 	_ = ctx.loadConfig()
@@ -422,6 +431,7 @@ Manage configuration
 
 Commands:
   set-token <token>       Set authentication token
+  set-api-key <api-key>   Set API key (shared ~/.deckflow/credentials)
   set-space <space-id>    Set workspace/space ID
   set-api-base <url>      Set API base URL
   show                    Show current configuration
@@ -433,6 +443,14 @@ Options:
   deckops config set-token <token>
 
 Set authentication token
+
+Options:
+  -h, --help  display help for command`)
+	case "set-api-key":
+		fmt.Println(`Usage:
+  deckops config set-api-key <api-key>
+
+Set API key (shared with deckhtml at ~/.deckflow/credentials)
 
 Options:
   -h, --help  display help for command`)
@@ -550,7 +568,43 @@ func (c *appContext) saveConfig() error {
 	if err := os.MkdirAll(c.configDir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(c.config, "", "  ")
+
+	// Re-read before write so deckhtml-owned fields are not wiped.
+	existing := configData{}
+	if raw, err := os.ReadFile(c.configPath); err == nil {
+		_ = json.Unmarshal(raw, &existing)
+	}
+	merged := existing
+	if c.config.APIKey != "" {
+		merged.APIKey = c.config.APIKey
+	} else {
+		merged.APIKey = ""
+	}
+	if c.config.Token != "" {
+		merged.Token = c.config.Token
+	} else {
+		merged.Token = ""
+	}
+	if c.config.SpaceID != "" {
+		merged.SpaceID = c.config.SpaceID
+	} else {
+		merged.SpaceID = ""
+	}
+	if c.config.APIBase != "" {
+		merged.APIBase = c.config.APIBase
+	} else {
+		merged.APIBase = ""
+	}
+	// Preserve webhook / retentionHours from disk unless we explicitly hold them.
+	if c.config.Webhook != "" {
+		merged.Webhook = c.config.Webhook
+	}
+	if c.config.RetentionHours != nil {
+		merged.RetentionHours = c.config.RetentionHours
+	}
+
+	c.config = merged
+	data, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -572,6 +626,7 @@ func (c *appContext) getClient(ctx context.Context) (*deckops.Client, error) {
 	client, err := deckops.New(ctx, deckops.ClientOptions{
 		Root:    c.apiBase(),
 		Token:   c.config.Token,
+		APIKey:  c.config.APIKey,
 		SpaceID: c.config.SpaceID,
 		OnUnauthorized: func(ctx context.Context) (deckops.AuthRefresh, error) {
 			// First-time visit (no token yet) feels like an explicit login;
@@ -657,6 +712,15 @@ func (c *appContext) runConfig(args []string) error {
 			return err
 		}
 		c.output(map[string]any{"token": args[1], "message": "Token set successfully"}, func() string { return "Token set successfully" })
+	case "set-api-key":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: deckops config set-api-key <api-key>")
+		}
+		c.config.APIKey = args[1]
+		if err := c.saveConfig(); err != nil {
+			return err
+		}
+		c.output(map[string]any{"apiKey": args[1], "message": "API key set successfully"}, func() string { return "API key set successfully" })
 	case "set-space":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: deckops config set-space <space-id>")
@@ -680,24 +744,34 @@ func (c *appContext) runConfig(args []string) error {
 		c.output(map[string]any{"apiBase": args[1], "message": "API base URL set successfully"}, func() string { return "API base URL set successfully" })
 	case "show":
 		display := map[string]string{
+			"apiKey":  c.config.APIKey,
 			"token":   c.config.Token,
 			"spaceId": c.config.SpaceID,
 			"apiBase": c.config.APIBase,
-			"signURI": c.config.SignURI,
+		}
+		if c.config.Webhook != "" {
+			display["webhook"] = c.config.Webhook
 		}
 		c.output(display, func() string {
+			apiKey := display["apiKey"]
+			if apiKey != "" && len(apiKey) > 8 {
+				apiKey = apiKey[:8] + "..."
+			}
 			token := display["token"]
 			if token != "" && len(token) > 8 {
 				token = token[:8] + "..."
 			}
 			lines := []string{
+				"apiKey: " + valueOrUnset(apiKey),
 				"token: " + valueOrUnset(token),
 				"spaceId: " + valueOrUnset(display["spaceId"]),
 				"apiBase: " + valueOrUnset(display["apiBase"]),
-				"signURI: " + valueOrUnset(display["signURI"]),
 			}
-			if c.config.Token == "" {
-				lines = append(lines, "Tip: token is missing. Please run `deckflow login` first.")
+			if wh, ok := display["webhook"]; ok {
+				lines = append(lines, "webhook: "+valueOrUnset(wh))
+			}
+			if c.config.Token == "" && c.config.APIKey == "" {
+				lines = append(lines, "Tip: credentials missing. Please run `deckops login` or set an API key first.")
 			}
 			return strings.Join(lines, "\n")
 		})

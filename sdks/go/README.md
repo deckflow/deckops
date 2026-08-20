@@ -61,7 +61,7 @@ func main() {
 - `OnUnauthorized` is called once after a 401; the request is retried with returned credentials.
 - `OnPaymentRequired` is called once after a 402; the request is retried after it returns.
 
-By default, the SDK persists `X-Auth-UUID` in `~/.deckops/auth-uuid`. Set `DECKOPS_CONFIG_DIR` to change that directory, or `DECKOPS_AUTH_UUID` to force a fixed UUID.
+By default, the SDK persists `X-Auth-UUID` in `~/.deckflow/auth-uuid`. Set `DECKFLOW_CONFIG_DIR` to change that directory, or `DECKOPS_AUTH_UUID` to force a fixed UUID.
 
 ## Tasks
 

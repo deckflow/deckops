@@ -96,6 +96,7 @@ export class Context {
       this._deck = createDeck({
         root: this.config.apiBase,
         token: this.config.token,
+        apiKey: this.config.apiKey,
         spaceId: this.config.spaceId,
         onUnauthorized: async () => {
           // First-time visit (no token yet) feels like an explicit login;

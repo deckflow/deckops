@@ -2,11 +2,13 @@ package deckops
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,7 +31,21 @@ func (t *TasksClient) Create(ctx context.Context, params CreateTaskParams) (*Tas
 	if err != nil {
 		return nil, err
 	}
-	fileIDs, err := t.resolveFileIDs(ctx, spaceID, params)
+	prepared, err := t.prepareTaskFiles(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var totalBytes int64
+	for _, file := range prepared {
+		totalBytes += file.Bytes
+	}
+	canInline := len(prepared) > 0 && len(params.FileIDs) == 0 && totalBytes < InlineTaskFilesMaxBytes
+	if canInline {
+		return t.createWithInlineFiles(ctx, spaceID, params, prepared)
+	}
+
+	fileIDs, err := t.resolveFileIDs(ctx, spaceID, params, prepared)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +66,59 @@ func (t *TasksClient) Create(ctx context.Context, params CreateTaskParams) (*Tas
 
 	var task Task
 	if _, err := t.http.postJSON(ctx, "/tools/tasks", payload, &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+func (t *TasksClient) createWithInlineFiles(ctx context.Context, spaceID string, params CreateTaskParams, files []*normalizedUpload) (*Task, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	if spaceID != "" {
+		if err := writer.WriteField("spaceId", spaceID); err != nil {
+			return nil, err
+		}
+	}
+	if err := writer.WriteField("type", string(params.Type)); err != nil {
+		return nil, err
+	}
+	taskParams := params.Params
+	if taskParams == nil {
+		taskParams = map[string]any{}
+	}
+	paramsJSON, err := json.Marshal(taskParams)
+	if err != nil {
+		return nil, err
+	}
+	if err := writer.WriteField("params", string(paramsJSON)); err != nil {
+		return nil, err
+	}
+	if params.Name != "" {
+		if err := writer.WriteField("name", params.Name); err != nil {
+			return nil, err
+		}
+	}
+	for _, file := range files {
+		part, err := writer.CreateFormFile("files", file.Name)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := part.Write(file.Data); err != nil {
+			return nil, err
+		}
+		if params.Upload.OnProgress != nil {
+			params.Upload.OnProgress(1)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	headers := http.Header{}
+	headers.Set("Content-Type", writer.FormDataContentType())
+	var task Task
+	if _, err := t.http.postMultipart(ctx, "/tools/tasks", headers, body.Bytes(), &task); err != nil {
 		return nil, err
 	}
 	return &task, nil
@@ -209,15 +278,34 @@ func (t *TasksClient) Subscribe(ctx context.Context, taskID string, handlers Sub
 	return cancel, nil
 }
 
-func (t *TasksClient) resolveFileIDs(ctx context.Context, spaceID string, params CreateTaskParams) ([]string, error) {
-	fileIDs := append([]string(nil), params.FileIDs...)
+func (t *TasksClient) prepareTaskFiles(ctx context.Context, params CreateTaskParams) ([]*normalizedUpload, error) {
+	if len(params.Files) == 0 {
+		return nil, nil
+	}
+	if t.files == nil {
+		return nil, fmt.Errorf("file upload is not available for this task client")
+	}
+	prepared := make([]*normalizedUpload, 0, len(params.Files))
 	for _, file := range params.Files {
+		options := mergeUploadOptions(params.Upload, file.Options)
+		normalized, err := t.files.Prepare(ctx, file.Input, options)
+		if err != nil {
+			return nil, err
+		}
+		prepared = append(prepared, normalized)
+	}
+	return prepared, nil
+}
+
+func (t *TasksClient) resolveFileIDs(ctx context.Context, spaceID string, params CreateTaskParams, prepared []*normalizedUpload) ([]string, error) {
+	fileIDs := append([]string(nil), params.FileIDs...)
+	for i, file := range prepared {
 		if t.files == nil {
 			return nil, fmt.Errorf("file upload is not available for this task client")
 		}
-		options := mergeUploadOptions(params.Upload, file.Options)
+		options := mergeUploadOptions(params.Upload, params.Files[i].Options)
 		options.SpaceID = spaceID
-		result, err := t.files.Upload(ctx, file.Input, options)
+		result, err := t.files.UploadPrepared(ctx, file, options)
 		if err != nil {
 			return nil, err
 		}

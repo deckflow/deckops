@@ -43,7 +43,7 @@ const deck = createDeck({
 每个 Deckops API 请求会自动包含 `X-Auth-UUID`，即用于跨会话追踪客户端的稳定 UUID v4。
 
 - **浏览器**：持久化在 `localStorage` 的 `df_uuid` 键下。
-- **Node.js**：持久化在 `~/.deckops/auth-uuid`（可通过 `DECKOPS_CONFIG_DIR` 覆盖目录）。
+- **Node.js**：持久化在 `~/.deckflow/auth-uuid`（可通过 `DECKFLOW_CONFIG_DIR` 覆盖目录）。
 - **显式覆盖**：传入 `authUuid` 或设置 `DECKOPS_AUTH_UUID`（仅 Node）用于 CI、容器或多租户服务器的固定 ID。
 
 ```ts

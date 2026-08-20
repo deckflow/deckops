@@ -14,6 +14,9 @@ const (
 	DefaultTimeout      = 300 * time.Second
 	DefaultPollInterval = 2 * time.Second
 	DefaultChunkSize    = 10 * 1024 * 1024
+	// InlineTaskFilesMaxBytes: when creating a task with files under this total size,
+	// attach them inline as `files` instead of async upload + `fileIds`.
+	InlineTaskFilesMaxBytes = 10 * 1024 * 1024
 )
 
 type TaskType string
@@ -73,6 +76,9 @@ type ClientOptions struct {
 	AuthUUID          string
 	AuthUUIDStorage   AuthUUIDStorage
 	HTTPClient        *http.Client
+	// OnUnauthorized is called once after a 401 when a user token is present.
+	// The returned token is saved and the request is retried. If omitted or
+	// refresh fails, credentials are cleared and the request is retried as guest.
 	OnUnauthorized    func(context.Context) (AuthRefresh, error)
 	OnPaymentRequired func(context.Context) error
 }

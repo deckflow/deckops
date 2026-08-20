@@ -9,6 +9,7 @@ import type {
   DeckTaskType,
   FileUploadResult,
   ListTasksParams,
+  PreparedUpload,
   RequestUploadParams,
   SubscribeTaskHandlers,
   TaskDownloadOptions,
@@ -57,7 +58,9 @@ export interface TasksClient {
 
 export interface FilesClient {
   requestUpload(params: RequestUploadParams): Promise<UploadAuthResponse>;
+  prepare(input: UploadInput, options?: UploadOptions): Promise<PreparedUpload>;
   upload(input: UploadInput, options?: UploadOptions): Promise<FileUploadResult>;
+  uploadPrepared(file: PreparedUpload, options?: UploadOptions): Promise<FileUploadResult>;
 }
 
 export interface DeckClient {

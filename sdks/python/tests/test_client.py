@@ -127,6 +127,73 @@ def test_upload_hashes_bytes_and_task_helper_uses_uploaded_id() -> None:
     assert seen == ["existing", "uploaded-1"]
 
 
+def test_small_files_are_sent_inline_on_task_create() -> None:
+    seen_auth = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal seen_auth
+        if request.url.path.endswith("/file/auth"):
+            seen_auth = True
+            return httpx.Response(500, json={"message": "should not upload"})
+        content_type = request.headers.get("content-type", "")
+        assert "multipart/form-data" in content_type
+        assert b'name="fileIds"' not in request.content
+        assert b'name="files"' in request.content
+        assert b'filename="slides.pptx"' in request.content
+        assert b'name="type"' in request.content
+        return httpx.Response(
+            200,
+            json={
+                "id": "task-inline",
+                "spaceId": "space-1",
+                "type": "convertor.ppt2pdf",
+                "status": "pending",
+            },
+        )
+
+    deck = _client(handler)
+    task = deck.convert_ppt_to_pdf(files=[{"input": b"abc", "name": "slides.pptx"}])
+    assert task["id"] == "task-inline"
+    assert seen_auth is False
+
+
+def test_large_files_still_use_async_upload() -> None:
+    large = b"x" * (10 * 1024 * 1024)
+    seen_file_ids: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/file/auth"):
+            body = json.loads(request.content)
+            assert body["bytes"] == len(large)
+            return httpx.Response(
+                200,
+                json={
+                    "id": "uploaded-large",
+                    "key": "files/large.bin",
+                    "hash": body["hash"],
+                    "platform": "oss",
+                    "multipart": False,
+                },
+            )
+        body = json.loads(request.content)
+        seen_file_ids.extend(body["fileIds"])
+        return httpx.Response(
+            200,
+            json={
+                "id": "task-large",
+                "spaceId": "space-1",
+                "type": "convertor.ppt2pdf",
+                "status": "pending",
+                "fileIds": body["fileIds"],
+            },
+        )
+
+    deck = _client(handler)
+    task = deck.convert_ppt_to_pdf(files=[{"input": large, "name": "large.bin"}])
+    assert seen_file_ids == ["uploaded-large"]
+    assert task["fileIds"] == ["uploaded-large"]
+
+
 def test_multipart_oss_upload_completes_sorted_parts() -> None:
     completed_xml = ""
     progress: list[float] = []
@@ -254,12 +321,28 @@ def test_unauthorized_refreshes_token_and_rewrites_space_id() -> None:
     assert calls == 2
 
 
-def test_api_error_includes_request_id_and_specific_auth_guidance() -> None:
-    def handler(_: httpx.Request) -> httpx.Response:
+def test_api_key_401_falls_back_to_guest_mode() -> None:
+    seen_user = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal seen_user
+        if request.url.path.endswith("/user"):
+            seen_user = True
+            assert "Authorization" not in request.headers
+            assert request.headers["X-Auth-UUID"] == TEST_UUID
+            return httpx.Response(200, json={"id": "guest-space"})
+        if request.headers.get("Authorization") == "Bearer key-1":
+            return httpx.Response(
+                401,
+                json={"message": "invalid key"},
+                headers={"x-request-id": "req-1"},
+            )
+        assert "Authorization" not in request.headers
+        assert request.url.params.get("spaceId") == "guest-space"
         return httpx.Response(
-            401,
-            json={"message": "invalid key"},
-            headers={"x-request-id": "req-1"},
+            200,
+            json={"id": "task-1", "spaceId": "guest-space", "status": "completed"},
+            headers={"content-type": "application/json"},
         )
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
@@ -270,10 +353,136 @@ def test_api_error_includes_request_id_and_specific_auth_guidance() -> None:
         auth_uuid=TEST_UUID,
         http_client=http,
     )
+    assert deck.tasks.get("task-1")["spaceId"] == "guest-space"
+    assert seen_user
+
+
+def test_token_401_without_on_unauthorized_falls_back_to_guest_mode() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/user"):
+            assert "X-Auth-Token" not in request.headers
+            return httpx.Response(200, json={"id": "guest-space"})
+        if request.headers.get("X-Auth-Token") == "expired-token":
+            return httpx.Response(401, json={"message": "expired"})
+        assert "X-Auth-Token" not in request.headers
+        assert request.url.params.get("spaceId") == "guest-space"
+        return httpx.Response(
+            200,
+            json={"id": "task-1", "spaceId": "guest-space", "status": "completed"},
+            headers={"content-type": "application/json"},
+        )
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    deck = create_deck(
+        root="http://localhost:3000/api",
+        token="expired-token",
+        space_id="space-1",
+        auth_uuid=TEST_UUID,
+        http_client=http,
+    )
+    assert deck.tasks.get("task-1")["spaceId"] == "guest-space"
+
+
+def test_on_unauthorized_failure_falls_back_to_guest_mode() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/user"):
+            return httpx.Response(200, json={"id": "guest-space"})
+        if request.headers.get("X-Auth-Token") == "expired-token":
+            return httpx.Response(401, json={"message": "expired"})
+        body = json.loads(request.content)
+        assert "X-Auth-Token" not in request.headers
+        assert body["spaceId"] == "guest-space"
+        return httpx.Response(
+            200,
+            json={"id": "task-guest", "spaceId": "guest-space", "type": "convertor.ppt2pdf", "status": "pending"},
+        )
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    deck = create_deck(
+        root="http://localhost:3000/api",
+        token="expired-token",
+        space_id="space-1",
+        auth_uuid=TEST_UUID,
+        http_client=http,
+        on_unauthorized=lambda: (_ for _ in ()).throw(RuntimeError("refresh unavailable")),
+    )
+    assert deck.convert_ppt_to_pdf(file_ids=["file-1"])["id"] == "task-guest"
+
+
+def test_concurrent_guest_downgrade_is_deduped() -> None:
+    import threading
+
+    user_calls = 0
+    lock = threading.Lock()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal user_calls
+        if request.url.path.endswith("/user"):
+            with lock:
+                user_calls += 1
+            return httpx.Response(200, json={"id": "guest-space"})
+        if request.headers.get("X-Auth-Token") == "expired-token":
+            return httpx.Response(401, json={"message": "expired"})
+        assert request.url.params.get("spaceId") == "guest-space"
+        task_id = request.url.path.rsplit("/", 1)[-1]
+        return httpx.Response(
+            200,
+            json={"id": task_id, "spaceId": "guest-space", "status": "completed"},
+            headers={"content-type": "application/json"},
+        )
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    deck = create_deck(
+        root="http://localhost:3000/api",
+        token="expired-token",
+        space_id="space-old",
+        auth_uuid=TEST_UUID,
+        http_client=http,
+    )
+
+    results: list[Any] = [None, None]
+    errors: list[BaseException | None] = [None, None]
+
+    def run(index: int, task_id: str) -> None:
+        try:
+            results[index] = deck.tasks.get(task_id)
+        except BaseException as error:  # noqa: BLE001
+            errors[index] = error
+
+    threads = [
+        threading.Thread(target=run, args=(0, "task-1")),
+        threading.Thread(target=run, args=(1, "task-2")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == [None, None]
+    assert results[0]["id"] == "task-1"
+    assert results[1]["id"] == "task-2"
+    assert user_calls == 1
+
+
+def test_api_error_includes_request_id() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json={"message": "task not found"},
+            headers={"x-request-id": "req-1"},
+        )
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    deck = create_deck(
+        root="http://localhost:3000/api",
+        token="token-1",
+        space_id="space-1",
+        auth_uuid=TEST_UUID,
+        http_client=http,
+    )
     with pytest.raises(APIError) as caught:
         deck.tasks.get("task-1")
-    assert caught.value.status_code == 401
-    assert "API key" in str(caught.value)
+    assert caught.value.status_code == 404
     assert "req-1" in str(caught.value)
 
 
