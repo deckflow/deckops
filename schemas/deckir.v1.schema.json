@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deckflow.dev/schemas/deckir.v1.schema.json",
+  "title": "DeckIR v1",
+  "type": "object",
+  "required": ["schemaVersion", "format", "source", "producer", "document", "quality"],
+  "properties": {
+    "schemaVersion": { "const": "deckir.v1" },
+    "format": { "enum": ["pdf", "pptx", "docx", "html", "keynote"] },
+    "source": {
+      "type": "object",
+      "required": ["sha256", "name", "bytes"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "name": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "producer": {
+      "type": "object",
+      "required": ["engine", "name", "version"],
+      "properties": {
+        "engine": { "enum": ["local", "cloud"] },
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "required": ["metadata", "pages", "nodes", "assets"],
+      "properties": {
+        "metadata": { "type": "object" },
+        "pages": { "type": "array", "items": { "$ref": "#/$defs/page" } },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "assets": { "type": "array", "items": { "$ref": "#/$defs/asset" } }
+      },
+      "additionalProperties": false
+    },
+    "quality": { "$ref": "#/$defs/quality" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sourceRef": { "type": "object" },
+    "page": {
+      "type": "object",
+      "required": ["id", "index", "nodeIds", "sourceRef"],
+      "properties": {
+        "id": { "type": "string" }, "index": { "type": "integer", "minimum": 0 },
+        "width": { "type": "number" }, "height": { "type": "number" },
+        "nodeIds": { "type": "array", "items": { "type": "string" } },
+        "sourceRef": { "$ref": "#/$defs/sourceRef" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "type", "parentId", "children", "order", "sourceRef"],
+      "properties": {
+        "id": { "type": "string" }, "type": { "type": "string" },
+        "parentId": { "type": ["string", "null"] },
+        "children": { "type": "array", "items": { "type": "string" } },
+        "order": { "type": "integer", "minimum": 0 }, "text": { "type": "string" },
+        "page": { "type": "integer", "minimum": 0 },
+        "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+        "sourceRef": { "$ref": "#/$defs/sourceRef" }, "confidence": { "type": "number" },
+        "issues": { "type": "array", "items": { "type": "string" } },
+        "opaque": { "type": "object" }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "required": ["id", "path", "hash", "bytes"],
+      "properties": {
+        "id": { "type": "string" }, "path": { "type": "string" },
+        "hash": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 },
+        "mediaType": { "type": "string" }, "sourceRef": { "$ref": "#/$defs/sourceRef" }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["status", "checks", "coverage"],
+      "properties": {
+        "status": { "enum": ["pass", "degraded", "unsupported"] },
+        "checks": { "type": "array", "items": { "type": "object", "required": ["code", "severity", "message"] } },
+        "coverage": { "type": "object" }, "recommendation": { "const": "cloud" }
+      }
+    }
+  }
+}

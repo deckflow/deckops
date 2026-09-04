@@ -1,6 +1,6 @@
 {
   "name": "@deckflow/deckparse",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Parse any document into an agent-operable representation. Parse once, convert repeatedly: PDF, PPTX, DOCX, Keynote and URLs into durable IR artifacts and Markdown.",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,6 +15,7 @@
       "import": "./dist/browser/index.js",
       "default": "./dist/browser/index.js"
     },
+    "./schemas/*": "./schemas/*.json",
     "./package.json": "./package.json"
   },
   "bin": {
@@ -22,8 +23,10 @@
   },
   "files": [
     "dist",
+    "schemas",
     "README.md",
     "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES",
     "patches/README.md",
     "LICENSE"
   ],
@@ -42,6 +45,7 @@
     "typecheck:browser-consumer": "tsc -p tsconfig.browser-consumer.json --noEmit",
     "check:browser": "pnpm typecheck:browser && pnpm test:browser && pnpm build:browser && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
     "check": "pnpm typecheck && pnpm typecheck:browser && pnpm test && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
+    "check:package": "pnpm build && node scripts/check-package-size.mjs",
     "browser:smoke": "node scripts/browser-smoke.mjs",
     "prepack": "pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
     "conformance": "node scripts/conformance.mjs"
@@ -72,9 +76,12 @@
     "@deckops/sdk": "0.8.0-next.0",
     "chalk": "^5.3.0",
     "commander": "^11.1.0",
+    "fflate": "^0.8.2",
     "open": "^10.1.0",
     "p-limit": "^5.0.0",
-    "zod": "^3.22.0"
+    "parse5": "^7.3.0",
+    "pdf-lite-parse": "0.1.1",
+    "saxes": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -84,7 +91,7 @@
     "vitest": "^2.1.0"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.18.0"
   },
   "packageManager": "pnpm@9.15.0",
   "publishConfig": {

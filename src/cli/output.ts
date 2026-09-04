@@ -33,11 +33,14 @@ export function printEnvelope(envelope: Envelope, ctx: OutputContext): void {
 
 function printParse(envelope: ParseEnvelope): void {
   const head = envelope.reusedParse
-    ? chalk.green('✓ reused existing artifact (no cloud call)')
+    ? chalk.green('✓ reused existing artifact')
     : chalk.green('✓ parsed');
   process.stdout.write(`${head}  ${chalk.dim(`[${envelope.type}]`)}\n`);
   process.stdout.write(`  artifact  ${envelope.artifact}\n`);
-  process.stdout.write(`  irKey     ${envelope.irKey}  ${chalk.dim(`(${envelope.irSchemaVersion})`)}\n`);
+  process.stdout.write(`  engine    ${envelope.engine}\n`);
+  process.stdout.write(`  quality   ${envelope.quality.status}\n`);
+  process.stdout.write(`  schema    ${envelope.irSchemaVersion}\n`);
+  if (envelope.irKey) process.stdout.write(`  irKey     ${envelope.irKey}\n`);
   if (envelope.taskId) {
     process.stdout.write(`  task      ${envelope.taskId}\n`);
   }
@@ -47,8 +50,8 @@ function printParse(envelope: ParseEnvelope): void {
 
 function printConvert(envelope: ConvertEnvelope): void {
   const head =
-    envelope.engine === 'local-cache'
-      ? chalk.green('✓ reused existing view (no cloud call)')
+    envelope.engine === 'artifact-cache'
+      ? chalk.green('✓ reused existing view')
       : chalk.green(`✓ converted to ${envelope.to}`);
   process.stdout.write(`${head}  ${chalk.dim(`[${envelope.format}]`)}\n`);
   for (const output of envelope.outputs.filter((entry) => entry.file.endsWith('.md'))) {

@@ -20,6 +20,7 @@ import { DeckParseError } from '../../src/errors/index.js';
  */
 
 const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckparse-ops-'));
+const cloudCommon = (extra: Record<string, unknown> = {}) => ({ engine: 'cloud' as const, ...extra });
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 const pngMd5 = createHash('md5').update(png).digest('hex');
@@ -127,7 +128,7 @@ describe('parse → artifact', () => {
       inputLabel: source,
       out,
       flags: {},
-      common: {},
+      common: cloudCommon(),
       preflight: 'off',
       client,
     });
@@ -137,7 +138,9 @@ describe('parse → artifact', () => {
     expect(fs.existsSync(path.join(out, 'ir.json'))).toBe(true);
     expect(fs.existsSync(path.join(out, 'manifest.json'))).toBe(true);
     // pdf parse results carry an image index → assets localized at parse time
-    expect(fs.readFileSync(path.join(out, 'assets/p1_i0000.png'))).toEqual(png);
+    const assetFiles = fs.readdirSync(path.join(out, 'assets'));
+    expect(assetFiles).toHaveLength(1);
+    expect(fs.readFileSync(path.join(out, 'assets', assetFiles[0]!))).toEqual(png);
     // views belong to convert; parse must never create them
     expect(fs.existsSync(path.join(out, 'views'))).toBe(false);
 
@@ -146,12 +149,12 @@ describe('parse → artifact', () => {
       inputLabel: source,
       out,
       flags: {},
-      common: {},
+      common: cloudCommon(),
       preflight: 'off',
       client,
     });
     expect(second.reusedParse).toBe(true);
-    expect(second.engine).toBe('local-cache');
+    expect(second.engine).toBe('artifact-cache');
     expect(second.taskId).toBeNull();
     expect(client.parseCalls).toBe(1); // the whole point
 
@@ -161,7 +164,7 @@ describe('parse → artifact', () => {
       inputLabel: source,
       out,
       flags: {},
-      common: { force: true },
+      common: cloudCommon({ force: true }),
       preflight: 'off',
       client,
     });
@@ -174,7 +177,7 @@ describe('parse → artifact', () => {
       inputLabel: source,
       out,
       flags: { profile: 'quality' },
-      common: {},
+      common: cloudCommon(),
       preflight: 'off',
       client,
     });
@@ -186,10 +189,10 @@ describe('parse → artifact', () => {
     const source = writeSource(dir);
     const out = path.join(dir, 'artifact');
     const client = fakeClient();
-    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, preflight: 'off', client });
+    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), preflight: 'off', client });
 
     await expect(
-      runParse({ input: await resolveInput(out), inputLabel: out, out, flags: {}, common: {}, client })
+      runParse({ input: await resolveInput(out), inputLabel: out, out, flags: {}, common: cloudCommon(), client })
     ).rejects.toMatchObject({ code: 'usage_error' });
   });
 
@@ -201,7 +204,7 @@ describe('parse → artifact', () => {
     const inspector = fakeInspector();
 
     const first = await runParse({
-      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client,
+      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), client,
       inspector,
     });
     expect(inspector.inspect).toHaveBeenCalledTimes(1);
@@ -213,7 +216,7 @@ describe('parse → artifact', () => {
     });
 
     const second = await runParse({
-      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client,
+      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), client,
       preflight: 'strict', inspector,
     });
     expect(second.reusedParse).toBe(true);
@@ -230,7 +233,7 @@ describe('parse → artifact', () => {
       error: { code: 'MALFORMED_INPUT', message: 'wrong container', exit_code: 4 },
     });
     await expect(runParse({
-      input: await resolveInput(source), inputLabel: source, flags: {}, common: {}, client,
+      input: await resolveInput(source), inputLabel: source, flags: {}, common: cloudCommon(), client,
       preflight: 'validate', inspector,
     })).rejects.toMatchObject({ code: 'input_error' });
     expect(client.parseCalls).toBe(0);
@@ -244,7 +247,7 @@ describe('parse → artifact', () => {
       input: { kind: 'link', url: 'https://example.com/article' },
       inputLabel: 'https://example.com/article',
       out: path.join(dir, 'artifact'),
-      flags: {}, common: {}, client, inspector,
+      flags: {}, common: cloudCommon(), client, inspector,
     });
     expect(inspector.inspect).not.toHaveBeenCalled();
     expect(envelope.warnings).toContainEqual(expect.stringContaining('skipped for the URL input'));
@@ -257,7 +260,7 @@ describe('parse → artifact', () => {
     const inspector = fakeInspector();
     const envelope = await runParse({
       input: await resolveInput(source), inputLabel: source, out: path.join(dir, 'artifact'),
-      flags: {}, common: {}, client: fakeClient(), preflight: 'off', inspector,
+      flags: {}, common: cloudCommon(), client: fakeClient(), preflight: 'off', inspector,
     });
     expect(inspector.inspect).not.toHaveBeenCalled();
     expect(envelope.inspection).toBeUndefined();
@@ -273,7 +276,7 @@ describe('parse → artifact', () => {
     const source = path.resolve('tests/test-data', fixture);
     const out = path.join(dir, 'artifact');
     const envelope = await runParse({
-      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client: fakeClient(),
+      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), client: fakeClient(),
       preflight: 'strict',
     });
     expect(envelope.inspection).toMatchObject({ profile, encrypted: false });
@@ -290,7 +293,7 @@ describe('convert <artifact>', () => {
     const source = writeSource(dir);
     const out = path.join(dir, 'artifact');
     const client = fakeClient();
-    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, preflight: 'off', client });
+    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), preflight: 'off', client });
     return { dir, out, client };
   };
 
@@ -301,7 +304,7 @@ describe('convert <artifact>', () => {
       input: await resolveInput(out),
       inputLabel: out,
       flags: {},
-      common: {},
+      common: cloudCommon(),
       preflight: 'off',
       client,
     });
@@ -319,10 +322,10 @@ describe('convert <artifact>', () => {
       input: await resolveInput(out),
       inputLabel: out,
       flags: {},
-      common: {},
+      common: cloudCommon(),
       client,
     });
-    expect(second.engine).toBe('local-cache');
+    expect(second.engine).toBe('artifact-cache');
     expect(client.convertCalls).toBe(1);
   });
 
@@ -334,7 +337,7 @@ describe('convert <artifact>', () => {
     fs.writeFileSync(manifestPath, JSON.stringify(manifest));
 
     await expect(
-      runConvert({ input: await resolveInput(out), inputLabel: out, flags: {}, common: {}, client })
+      runConvert({ input: await resolveInput(out), inputLabel: out, flags: {}, common: cloudCommon(), client })
     ).rejects.toMatchObject({ code: 'ir_expired' });
     expect(client.convertCalls).toBe(0); // saved the round trip
   });
@@ -345,7 +348,7 @@ describe('convert <artifact>', () => {
       convertResult({ markdown: '', markdownError: 'renderer exploded' })
     );
     await expect(
-      runConvert({ input: await resolveInput(out), inputLabel: out, flags: {}, common: {}, client })
+      runConvert({ input: await resolveInput(out), inputLabel: out, flags: {}, common: cloudCommon(), client })
     ).rejects.toMatchObject({ code: 'backend_error' });
   });
 });
@@ -362,7 +365,7 @@ describe('convert <document> (one-shot)', () => {
       inputLabel: source,
       out: target,
       flags: {},
-      common: {},
+      common: cloudCommon(),
       preflight: 'off',
       client,
     });
@@ -385,7 +388,7 @@ describe('convert <document> (one-shot)', () => {
         input: await resolveInput(source),
         inputLabel: source,
         flags: { to: 'html' as never },
-        common: {},
+        common: cloudCommon(),
         client: fakeClient(),
       })
     ).rejects.toMatchObject({ code: 'unsupported' });
@@ -397,7 +400,7 @@ describe('convert <document> (one-shot)', () => {
     const inspector = fakeInspector();
     const envelope = await runConvert({
       input: await resolveInput(source), inputLabel: source, out: path.join(dir, 'portable.md'),
-      flags: {}, parseFlags: {}, common: {}, client: fakeClient(), inspector,
+      flags: {}, parseFlags: {}, common: cloudCommon(), client: fakeClient(), inspector,
     });
     expect(envelope.inspection).toMatchObject({ profile: 'pdf', pageCount: 3 });
     expect(envelope.warnings).toContainEqual(expect.stringContaining('external relationships'));
@@ -419,17 +422,17 @@ describe('asset failure policy', () => {
           images: [{ ref: deadUrl, key: 'k', suggestedPath: 'assets/gone.png', bytes: 1, hash: 'h' }],
         })) as never,
     });
-    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, preflight: 'off', client });
+    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), preflight: 'off', client });
 
     await expect(
-      runConvert({ input: await resolveInput(out), inputLabel: out, flags: {}, common: {}, client })
+      runConvert({ input: await resolveInput(out), inputLabel: out, flags: {}, common: cloudCommon(), client })
     ).rejects.toMatchObject({ code: 'asset_error' });
 
     const tolerated = await runConvert({
       input: await resolveInput(out),
       inputLabel: out,
       flags: { keepRemoteImages: true },
-      common: {},
+      common: cloudCommon(),
       client,
     });
     expect(tolerated.warnings.length).toBeGreaterThan(0);

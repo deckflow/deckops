@@ -1,5 +1,4 @@
-import { resolveCredentials } from '../../config/index.js';
-import { createCloudClient, translate } from '../../cloud/client.js';
+import { translateError as translate } from '../../shared/errors.js';
 import { runConvert } from '../../core/convert-op.js';
 import { resolveInput, type ResolvedInput } from '../../core/input.js';
 import { runParse } from '../../core/parse-op.js';
@@ -24,6 +23,15 @@ export interface RawCliOptions {
   space?: string;
   timeout?: string;
   preflight?: string;
+  engine?: string;
+  allowUpload?: boolean;
+  failOnDegraded?: boolean;
+  maxSourceBytes?: string;
+  maxExpandedBytes?: string;
+  maxPartBytes?: string;
+  maxZipEntries?: string;
+  maxUrlBytes?: string;
+  workerHeapMb?: string;
   apiKey?: string;
   token?: string;
   apiBase?: string;
@@ -31,6 +39,9 @@ export interface RawCliOptions {
   profile?: string;
   password?: string;
   images?: boolean;
+  pageFurniture?: string;
+  overlaidText?: string;
+  trackedChanges?: string;
   stayImageAreaRate?: string;
   mode?: string;
   // convert-side
@@ -47,6 +58,9 @@ export function parseFlagsOf(options: RawCliOptions): ParseFlags {
   if (options.password !== undefined) flags.password = options.password;
   // commander's --no-images sets images: false; only forward the negation.
   if (options.images === false) flags.includeImages = false;
+  if (options.pageFurniture !== undefined) flags.pageFurniture = options.pageFurniture as NonNullable<ParseFlags['pageFurniture']>;
+  if (options.overlaidText !== undefined) flags.overlaidText = options.overlaidText as NonNullable<ParseFlags['overlaidText']>;
+  if (options.trackedChanges !== undefined) flags.trackedChanges = options.trackedChanges as NonNullable<ParseFlags['trackedChanges']>;
   if (options.stayImageAreaRate !== undefined) flags.stayImageAreaRate = Number(options.stayImageAreaRate);
   if (options.mode !== undefined) flags.mode = options.mode as NonNullable<ParseFlags['mode']>;
   return flags;
@@ -63,11 +77,40 @@ export function convertFlagsOf(options: RawCliOptions): ConvertFlags {
 }
 
 export function commonFlagsOf(options: RawCliOptions): CommonFlags {
+  const engine = options.engine ?? process.env.DECKPARSE_ENGINE ?? 'local';
+  const allowUpload = options.allowUpload ?? envBoolean('DECKPARSE_ALLOW_UPLOAD');
+  const failOnDegraded = options.failOnDegraded ?? envBoolean('DECKPARSE_FAIL_ON_DEGRADED');
+  if (!['local', 'cloud', 'auto'].includes(engine)) throw DeckParseError.usage('--engine must be local, cloud, or auto.');
+  if (allowUpload && engine !== 'auto') throw DeckParseError.usage('--allow-upload only applies with --engine auto.');
+  const limitEntries = [
+    ['sourceBytes', '--max-source-bytes', options.maxSourceBytes], ['zipExpandedBytes', '--max-expanded-bytes', options.maxExpandedBytes],
+    ['zipEntryBytes', '--max-part-bytes', options.maxPartBytes], ['zipEntries', '--max-zip-entries', options.maxZipEntries],
+    ['urlBytes', '--max-url-bytes', options.maxUrlBytes], ['workerHeapMb', '--worker-heap-mb', options.workerHeapMb],
+  ] as const;
+  const limits: Record<string, number> = {};
+  for (const [name, flag, raw] of limitEntries) {
+    if (raw === undefined) continue;
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value) || value <= 0) throw DeckParseError.usage(`${flag} must be a positive integer.`);
+    limits[name] = value;
+  }
   return {
     ...(options.space !== undefined ? { spaceId: options.space } : {}),
     ...(options.timeout !== undefined ? { timeout: Number(options.timeout) } : {}),
     ...(options.force !== undefined ? { force: options.force } : {}),
+    engine: engine as NonNullable<CommonFlags['engine']>,
+    ...(allowUpload !== undefined ? { allowUpload } : {}),
+    ...(failOnDegraded !== undefined ? { failOnDegraded } : {}),
+    ...(Object.keys(limits).length ? { limits } : {}),
   };
+}
+
+function envBoolean(name: string): boolean | undefined {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (value === undefined || value === '') return undefined;
+  if (['1', 'true', 'yes', 'allow'].includes(value)) return true;
+  if (['0', 'false', 'no', 'deny'].includes(value)) return false;
+  throw DeckParseError.usage(`${name} must be true/false or 1/0.`);
 }
 
 export function preflightModeOf(options: RawCliOptions): PreflightMode {
@@ -85,6 +128,9 @@ export function preflightModeForConvert(input: ResolvedInput, options: RawCliOpt
 }
 
 async function clientFor(options: RawCliOptions) {
+  const [{ resolveCredentials }, { createCloudClient }] = await Promise.all([
+    import('../../config/index.js'), import('../../cloud/client.js'),
+  ]);
   const credentials = await resolveCredentials({
     ...(options.apiKey ? { apiKey: options.apiKey } : {}),
     ...(options.token ? { token: options.token } : {}),
@@ -109,7 +155,7 @@ export async function runParseCommand(inputArg: string, options: RawCliOptions):
       flags,
       common: commonFlagsOf(options),
       preflight: preflightModeOf(options),
-      client: await clientFor(options),
+      cloud: () => clientFor(options),
     });
     printEnvelope(envelope, ctx);
   } catch (error) {
@@ -135,7 +181,7 @@ export async function runConvertCommand(inputArg: string, options: RawCliOptions
       parseFlags,
       common: commonFlagsOf(options),
       ...(preflight !== undefined ? { preflight } : {}),
-      client: await clientFor(options),
+      cloud: () => clientFor(options),
     });
     printEnvelope(envelope, ctx);
   } catch (error) {

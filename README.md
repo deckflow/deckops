@@ -6,7 +6,7 @@ DeckParse turns documents into **durable IR artifacts** and derives views from t
 
 ```bash
 deckparse doc.pdf                  # document → IR artifact (doc/)
-deckparse convert doc/             # artifact → markdown view, no re-parse
+deckparse convert doc/             # artifact → local markdown view, no re-parse/network
 deckparse convert doc.pdf -o doc.md  # one-shot: portable markdown, images localized
 ```
 
@@ -22,7 +22,15 @@ npx -y @deckflow/deckparse@latest doc.pdf
 npm install -g @deckflow/deckparse
 ```
 
-The CLI and Node.js entry require Node.js 20 or newer. Frontend applications use the separate [browser entry](#use-it-in-the-browser).
+The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications use the separate cloud-only [browser entry](#use-it-in-the-browser).
+
+The default npm install includes `pdfjs-dist`'s optional `@napi-rs/canvas` platform binary, which enables composite-figure cropping. The 1.0.0 release check measured 72.95 MiB for the default production install and 44.10 MiB with optional dependencies omitted (platform and npm metadata can move these numbers slightly). For a strict no-native install use:
+
+```bash
+npm install --omit=optional @deckflow/deckparse
+```
+
+PDF parsing remains fully usable; only composite-figure cropping degrades and is reported in `quality`.
 
 ## Two verbs, deliberately
 
@@ -35,16 +43,19 @@ convert  IR artifact → view        --to markdown (v1); never re-parses the sou
 
 ```
 doc/
-├── ir.json          the parsed document model, server response verbatim
+├── ir.json          public deckir.v1 document model
 ├── probe.json       optional local DeckProbe report (`--preflight validate|strict`)
 ├── assets/          images by persistent identity
-├── manifest.json    source hash, cloud references, what exists where
+├── manifest.json    source hash, parser identity, quality, optional cloud reference
 └── views/markdown/  written by convert, never by parse
 ```
 
-- **Parse twice, pay once.** Same bytes + same options = instant local reuse, zero cloud calls. `--json` reports `"engine": "local-cache"` so scripts can verify instead of assume.
-- **Convert never re-parses.** The view is derived from the stored IR by reference (`reusedParse: true` is asserted, not hoped). The IR stays convertible for **7 days**; after that, a clear `ir_expired` error says exactly what to re-run.
-- **Markdown that survives the week.** Image links in cloud responses are signed URLs that expire in hours. DeckParse downloads every image and rewrites the links — a convert that can't secure its images **fails** rather than shipping links that will rot (`--keep-remote-images` opts out).
+- **Local and private by default.** `--engine local` is the default, requires no login, and never constructs a cloud client. URL source mode only fetches the URL the user supplied and bounded redirects.
+- **Parse twice, pay once.** Same bytes + engine + parser major + options = instant artifact reuse. `--json` reports `"engine": "artifact-cache"`.
+- **Convert never re-parses.** Manifest v2 stores public `deckir.v1`; local artifacts remain convertible indefinitely. The 7-day lifetime only applies to an optional cloud `irKey`.
+- **No silent fallback.** `--engine auto` stays local unless `--allow-upload` is explicitly present. `--fail-on-degraded` turns a quality warning into a failure.
+
+Local parsers enforce source, ZIP expansion/ratio, XML depth/event, URL response, timeout and worker-heap limits. The main budgets can be raised explicitly with `--max-source-bytes`, `--max-expanded-bytes`, `--max-part-bytes`, `--max-zip-entries`, `--max-url-bytes` and `--worker-heap-mb`; overrides are recorded in the artifact cache identity.
 
 ## Supported formats
 
@@ -54,18 +65,18 @@ deckparse formats
 
 | Input | parse → IR | convert → markdown | flags |
 | --- | --- | --- | --- |
-| `.pdf` | ✅ versioned IR (stable node ids, bbox, `schemaVersion`) | ✅ | `--profile fast\|balanced\|quality`, `--password`, `--no-images`, `--anchors` |
-| `.pptx` | ✅ | ✅ | `--split-pages` |
-| `.docx` | ✅ | ✅ | |
-| `.key` | ✅ | ✅ | `--stay-image-area-rate`, `--split-pages` |
-| http(s) URL | ✅ | ✅ | `--mode source\|runtime` |
+| `.pdf` | ✅ local `deckir.v1` | ✅ local | no OCR; `--password`, `--page-furniture`, `--overlaid-text`, `--anchors` |
+| `.pptx` | ✅ local | ✅ local | Chart/SmartArt preserved as opaque when partial; `--split-pages` |
+| `.docx` | ✅ local | ✅ local | `--tracked-changes final\|original\|all` |
+| `.key` | ☁ cloud | ☁ cloud | local IWA parsing is intentionally unsupported |
+| http(s) URL | ✅ local source / ☁ runtime | ✅ local | `--mode source\|runtime` |
 | `.doc` `.ppt` `.xls(x)` `.pages` `.numbers` | ❌ | ❌ | clear error + a way out |
 
 Unsupported pairs fail with a hint, never an approximation.
 
 ## Local preflight with DeckProbe
 
-For local files and stdin, DeckParse validates the real document container before uploading it:
+For local files and stdin, DeckParse validates the real document container before parsing it:
 
 ```bash
 deckparse parse report.pdf                       # validate is the default
@@ -73,7 +84,7 @@ deckparse convert slides.pptx --preflight strict -o slides.md
 deckparse parse report.pdf --preflight off       # skip for latency/CSP compatibility
 ```
 
-`validate` is the CLI, Node SDK and Browser SDK default. It rejects a malformed/container-mismatched document and an encrypted document without an applicable password; probe budget/runtime failures become warnings and cloud parsing continues. `off` is the explicit performance/CSP escape hatch. `strict` is never implicit: it must be selected explicitly and also rejects unresolved required facts and probe failures. URLs always skip local preflight.
+`validate` is the CLI, Node SDK and Browser SDK default. It rejects a malformed/container-mismatched document and an encrypted document without an applicable password; probe budget/runtime failures become warnings and parsing continues. `off` is the explicit performance/CSP escape hatch. `strict` is never implicit. URLs skip local preflight.
 
 The bounded metadata probe records format/profile, extension agreement, encryption, macros, external relationships, embedded files, page/slide count, and presentation size when available. Macros, external relationships and embedded objects are warnings, not default blockers. A `partial` DeckProbe report is evaluated target by target—it is not treated as a damaged file.
 
@@ -86,9 +97,9 @@ $ deckparse convert doc/ --json
 {
   "ok": true,
   "op": "convert",
-  "engine": "cloud",
+  "engine": "local",
   "format": "pdf",
-  "taskId": "t_abc123",
+  "taskId": null,
   "reusedParse": true,
   "outputs": [{ "file": "doc/views/markdown/index.md", "bytes": 48213 }],
   "warnings": [],
@@ -108,9 +119,16 @@ Errors carry a stable `error.code` and a distinct exit code:
 | 7 | `not_implemented` | reserved verbs (`extract`, `modify`, `export`) |
 | 8 | `quota_error` | guest quota exhausted — `deckparse auth login` |
 
-## Authentication is shared
+## Engine and authentication
 
-Credentials live in `~/.deckflow/credentials` and are shared with every DeckFlow CLI — log in once through DeckParse, DeckRender or DeckHTML and the others pick it up:
+```bash
+deckparse parse report.pdf                         # local, never uploads
+deckparse parse report.pdf --engine cloud          # explicit upload authorization
+deckparse parse report.pdf --engine auto            # local only; suggests cloud if degraded
+deckparse parse report.pdf --engine auto --allow-upload
+```
+
+Authentication is only resolved when a cloud request is actually selected. Credentials live in `~/.deckflow/credentials` and are shared with every DeckFlow CLI — log in once through DeckParse, DeckRender or DeckHTML and the others pick it up:
 
 ```bash
 deckparse auth login
@@ -119,21 +137,21 @@ deckparse config list     # every value, and exactly where it came from
 
 Environment variables win over stored files: `DECKPARSE_API_KEY` → `DECKFLOW_API_KEY` → `DECKHTML_API_KEY` (and `DECKPARSE_TOKEN` / `DECKPARSE_API_BASE` / `DECKPARSE_SPACE_ID` likewise). Each field resolves independently — when something authenticates oddly, `deckparse config list` shows which file or variable is responsible.
 
-**Where parsing happens:** semantic parsing still runs in the DeckFlow cloud — the document is uploaded over HTTPS, parsed there, results downloaded back. The default DeckProbe preflight runs locally for file/stdin input and does not upload bytes, but it does not produce IR or Markdown. If your documents cannot leave your machine, DeckParse is not for you yet.
+**Where parsing happens:** CLI and Node SDK parsing is local by default for PDF, PPTX, DOCX and static URL source. Cloud parsing only happens after `--engine cloud` or `--engine auto --allow-upload`. The browser entry keeps its existing cloud parse/convert contract and does not bundle local parsers.
 
 ## Use it as a Node.js library
 
 ```ts
 import { parse, openArtifact } from '@deckflow/deckparse';
 
-const doc = await parse('doc.pdf', { profile: 'quality' }); // preflight defaults to validate
-doc.irKey;                          // the cloud reference convert consumes
+const doc = await parse('doc.pdf'); // local by default; preflight defaults to validate
+doc.irKey;                          // undefined for a local artifact
 doc.inspection;                     // local format/security/structure summary
 await doc.inspectionReport();       // full DeckProbe schema-v2 report
-await doc.convert();                // view materialized into the artifact
+await doc.convert();                // offline view materialized into the artifact
 await doc.convert({ anchors: true }); // pdf: provenance comments carrying node ids
 
-// Days later, in another process — no cloud call to reopen:
+// Days or years later, in another process — no cloud call:
 const same = await openArtifact('doc/');
 await same.convert({ splitPages: true });
 ```

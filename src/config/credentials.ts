@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { z } from 'zod';
 import { DIR_MODE, SECRET_FILE_MODE, credentialsPath, deckflowDir, deckopsConfigPath } from './paths.js';
 
 /**
@@ -8,16 +7,7 @@ import { DIR_MODE, SECRET_FILE_MODE, credentialsPath, deckflowDir, deckopsConfig
  * config/credentials.ts (docs/rfc.md §6) with the env prefix swapped to
  * DECKPARSE_* — a machine set up for any DeckFlow tool works here untouched.
  */
-export const SharedCredentialsSchema = z
-  .object({
-    apiKey: z.string().min(1).optional(),
-    token: z.string().min(1).optional(),
-    spaceId: z.string().min(1).optional(),
-    apiBase: z.string().url().optional(),
-  })
-  .passthrough();
-
-export type SharedCredentials = z.infer<typeof SharedCredentialsSchema>;
+export interface SharedCredentials { apiKey?: string; token?: string; spaceId?: string; apiBase?: string; [key: string]: unknown }
 
 export type CredentialSource =
   | 'flag'
@@ -76,25 +66,36 @@ export async function readSharedCredentials(): Promise<SharedCredentials> {
   if (raw === undefined) {
     return {};
   }
-  const parsed = SharedCredentialsSchema.safeParse(raw);
-  return parsed.success ? parsed.data : {};
+  return sanitizeCredentials(raw, true);
 }
 
-const DeckopsConfigSchema = z
-  .object({
-    token: z.string().min(1).optional(),
-    spaceId: z.string().min(1).optional(),
-    apiBase: z.string().url().optional(),
-  })
-  .passthrough();
+interface DeckopsConfig { token?: string; spaceId?: string; apiBase?: string }
 
-export async function readDeckopsConfig(): Promise<z.infer<typeof DeckopsConfigSchema>> {
+export async function readDeckopsConfig(): Promise<DeckopsConfig> {
   const raw = await readJsonFile(deckopsConfigPath());
   if (raw === undefined) {
     return {};
   }
-  const parsed = DeckopsConfigSchema.safeParse(raw);
-  return parsed.success ? parsed.data : {};
+  return sanitizeCredentials(raw, false);
+}
+
+function sanitizeCredentials(raw: unknown, keepUnknown: true): SharedCredentials;
+function sanitizeCredentials(raw: unknown, keepUnknown: false): DeckopsConfig;
+function sanitizeCredentials(raw: unknown, keepUnknown: boolean): SharedCredentials | DeckopsConfig {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const record = raw as Record<string, unknown>;
+  const result: Record<string, unknown> = keepUnknown ? { ...record } : {};
+  for (const key of ['apiKey', 'token', 'spaceId'] as const) {
+    if (typeof record[key] === 'string' && record[key].trim()) result[key] = record[key].trim();
+    else delete result[key];
+  }
+  if (typeof record.apiBase === 'string' && isHttpUrl(record.apiBase)) result.apiBase = record.apiBase;
+  else delete result.apiBase;
+  return result;
+}
+
+function isHttpUrl(value: string): boolean {
+  try { const url = new URL(value); return url.protocol === 'http:' || url.protocol === 'https:'; } catch { return false; }
 }
 
 /**

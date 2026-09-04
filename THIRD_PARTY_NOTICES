@@ -1,0 +1,23 @@
+DeckParse includes and depends on third-party open-source software.
+
+pdf-lite-parse
+Copyright its contributors. Licensed under the Apache License 2.0.
+https://github.com/deckflow/pdf-lite-parse
+
+PDF.js / pdfjs-dist
+Copyright Mozilla Foundation and contributors. Licensed under the Apache License 2.0.
+https://github.com/mozilla/pdf.js
+
+fflate
+Copyright 2020 Arjun Barrett. Licensed under the MIT License.
+https://github.com/101arrowz/fflate
+
+saxes
+Copyright its contributors. Licensed under the ISC License.
+https://github.com/lddubeau/saxes
+
+parse5
+Copyright its contributors. Licensed under the MIT License.
+https://github.com/inikulin/parse5
+
+See each installed package for its complete license text and notices.

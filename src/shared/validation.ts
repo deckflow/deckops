@@ -24,6 +24,9 @@ const PARSE_FLAG_FORMATS: Record<keyof ParseFlags, FormatKey[]> = {
   profile: ['pdf'],
   password: ['pdf'],
   includeImages: ['pdf'],
+  pageFurniture: ['pdf'],
+  overlaidText: ['pdf'],
+  trackedChanges: ['docx'],
   stayImageAreaRate: ['keynote'],
   mode: ['link'],
 };

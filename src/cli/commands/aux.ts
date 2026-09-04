@@ -14,11 +14,11 @@ import { DeckParseError } from '../../errors/index.js';
 /** `deckparse formats` — the support matrix, honest about what fails. */
 export function runFormats(options: { json?: boolean }): void {
   const rows = [
-    { input: '.pdf', parse: '✅ versioned IR', markdown: '✅', notes: '--profile --password --no-images --anchors' },
-    { input: '.pptx', parse: '✅', markdown: '✅', notes: '--split-pages' },
-    { input: '.docx', parse: '✅', markdown: '✅', notes: '' },
-    { input: '.key', parse: '✅', markdown: '✅', notes: '--stay-image-area-rate, --split-pages' },
-    { input: 'http(s) URL', parse: '✅', markdown: '✅', notes: '--mode source|runtime' },
+    { input: '.pdf', parse: '✅ local', markdown: '✅ local', notes: 'no OCR; --page-furniture --overlaid-text' },
+    { input: '.pptx', parse: '✅ local', markdown: '✅ local', notes: 'Chart/SmartArt may degrade; --split-pages' },
+    { input: '.docx', parse: '✅ local', markdown: '✅ local', notes: '--tracked-changes final|original|all' },
+    { input: '.key', parse: '☁ cloud', markdown: '☁ cloud', notes: 'local IWA parsing unsupported' },
+    { input: 'http(s) URL', parse: '✅ source / ☁ runtime', markdown: '✅', notes: '--mode source|runtime' },
     { input: '.doc .ppt .xls(x) .pages .numbers', parse: '❌ unsupported', markdown: '❌', notes: 'clear error + hint' },
   ];
   if (options.json) {
