@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type { ConvertResult, IrFormat } from '@deckops/sdk';
 import { localizeImages, rewriteLinks } from '../assets/localize.js';
@@ -12,6 +14,7 @@ import { candidateAssetOutputPath } from '../ir/assets.js';
 import type { DeckIR, ParseCandidate } from '../ir/schema.js';
 import { validateDeckIR } from '../ir/validate.js';
 import type { SourceIdentity } from '../local/common.js';
+import { DEFAULT_LOCAL_LIMITS } from '../local/limits.js';
 import type { PreflightMode } from '../shared/preflight.js';
 import { convertParams } from '../shared/params.js';
 import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, ManifestV2, OutputFile, ParseFlags } from '../types.js';
@@ -36,13 +39,17 @@ export async function runConvert(options: ConvertOpOptions): Promise<ConvertEnve
 
 async function convertArtifact(options: ConvertOpOptions, dir: string, manifest: Manifest): Promise<ConvertEnvelope> {
   const startedAt = Date.now();
+  if (manifest.manifestVersion === 2 && options.common.failOnDegraded && manifest.quality.status === 'degraded') {
+    throw DeckParseError.input('Artifact quality is degraded.', manifest.quality.checks[0]?.message ? { hint: manifest.quality.checks[0].message } : {});
+  }
   const useCloud = manifest.manifestVersion === 1 || options.common.engine === 'cloud';
   if (manifest.manifestVersion === 1 && options.common.engine === 'local') {
     throw DeckParseError.unsupported('Manifest v1 contains cloud-native IR, not deckir.v1.', { hint: 'Convert it with --engine cloud or parse the source again to create artifact v2.' });
   }
   const viewParams = { ...viewParamsFor(options.flags), rendererEngine: useCloud ? 'cloud' : 'local' };
   const view = manifest.views.markdown;
-  if (!options.common.force && viewHit(dir, view, viewParams)) {
+  const rendererMatches = rendererCompatible(manifest, useCloud);
+  if (!options.common.force && rendererMatches && viewHit(dir, view, viewParams)) {
     return envelope(options, { startedAt, engine: 'artifact-cache', format: formatOf(manifest), taskId: null, reusedParse: true,
       outputs: view!.files.map((file) => ({ file: path.join(dir, file), bytes: 0 })), warnings: [], ...(manifest.manifestVersion === 2 ? { quality: manifest.quality } : {}) });
   }
@@ -51,6 +58,7 @@ async function convertArtifact(options: ConvertOpOptions, dir: string, manifest:
 }
 
 async function convertArtifactLocal(options: ConvertOpOptions, dir: string, manifest: ManifestV2, viewParams: Record<string, unknown>, startedAt: number): Promise<ConvertEnvelope> {
+  if (options.flags.strict) throw DeckParseError.unsupported('Markdown --strict is a cloud-renderer option.', { hint: 'Remove --strict or use --engine cloud on an artifact with a remote reference.' });
   const ir = validateDeckIR(JSON.parse(await fs.readFile(irPath(dir), 'utf-8')));
   if (options.common.failOnDegraded && ir.quality.status === 'degraded') throw DeckParseError.input('Artifact quality is degraded.', ir.quality.checks[0]?.message ? { hint: ir.quality.checks[0].message } : {});
   const rendered = renderMarkdown(ir, { anchors: options.flags.anchors, splitPages: options.flags.splitPages, assetPrefix: '../../assets/' });
@@ -88,12 +96,12 @@ async function convertOneShot(options: ConvertOpOptions): Promise<ConvertEnvelop
   const startedAt = Date.now(); const input = options.input;
   if (input.kind === 'artifact') throw new Error('unreachable');
   const inspected = await runSourcePreflight({ input, flags: options.parseFlags ?? {}, ...(options.preflight ? { mode: options.preflight } : {}), ...(options.inspector ? { inspector: options.inspector } : {}) });
-  const source = await sourceIdentity(input);
+  const source = await sourceIdentity(input, options.common.engine === 'cloud' ? undefined : (options.common.limits?.sourceBytes ?? DEFAULT_LOCAL_LIMITS.sourceBytes));
   const cloud = cloudFactory(options);
   const candidate = await routeParse({ input: { input, inputLabel: options.inputLabel, source },
     parse: { flags: options.parseFlags ?? {}, common: options.common }, ...(cloud ? { cloud } : {}),
-    signal: AbortSignal.timeout((options.common.timeout ?? 120) * 1000) });
-  if (options.common.engine === 'cloud' && candidate.remote) {
+    signal: AbortSignal.timeout(operationTimeoutMs(options.common)) });
+  if ((options.common.engine === 'cloud' || options.flags.strict) && candidate.remote) {
     const result = await callConvert(await requireCloud(options), { irKey: candidate.remote.irKey }, options.flags, options.common);
     const target = options.out ?? defaultPortableName(input, options.inputLabel);
     const portable = await writePortableCloud(target, result, options.flags);
@@ -101,8 +109,9 @@ async function convertOneShot(options: ConvertOpOptions): Promise<ConvertEnvelop
       taskId: result.taskId, parseTaskId: candidate.remote.taskId, ...(inspected.summary ? { inspection: inspected.summary } : {}),
       reusedParse: false, quality: candidate.quality, outputs: portable.outputs, warnings: [...inspected.warnings, ...(candidate.warnings ?? []), ...portable.warnings], durationMs: Date.now() - startedAt };
   }
+  if (options.flags.strict) throw DeckParseError.unsupported('Markdown --strict is a cloud-renderer option.', { hint: 'Remove --strict or select --engine cloud.' });
   const target = options.out ?? defaultPortableName(input, options.inputLabel);
-  const tempDir = await fs.mkdtemp(path.join(process.cwd(), '.deckparse-assets-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'deckparse-assets-'));
   try {
     await writeCandidateAssets(tempDir, candidate);
     const outputs = await writePortableLocal(target, candidate.ir, tempDir, options.flags);
@@ -113,7 +122,7 @@ async function convertOneShot(options: ConvertOpOptions): Promise<ConvertEnvelop
 }
 
 async function writeArtifactMarkdown(dir: string, markdown: string, pages?: string[]): Promise<OutputFile[]> {
-  const target = viewDir(dir, 'markdown'); await fs.mkdir(target, { recursive: true }); const outputs: OutputFile[] = [];
+  const target = viewDir(dir, 'markdown'); await fs.rm(target, { recursive: true, force: true }); await fs.mkdir(target, { recursive: true }); const outputs: OutputFile[] = [];
   const write = async (name: string, body: string): Promise<void> => { const file = path.join(target, name); await fs.writeFile(file, body, 'utf-8'); outputs.push({ file, bytes: Buffer.byteLength(body) }); };
   await write('index.md', markdown); if (pages) for (const [index, page] of pages.entries()) await write(`${String(index + 1).padStart(3, '0')}.md`, page);
   return outputs;
@@ -145,7 +154,7 @@ async function callConvert(client: CloudClient, ref: { irKey: string }, flags: C
 async function materializeCloud(dir: string, result: ConvertResult, flags: ConvertFlags) {
   const localized = await localizeImages({ images: result.images, destDir: assetsDir(dir), linkPrefix: '../../assets/', ...(flags.keepRemoteImages !== undefined ? { keepRemote: flags.keepRemoteImages } : {}) });
   const outputs: OutputFile[] = Object.values(localized.saved).map((asset) => ({ file: path.join(dir, 'assets', asset.file), bytes: asset.bytes }));
-  const target = viewDir(dir, 'markdown'); await fs.mkdir(target, { recursive: true }); const files: string[] = [];
+  const target = viewDir(dir, 'markdown'); await fs.rm(target, { recursive: true, force: true }); await fs.mkdir(target, { recursive: true }); const files: string[] = [];
   const write = async (name: string, text: string) => { const body = rewriteLinks(text, localized.rewrites); const file = path.join(target, name); await fs.writeFile(file, body, 'utf-8'); files.push(path.join('views', 'markdown', name)); outputs.push({ file, bytes: Buffer.byteLength(body) }); };
   await write('index.md', result.markdown); if (flags.splitPages && result.markdownPages) for (const [index, page] of result.markdownPages.entries()) await write(`${String(index + 1).padStart(3, '0')}.md`, page);
   return { outputs, warnings: localized.warnings, files, savedAssets: localized.saved };
@@ -159,10 +168,26 @@ async function writePortableCloud(target: string, result: ConvertResult, flags: 
   return { outputs: [{ file: mdPath, bytes: Buffer.byteLength(body) }, ...Object.values(localized.saved).map((asset) => ({ file: path.join(path.dirname(mdPath), assetsName, asset.file), bytes: asset.bytes }))], warnings: localized.warnings };
 }
 
-function viewParamsFor(flags: ConvertFlags): Record<string, unknown> { return { ...(flags.anchors !== undefined ? { anchors: flags.anchors } : {}), ...(flags.splitPages !== undefined ? { splitPages: flags.splitPages } : {}) }; }
+function viewParamsFor(flags: ConvertFlags): Record<string, unknown> { return {
+  ...(flags.anchors !== undefined ? { anchors: flags.anchors } : {}),
+  ...(flags.splitPages !== undefined ? { splitPages: flags.splitPages } : {}),
+  ...(flags.strict !== undefined ? { strict: flags.strict } : {}),
+  ...(flags.keepRemoteImages !== undefined ? { keepRemoteImages: flags.keepRemoteImages } : {}),
+}; }
+function rendererCompatible(manifest: Manifest, useCloud: boolean): boolean {
+  if (useCloud || manifest.manifestVersion === 1) return true;
+  const view = manifest.views.markdown;
+  return view?.engine === 'local' && view.rendererVersion === MARKDOWN_RENDERER_VERSION;
+}
 function formatOf(manifest: Manifest): IrFormat { if (manifest.manifestVersion === 2) return manifest.parse.format as IrFormat; return manifest.parse.type === 'pdf.pdfParse' ? 'pdf' : manifest.parse.type === 'pptx.parse' ? 'pptx' : manifest.parse.type === 'docx.parseTextAndImage' ? 'docx' : manifest.parse.type === 'keynote.parseTextAndImage' ? 'keynote' : 'html'; }
 function defaultPortableName(input: Exclude<ResolvedInput, { kind: 'artifact' }>, label: string): string { if (input.kind === 'document') { const ext = path.extname(input.file); return input.file.slice(0, -ext.length); } if (input.kind === 'stdin') return 'stdin'; try { return new URL(input.url).hostname.replace(/[^\w.-]+/g, '-') || 'page'; } catch { return label; } }
-async function sourceIdentity(input: Exclude<ResolvedInput, { kind: 'artifact' }>): Promise<SourceIdentity> { if (input.kind === 'link') return { sha256: createHash('sha256').update(input.url).digest('hex'), name: input.url, bytes: 0 }; const bytes = input.kind === 'document' ? await fs.readFile(input.file) : input.data; return { sha256: createHash('sha256').update(bytes).digest('hex'), name: input.name, bytes: bytes.byteLength }; }
+async function sourceIdentity(input: Exclude<ResolvedInput, { kind: 'artifact' }>, maxBytes?: number): Promise<SourceIdentity> {
+  if (input.kind === 'link') return { sha256: createHash('sha256').update(input.url).digest('hex'), name: input.url, bytes: 0 };
+  if (input.kind === 'document') { const stat = await fs.stat(input.file); if (maxBytes !== undefined && stat.size > maxBytes) throw DeckParseError.input('Source exceeds the local input size limit.'); const hash = createHash('sha256'); for await (const chunk of createReadStream(input.file)) hash.update(chunk as Buffer); return { sha256: hash.digest('hex'), name: input.name, bytes: stat.size }; }
+  if (maxBytes !== undefined && input.data.byteLength > maxBytes) throw DeckParseError.input('Source exceeds the local input size limit.');
+  return { sha256: createHash('sha256').update(input.data).digest('hex'), name: input.name, bytes: input.data.byteLength };
+}
 function cloudFactory(options: ConvertOpOptions): (() => Promise<CloudClient>) | undefined { return options.cloud ?? (options.client ? async () => options.client! : undefined); }
 async function requireCloud(options: ConvertOpOptions): Promise<CloudClient> { const factory = cloudFactory(options); if (!factory) throw DeckParseError.usage('Cloud conversion was requested but no cloud client is configured.'); return factory(); }
+function operationTimeoutMs(common: CommonFlags): number { const value = common.timeout !== undefined ? common.timeout * 1000 : common.engine === 'cloud' ? 120_000 : (common.limits?.timeoutMs ?? 120_000); if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) throw DeckParseError.usage('Timeout must be a positive duration within the Node.js timer range.'); return value; }
 function envelope(options: ConvertOpOptions, extra: { startedAt: number; engine: ConvertEnvelope['engine']; format: IrFormat; taskId: string | null; reusedParse: boolean; outputs: OutputFile[]; warnings: string[]; quality?: import('../ir/schema.js').QualityReport }): ConvertEnvelope { return { ok: true, op: 'convert', input: options.inputLabel, to: 'markdown', engine: extra.engine, format: extra.format, taskId: extra.taskId, reusedParse: extra.reusedParse, ...(extra.quality ? { quality: extra.quality } : {}), outputs: extra.outputs, warnings: extra.warnings, durationMs: Date.now() - extra.startedAt }; }

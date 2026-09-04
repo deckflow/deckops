@@ -10,8 +10,8 @@ export function finalizeAssets(assets: CandidateAsset[], nodes: DeckIrNode[]): D
     const ext = safeExtension(asset.path, asset.mediaType);
     const outputPath = `assets/${hash}${ext}`;
     rewrites.set(normalize(asset.path), outputPath);
-    unique.set(hash, {
-      id: `asset_${hash.slice(0, 20)}`,
+    unique.set(outputPath, {
+      id: `asset_${sha256(outputPath).slice(0, 20)}`,
       path: outputPath,
       hash,
       bytes: asset.data.byteLength,

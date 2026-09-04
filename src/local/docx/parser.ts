@@ -59,6 +59,7 @@ export function parseDocx(data: Uint8Array, source: SourceIdentity, limits: Loca
     ctx.checks.push({ code: 'alt_chunk_unsupported', severity: 'error', message: 'DOCX contains altChunk content that cannot be expanded locally.' });
     addOpaque(ctx, null, 'altChunk', 'word/document.xml', alt.attributes.id ?? alt.attributes['r:id']);
   }
+  auditUnsupportedContent(ctx, body);
   const opaque = ctx.nodes.filter((node) => node.opaque).length;
   const quality = qualityOf(ctx.checks, {
     objects: { parsed: ctx.nodes.length - opaque, opaque, total: ctx.nodes.length },
@@ -98,6 +99,7 @@ function parseParagraph(node: XmlNode, ctx: Context, parentId: string | null, pa
     id, type, parentId, children: [], order: ctx.order++, text, runs, sourceRef: { part, path: locator },
     ...(resolvedStyle ? { style: { styleId, name: resolvedStyle.name } } : {}),
   };
+  if (type === 'heading') deckNode.extensions = { ...(deckNode.extensions ?? {}), level: headingLevel(resolvedStyle?.name) };
   if (numId) {
     const definition = ctx.numbering.get(numId)?.get(level);
     deckNode.extensions = { numbering: { numId, level, format: definition?.format, text: definition?.text } };
@@ -132,7 +134,8 @@ function parseTable(table: XmlNode, ctx: Context, parentId: string | null, part:
     for (const [cellIndex, cell] of children(row, 'tc').entries()) {
       const cellId = stableId(ctx.source.sha256, `${rowId}:cell:${cellIndex}`);
       const tcPr = first(cell, 'tcPr');
-      const cellNode: DeckIrNode = { id: cellId, type: 'table_cell', parentId: rowId, children: [], order: ctx.order++, text: paragraphsText(cell),
+      const cellRuns = descendants(cell, 'p').flatMap((paragraph, index) => [...(index ? [{ text: '\n' }] : []), ...collectRuns(paragraph, ctx, part)]);
+      const cellNode: DeckIrNode = { id: cellId, type: 'table_cell', parentId: rowId, children: [], order: ctx.order++, text: cellRuns.map((run) => run.text).join(''), runs: cellRuns,
         sourceRef: { part, path: `table/${tableId}/row/${rowIndex}/cell/${cellIndex}` },
         extensions: { row: rowIndex, column: cellIndex, gridSpan: Number(first(tcPr ?? emptyNode(), 'gridSpan')?.attributes.val ?? 1),
           verticalMerge: first(tcPr ?? emptyNode(), 'vMerge')?.attributes.val ?? (first(tcPr ?? emptyNode(), 'vMerge') ? 'continue' : undefined) } };
@@ -183,26 +186,49 @@ function imageRefs(node: XmlNode, rels: Map<string, Relationship>): Relationship
 }
 
 function addImageNode(rel: Relationship, ctx: Context, parentId: string, part: string): void {
-  const id = stableId(ctx.source.sha256, `${part}:image:${rel.id}`);
+  const id = stableId(ctx.source.sha256, `${part}:image:${rel.id}:${parentId}`);
   if (rel.external) {
     ctx.nodes.push({ id, type: 'image', parentId, children: [], order: ctx.order++, sourceRef: { part, relationship: rel.id }, extensions: { externalUrl: rel.target }, issues: ['external_asset'] });
     ctx.nodes.find((node) => node.id === parentId)?.children.push(id);
+    ctx.checks.push({ code: 'external_asset', severity: 'warning', message: 'DOCX contains an externally linked image that was not downloaded.', nodeIds: [id] });
     return;
   }
   if (!ctx.pkg.has(rel.target)) {
     ctx.checks.push({ code: 'missing_media', severity: 'error', message: `DOCX image relationship ${rel.id} points to a missing part.` });
     return;
   }
-  const data = ctx.pkg.read(rel.target);
+  const data = ctx.pkg.readAsset(rel.target);
   ctx.assets.push({ path: rel.target, data, ...(mediaTypeForPath(rel.target) ? { mediaType: mediaTypeForPath(rel.target) } : {}), sourceRef: { part, relationship: rel.id } });
   ctx.nodes.push({ id, type: 'image', parentId, children: [], order: ctx.order++, sourceRef: { part, relationship: rel.id }, extensions: { assetPath: rel.target } });
   ctx.nodes.find((node) => node.id === parentId)?.children.push(id);
 }
 
-function addOpaque(ctx: Context, parentId: string | null, type: string, part: string, relationship?: string): void {
+function addOpaque(ctx: Context, parentId: string | null, type: string, part: string, relationship?: string): string {
   const id = stableId(ctx.source.sha256, `${part}:opaque:${type}:${ctx.order}`);
   ctx.nodes.push({ id, type: 'opaque', parentId, children: [], order: ctx.order++, sourceRef: { part, ...(relationship ? { relationship } : {}) }, opaque: { type } });
   attach(ctx, parentId, id);
+  return id;
+}
+
+function auditUnsupportedContent(ctx: Context, body: XmlNode): void {
+  const seenRelationships = new Set<string>();
+  for (const object of [...descendants(body, 'object'), ...descendants(body, 'OLEObject')]) {
+    const relationship = object.attributes.id ?? object.attributes['r:id'];
+    if (relationship && seenRelationships.has(relationship)) continue;
+    if (relationship) seenRelationships.add(relationship);
+    const id = addOpaque(ctx, null, 'embedded_object', 'word/document.xml', relationship);
+    ctx.checks.push({ code: 'embedded_object_unsupported', severity: 'warning', message: 'DOCX contains an embedded object that is preserved as opaque metadata.', nodeIds: [id] });
+  }
+  for (const rel of ctx.rels.values()) {
+    if (seenRelationships.has(rel.id) || !/(?:oleObject|package)$/i.test(rel.type)) continue;
+    seenRelationships.add(rel.id);
+    const id = addOpaque(ctx, null, 'embedded_object', 'word/document.xml', rel.id);
+    ctx.checks.push({ code: 'embedded_object_unsupported', severity: 'warning', message: 'DOCX contains an embedded package that is not expanded locally.', nodeIds: [id] });
+  }
+  for (const part of ctx.pkg.names().filter((name) => /(?:^|\/)vbaProject\.bin$/i.test(name))) {
+    const id = addOpaque(ctx, null, 'vba_project', part);
+    ctx.checks.push({ code: 'macro_preserved', severity: 'warning', message: 'DOCX contains a VBA project. It was not executed and is preserved as an opaque part.', nodeIds: [id] });
+  }
 }
 
 function attach(ctx: Context, parentId: string | null, childId: string): void {
@@ -260,9 +286,7 @@ function headingType(name?: string): string {
   return name && /^heading\s*[1-9]/i.test(name) ? 'heading' : 'paragraph';
 }
 
-function paragraphsText(node: XmlNode): string {
-  return descendants(node, 'p').map((p) => descendants(p, 't').map(textContent).join('')).join('\n');
-}
+function headingLevel(name?: string): number { return Math.min(9, Math.max(1, Number(name?.match(/[1-9]/)?.[0] ?? 2))); }
 
 function xmlSnapshot(node: XmlNode): Record<string, unknown> {
   return { name: node.local, ...(Object.keys(node.attributes).length ? { attributes: node.attributes } : {}),

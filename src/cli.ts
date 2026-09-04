@@ -45,6 +45,8 @@ function commonOptions(command: Command): Command {
     .option('--max-source-bytes <bytes>', 'local parser source-size limit')
     .option('--max-expanded-bytes <bytes>', 'local OOXML cumulative expanded-size limit')
     .option('--max-part-bytes <bytes>', 'local OOXML single-part expanded-size limit')
+    .option('--max-asset-bytes <bytes>', 'local single-asset size limit')
+    .option('--max-total-asset-bytes <bytes>', 'local cumulative asset-size limit')
     .option('--max-zip-entries <count>', 'local OOXML ZIP entry limit')
     .option('--max-url-bytes <bytes>', 'local HTML response-size limit')
     .option('--worker-heap-mb <mb>', 'local OOXML worker heap limit')

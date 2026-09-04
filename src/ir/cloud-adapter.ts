@@ -2,7 +2,7 @@ import type { ParseResult } from '@deckops/sdk';
 import type { ResultArtifact } from 'pdf-lite-parse';
 import { stableId } from './ids.js';
 import { result3ToDeckIr } from './result3-adapter.js';
-import type { CandidateAsset, DeckIrNode, DeckIrPage, DocumentFormat, ParseCandidate } from './schema.js';
+import type { CandidateAsset, DeckIrNode, DeckIrPage, DocumentFormat, ParseCandidate, QualityCheck } from './schema.js';
 import { makeIr, qualityOf, type SourceIdentity } from '../local/common.js';
 import type { ParseTaskType } from '../types.js';
 
@@ -34,11 +34,22 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   } else {
     walkCloud(raw, nodes, source.sha256, 'root', undefined, null);
   }
-  const quality = qualityOf([], { ...(pages.length ? { pages: { parsed: pages.length, total: pages.length } } : {}),
+  const checks: QualityCheck[] = [];
+  if (nodes.length === 0) checks.push({ code: 'cloud_schema_unmapped', severity: 'error', message: `Cloud schema ${parsed.irSchemaVersion} did not contain mappable document nodes.` });
+  let quality = qualityOf(checks, { ...(pages.length ? { pages: { parsed: pages.length, total: pages.length } } : {}),
     objects: { parsed: nodes.length, opaque: 0 }, textCharacters: nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0) });
   const ir = makeIr({ format, source, producer: { engine: 'cloud', name: 'deckflow-cloud', version: '1' },
     metadata: { cloudSchemaVersion: parsed.irSchemaVersion }, pages, nodes, assets, quality });
-  return { ir, quality, assets, remote: { taskId: parsed.taskId, irKey: parsed.irKey }, warnings: [] };
+  const availableAssets = new Set(ir.document.assets.map((asset) => asset.path));
+  for (const node of ir.document.nodes) {
+    const assetPath = node.extensions?.assetPath;
+    if (typeof assetPath !== 'string' || availableAssets.has(assetPath)) continue;
+    delete node.extensions!.assetPath;
+    node.issues = [...(node.issues ?? []), 'missing_media'];
+    checks.push({ code: 'cloud_asset_unavailable', severity: 'warning', message: 'A cloud asset could not be materialized into the durable artifact.', nodeIds: [node.id] });
+  }
+  quality = qualityOf(checks, quality.coverage); ir.quality = quality;
+  return { ir, quality, assets, remote: { taskId: parsed.taskId, irKey: parsed.irKey }, warnings: quality.checks.map((check) => check.message) };
 }
 
 function walkCloud(value: unknown, nodes: DeckIrNode[], hash: string, locator: string, page?: number, parentId: string | null = null): void {
@@ -51,10 +62,13 @@ function walkCloud(value: unknown, nodes: DeckIrNode[], hash: string, locator: s
   if (text || ['shape', 'picture', 'image', 'table', 'group', 'chart'].some((token) => kind.includes(token))) {
     const id = stableId(hash, `cloud:${locator}`);
     const xfrm = object(record.xfrm);
+    const assetPath = string(record.assetPath ?? record.suggestedPath ?? record.path);
+    const externalUrl = string(record.accessURL ?? record.url);
     const node: DeckIrNode = { id, type: kind, parentId, children: [], order: nodes.length, ...(text ? { text } : {}),
       ...(page ? { page } : {}), sourceRef: { path: locator, ...(page ? { page } : {}) },
-      ...(xfrm && [xfrm.x, xfrm.y, xfrm.cx, xfrm.cy].every((item) => typeof item === 'number') ? { bbox: [xfrm.x as number, xfrm.y as number, xfrm.cx as number, xfrm.cy as number] } : {}),
-      extensions: { cloud: { id: record.id, name: record.name, style: record.style } } };
+      ...(xfrm && [xfrm.x, xfrm.y, xfrm.cx, xfrm.cy].every((item) => typeof item === 'number') ?
+        { bbox: [xfrm.x as number, xfrm.y as number, (xfrm.x as number) + (xfrm.cx as number), (xfrm.y as number) + (xfrm.cy as number)] } : {}),
+      extensions: { cloud: { id: record.id, name: record.name, style: record.style }, ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}) } };
     nodes.push(node); if (parentId) nodes.find((item) => item.id === parentId)?.children.push(id); nextParent = id;
   }
   for (const [key, child] of Object.entries(record)) {
@@ -105,3 +119,4 @@ function formatForType(type: ParseTaskType): DocumentFormat {
 function object(value: unknown): Record<string, unknown> | undefined { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined; }
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 function number(value: unknown): number | undefined { return typeof value === 'number' && Number.isFinite(value) ? value : undefined; }
+function string(value: unknown): string | undefined { return typeof value === 'string' && value ? value : undefined; }

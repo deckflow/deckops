@@ -29,6 +29,8 @@ export interface RawCliOptions {
   maxSourceBytes?: string;
   maxExpandedBytes?: string;
   maxPartBytes?: string;
+  maxAssetBytes?: string;
+  maxTotalAssetBytes?: string;
   maxZipEntries?: string;
   maxUrlBytes?: string;
   workerHeapMb?: string;
@@ -80,11 +82,14 @@ export function commonFlagsOf(options: RawCliOptions): CommonFlags {
   const engine = options.engine ?? process.env.DECKPARSE_ENGINE ?? 'local';
   const allowUpload = options.allowUpload ?? envBoolean('DECKPARSE_ALLOW_UPLOAD');
   const failOnDegraded = options.failOnDegraded ?? envBoolean('DECKPARSE_FAIL_ON_DEGRADED');
+  const timeout = options.timeout === undefined ? undefined : Number(options.timeout);
   if (!['local', 'cloud', 'auto'].includes(engine)) throw DeckParseError.usage('--engine must be local, cloud, or auto.');
   if (allowUpload && engine !== 'auto') throw DeckParseError.usage('--allow-upload only applies with --engine auto.');
+  if (timeout !== undefined && (!Number.isSafeInteger(timeout) || timeout <= 0)) throw DeckParseError.usage('--timeout must be a positive integer number of seconds.');
   const limitEntries = [
     ['sourceBytes', '--max-source-bytes', options.maxSourceBytes], ['zipExpandedBytes', '--max-expanded-bytes', options.maxExpandedBytes],
     ['zipEntryBytes', '--max-part-bytes', options.maxPartBytes], ['zipEntries', '--max-zip-entries', options.maxZipEntries],
+    ['assetBytes', '--max-asset-bytes', options.maxAssetBytes], ['assetTotalBytes', '--max-total-asset-bytes', options.maxTotalAssetBytes],
     ['urlBytes', '--max-url-bytes', options.maxUrlBytes], ['workerHeapMb', '--worker-heap-mb', options.workerHeapMb],
   ] as const;
   const limits: Record<string, number> = {};
@@ -96,7 +101,7 @@ export function commonFlagsOf(options: RawCliOptions): CommonFlags {
   }
   return {
     ...(options.space !== undefined ? { spaceId: options.space } : {}),
-    ...(options.timeout !== undefined ? { timeout: Number(options.timeout) } : {}),
+    ...(timeout !== undefined ? { timeout } : {}),
     ...(options.force !== undefined ? { force: options.force } : {}),
     engine: engine as NonNullable<CommonFlags['engine']>,
     ...(allowUpload !== undefined ? { allowUpload } : {}),

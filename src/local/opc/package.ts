@@ -23,8 +23,11 @@ export interface Relationship {
 /** Minimal central-directory reader: validates first, inflates requested parts only. */
 export class OpcPackage {
   private readonly entries = new Map<string, ZipEntry>();
+  private readonly canonicalEntries = new Set<string>();
   private expandedRead = 0;
   private readonly countedReads = new Set<string>();
+  private assetRead = 0;
+  private readonly countedAssets = new Set<string>();
 
   constructor(private readonly data: Uint8Array, private readonly limits: LocalLimits) {
     if (data.byteLength > limits.sourceBytes) throw DeckParseError.input('Source exceeds the local input size limit.');
@@ -63,6 +66,19 @@ export class OpcPackage {
     else throw DeckParseError.unsupported(`ZIP compression method ${entry.method} is not supported.`);
     if (output.byteLength !== entry.expandedSize) throw DeckParseError.input(`ZIP entry ${normalized} has an invalid expanded size.`);
     return output;
+  }
+
+  readAsset(name: string): Uint8Array {
+    const normalized = normalizePart(name);
+    const entry = this.entries.get(normalized);
+    if (!entry) throw DeckParseError.input(`OOXML package is missing ${normalized}.`);
+    if (entry.expandedSize > this.limits.assetBytes) throw DeckParseError.input(`OOXML asset ${normalized} exceeds the local asset-size limit.`);
+    if (!this.countedAssets.has(normalized)) {
+      this.countedAssets.add(normalized);
+      this.assetRead += entry.expandedSize;
+    }
+    if (this.assetRead > this.limits.assetTotalBytes) throw DeckParseError.input('OOXML assets exceed the local cumulative asset-size limit.');
+    return this.read(normalized);
   }
 
   xml(name: string): XmlNode {
@@ -133,7 +149,9 @@ export class OpcPackage {
       if (nameEnd > this.data.byteLength) throw DeckParseError.input('ZIP entry name is truncated.');
       const name = normalizePart(new TextDecoder().decode(this.data.subarray(nameStart, nameEnd)));
       if (!name.endsWith('/')) {
-        if (this.entries.has(name)) throw DeckParseError.input(`ZIP package contains duplicate path ${name}.`);
+        const canonical = path.posix.normalize(decodeURIComponent(name).replace(/\\/g, '/'));
+        if (this.entries.has(name) || this.canonicalEntries.has(canonical)) throw DeckParseError.input(`ZIP package contains duplicate path ${name}.`);
+        this.canonicalEntries.add(canonical);
         this.entries.set(name, { name, flags, method, compressedSize, expandedSize, localOffset });
       }
       at = nameEnd + extraLength + commentLength;
@@ -143,9 +161,14 @@ export class OpcPackage {
 
 export function normalizePart(value: string): string {
   const unix = value.replace(/\\/g, '/');
+  let decoded: string;
+  try { decoded = decodeURIComponent(unix).replace(/\\/g, '/'); }
+  catch (cause) { throw DeckParseError.input(`OOXML package contains an invalid encoded path: ${value}`, { cause }); }
   if (unix.startsWith('/') || /^[A-Za-z]:\//.test(unix)) throw DeckParseError.input(`Unsafe ZIP path: ${value}`);
   const normalized = path.posix.normalize(unix);
-  if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../') || path.posix.isAbsolute(normalized)) {
+  const decodedNormalized = path.posix.normalize(decoded);
+  if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../') || path.posix.isAbsolute(normalized) ||
+      !decodedNormalized || decodedNormalized === '.' || decodedNormalized === '..' || decodedNormalized.startsWith('../') || path.posix.isAbsolute(decodedNormalized) || /^[A-Za-z]:\//.test(decodedNormalized) || /[\0-\x1f]/.test(decoded)) {
     throw DeckParseError.input(`Unsafe ZIP path: ${value}`);
   }
   return normalized;
@@ -153,7 +176,8 @@ export function normalizePart(value: string): string {
 
 export function resolvePart(ownerPart: string, target: string): string {
   const base = path.posix.dirname(normalizePart(ownerPart));
-  return normalizePart(path.posix.join(base, target));
+  const pathTarget = target.split('#', 1)[0]!.split('?', 1)[0]!;
+  return pathTarget.startsWith('/') ? normalizePart(pathTarget.replace(/^\/+/, '')) : normalizePart(path.posix.join(base, pathTarget));
 }
 
 function relationshipsPart(ownerPart: string): string {

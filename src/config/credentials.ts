@@ -89,8 +89,8 @@ function sanitizeCredentials(raw: unknown, keepUnknown: boolean): SharedCredenti
     if (typeof record[key] === 'string' && record[key].trim()) result[key] = record[key].trim();
     else delete result[key];
   }
-  if (typeof record.apiBase === 'string' && isHttpUrl(record.apiBase)) result.apiBase = record.apiBase;
-  else delete result.apiBase;
+  const apiBase = typeof record.apiBase === 'string' ? record.apiBase.trim() : '';
+  if (apiBase && isHttpUrl(apiBase)) result.apiBase = apiBase; else delete result.apiBase;
   return result;
 }
 

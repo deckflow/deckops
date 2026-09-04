@@ -6,7 +6,7 @@ import type { LocalLimits } from './limits.js';
 export type WorkerRequest =
   | { kind: 'docx'; data: Uint8Array; source: SourceIdentity; limits: LocalLimits; options: DocxOptions }
   | { kind: 'pptx'; data: Uint8Array; source: SourceIdentity; limits: LocalLimits }
-  | { kind: 'html'; html: string; source: SourceIdentity; baseUrl?: string | undefined };
+  | { kind: 'html'; html: string; source: SourceIdentity; baseUrl?: string | undefined; limits: LocalLimits };
 
 export type WorkerResponse =
   | { ok: true; candidate: ParseCandidate }

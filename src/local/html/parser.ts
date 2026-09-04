@@ -10,6 +10,7 @@ type HtmlElement = DefaultTreeAdapterMap['element'];
 const CONTENT_TAGS = new Set(['article', 'section', 'main', 'nav', 'aside', 'header', 'footer', 'div', 'address', 'dl', 'dt', 'dd', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'figure', 'figcaption', 'img', 'a']);
 const SKIP_TAGS = new Set(['script', 'style', 'template', 'noscript', 'svg', 'canvas']);
 const TEXT_CONTAINER_TAGS = new Set(['address', 'dt', 'dd', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'blockquote', 'pre', 'code', 'li', 'th', 'td', 'figcaption', 'a']);
+const BLOCK_CHILD_TAGS = new Set(['article', 'section', 'main', 'nav', 'aside', 'header', 'footer', 'div', 'address', 'dl', 'dt', 'dd', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'blockquote', 'pre', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'figure', 'figcaption']);
 
 export function parseHtmlSource(html: string, source: SourceIdentity, baseUrl?: string): ParseCandidate {
   const document = parse(html);
@@ -17,6 +18,7 @@ export function parseHtmlSource(html: string, source: SourceIdentity, baseUrl?: 
   const main = findElement(body, 'main') ?? findElement(body, 'article');
   const checks: QualityCheck[] = [];
   if (!main) checks.push({ code: 'main_content_ambiguous', severity: 'warning', message: 'No main/article landmark was found; the semantic body was retained.' });
+  if (findElement(document, 'script')) checks.push({ code: 'scripts_ignored', severity: 'info', message: 'HTML scripts were retained only as a safety signal and were not executed.' });
   const nodes: DeckIrNode[] = [];
   let order = 0;
   const walk = (raw: HtmlNode, parentId: string | null, path: string): void => {
@@ -25,24 +27,27 @@ export function parseHtmlSource(html: string, source: SourceIdentity, baseUrl?: 
     if (SKIP_TAGS.has(tag)) return;
     const childPath = `${path}/${tag}[${order}]`;
     let nextParent = parentId;
+    let capturesText = false;
     if (CONTENT_TAGS.has(tag)) {
       const id = stableId(source.sha256, `html:${childPath}`);
       const href = attr(raw, 'href');
       const src = attr(raw, 'src');
       const text = directSemanticText(raw).trim();
+      capturesText = Boolean(text) && !hasBlockContentChild(raw);
       const nestedLinks = descendantsOf(raw, 'a').map((link) => ({ href: resolveUrl(attr(link, 'href') ?? '', baseUrl), text: textOf(link).trim() })).filter((link) => link.href);
       const type = htmlType(tag);
       const node: DeckIrNode = { id, type, parentId, children: [], order: order++, ...(text ? { text } : {}),
         sourceRef: { path: childPath },
         ...(href ? { links: [{ href: resolveUrl(href, baseUrl), ...(text ? { text } : {}) }] } : nestedLinks.length ? { links: nestedLinks } : {}),
         extensions: { tag, ...(attr(raw, 'id') ? { htmlId: attr(raw, 'id') } : {}),
-          ...(src ? { sourceUrl: resolveUrl(src, baseUrl), alt: attr(raw, 'alt'), width: numberAttr(raw, 'width'), height: numberAttr(raw, 'height') } : {}) } };
+          ...(src ? { sourceUrl: resolveUrl(src, baseUrl), externalUrl: resolveUrl(src, baseUrl), alt: attr(raw, 'alt'), width: numberAttr(raw, 'width'), height: numberAttr(raw, 'height') } : {}) } };
+      if (href || nestedLinks.length) node.runs = inlineRuns(raw, baseUrl);
       if (/^h[1-6]$/.test(tag)) node.extensions = { ...node.extensions, level: Number(tag[1]) };
       nodes.push(node);
       if (parentId) nodes.find((item) => item.id === parentId)?.children.push(id);
       nextParent = id;
     }
-    if (TEXT_CONTAINER_TAGS.has(tag)) {
+    if (TEXT_CONTAINER_TAGS.has(tag) || capturesText) {
       for (const image of descendantsOf(raw, 'img')) walk(image, nextParent, childPath);
       return;
     }
@@ -51,6 +56,8 @@ export function parseHtmlSource(html: string, source: SourceIdentity, baseUrl?: 
   for (const child of childNodes((main ?? body) as HtmlNode)) walk(child, null, main ? '/main' : '/body');
 
   const textCharacters = nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0);
+  const remoteImages = nodes.filter((node) => node.type === 'image' && typeof node.extensions?.sourceUrl === 'string');
+  if (remoteImages.length) checks.push({ code: 'remote_assets_not_localized', severity: 'warning', message: `${remoteImages.length} HTML image(s) remain remote references and were not downloaded.`, nodeIds: remoteImages.map((node) => node.id) });
   const hydration = /(?:__NEXT_DATA__|__NUXT__|data-reactroot|ng-version|id=["'](?:root|app)["'])/i.test(html);
   if (textCharacters < 120 && hydration) checks.push({ code: 'runtime_required', severity: 'error', message: 'The initial HTML contains little readable content and appears to require JavaScript hydration.' });
   const quality = qualityOf(checks, { objects: { parsed: nodes.length, opaque: 0 }, textCharacters });
@@ -103,14 +110,34 @@ function htmlType(tag: string): string {
 
 function directSemanticText(node: HtmlElement): string {
   if (TEXT_CONTAINER_TAGS.has(node.tagName)) return textOf(node);
-  const hasStructuredChild = childNodes(node).some((child) => isElement(child) && CONTENT_TAGS.has(child.tagName));
-  return hasStructuredChild ? '' : textOf(node);
+  return hasBlockContentChild(node) ? '' : textOf(node);
+}
+
+function hasBlockContentChild(node: HtmlElement): boolean {
+  return childNodes(node).some((child) => isElement(child) && BLOCK_CHILD_TAGS.has(child.tagName));
 }
 
 function textOf(node: HtmlNode): string {
   if ('nodeName' in node && node.nodeName === '#text') return (node as DefaultTreeAdapterMap['textNode']).value;
   if (isElement(node) && SKIP_TAGS.has(node.tagName)) return '';
   return childNodes(node).map(textOf).join('');
+}
+
+function inlineRuns(root: HtmlNode, base?: string): import('../../ir/schema.js').DeckIrRun[] {
+  const runs: import('../../ir/schema.js').DeckIrRun[] = [];
+  const visit = (node: HtmlNode, href?: string): void => {
+    if ('nodeName' in node && node.nodeName === '#text') {
+      const text = (node as DefaultTreeAdapterMap['textNode']).value;
+      if (text) runs.push({ text, ...(href ? { href } : {}) });
+      return;
+    }
+    if (!isElement(node) || SKIP_TAGS.has(node.tagName)) return;
+    const ownHref = node.tagName === 'a' ? resolveUrl(attr(node, 'href') ?? '', base) || href : href;
+    for (const child of childNodes(node)) visit(child, ownHref);
+  };
+  visit(root);
+  if (runs.length) { runs[0]!.text = runs[0]!.text.replace(/^\s+/, ''); runs.at(-1)!.text = runs.at(-1)!.text.replace(/\s+$/, ''); }
+  return runs.filter((run) => run.text);
 }
 
 function findElement(root: HtmlNode, tag: string): HtmlElement | undefined {

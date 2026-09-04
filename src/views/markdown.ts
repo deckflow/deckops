@@ -39,13 +39,25 @@ function renderNode(node: DeckIrNode, byId: Map<string, DeckIrNode>, options: { 
 
 function renderTable(table: DeckIrNode, byId: Map<string, DeckIrNode>): string {
   const rows = table.children.map((id) => byId.get(id)).filter((node): node is DeckIrNode => node?.type === 'table_row');
-  const matrix = rows.map((row) => row.children.map((id) => byId.get(id)).filter((cell): cell is DeckIrNode => Boolean(cell)).map((cell) => escapeTable(cell.text ?? childText(cell, byId))));
+  const declaredColumns = Number((table.extensions?.table as { cols?: unknown } | undefined)?.cols ?? table.extensions?.columns ?? 0);
+  const matrix = rows.map((row) => {
+    const cells = row.children.map((id) => byId.get(id)).filter((cell): cell is DeckIrNode => Boolean(cell));
+    const width = Math.max(declaredColumns, ...cells.map((cell, index) => Number(cell.extensions?.column ?? index) + Number(cell.extensions?.gridSpan ?? 1)), 0);
+    const values = Array<string>(width).fill('');
+    for (const [index, cell] of cells.entries()) {
+      const content = cell.runs?.length ? renderRuns(cell.runs).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>') : escapeTable(cell.text ?? childText(cell, byId));
+      values[Number(cell.extensions?.column ?? index)] = content;
+    }
+    return values;
+  });
   if (!matrix.length) return '';
   const columns = Math.max(...matrix.map((row) => row.length));
   const padded = matrix.map((row) => [...row, ...Array(Math.max(0, columns - row.length)).fill('')]);
   const header = padded[0] ?? [];
   const separator = Array(columns).fill('---');
-  return [header, separator, ...padded.slice(1)].map((row) => `| ${row.join(' | ')} |`).join('\n');
+  const body = [header, separator, ...padded.slice(1)].map((row) => `| ${row.join(' | ')} |`).join('\n');
+  const caption = (table.extensions?.table as { caption?: unknown } | undefined)?.caption;
+  return typeof caption === 'string' && caption.trim() ? `${escapeMarkdown(caption.trim())}\n\n${body}` : body;
 }
 
 function childText(node: DeckIrNode, byId: Map<string, DeckIrNode>): string {

@@ -7,6 +7,7 @@ import { runConvert } from './core/convert-op.js';
 import { resolveInput } from './core/input.js';
 import type { NodeDocumentInspector } from './core/inspector.js';
 import { runParse } from './core/parse-op.js';
+import { validateConvertFlags, validateParseFlags } from './core/validation.js';
 import { DeckParseError } from './errors/index.js';
 import { validateDeckIR } from './ir/validate.js';
 import type { DeckProbeReport, PreflightMode, PreflightSummary } from './shared/preflight.js';
@@ -51,9 +52,11 @@ export class ParsedDocument {
 
   async convert(options: ConvertInputOptions = {}): Promise<ConvertEnvelope> {
     const { out, from: _from, preflight, spaceId, timeout, force, engine, allowUpload, failOnDegraded, limits,
-      profile: _profile, password: _password, includeImages: _includeImages, pageFurniture: _pageFurniture,
-      overlaidText: _overlaidText, trackedChanges: _trackedChanges, stayImageAreaRate: _stayImageAreaRate, mode: _mode, ...flags } = options;
-    return runConvert({ input: { kind: 'artifact', dir: this.dir, manifest: this.manifest }, inputLabel: this.dir,
+      profile, password, includeImages, pageFurniture, overlaidText, trackedChanges, stayImageAreaRate, mode, ...flags } = options;
+    const input = { kind: 'artifact' as const, dir: this.dir, manifest: this.manifest };
+    const parseFlags = compact<ParseFlags>({ profile, password, includeImages, pageFurniture, overlaidText, trackedChanges, stayImageAreaRate, mode });
+    validateParseFlags(input, parseFlags); validateConvertFlags(input, flags); validateCommon({ timeout, engine, allowUpload });
+    return runConvert({ input, inputLabel: this.dir,
       ...(out !== undefined ? { out } : {}), flags,
       common: compact<CommonFlags>({ spaceId, timeout, force, engine, allowUpload, failOnDegraded, limits }),
       ...(preflight !== undefined ? { preflight } : {}), cloud: this.cloud });
@@ -79,6 +82,7 @@ export function createClient(options: ClientOptions = {}): DeckParseClient {
   const parseEnvelope = async (input: string, parseOptions: ParseInputOptions = {}): Promise<ParseEnvelope> => {
     const { out, from, preflight, spaceId, timeout, force, engine, allowUpload, failOnDegraded, limits, ...flags } = parseOptions;
     const resolved = await resolveInput(input, from !== undefined ? { from } : {});
+    validateParseFlags(resolved, flags); validateCommon({ timeout, engine, allowUpload });
     return runParse({ input: resolved, inputLabel: input, ...(out !== undefined ? { out } : {}), flags,
       common: compact<CommonFlags>({ spaceId, timeout, force, engine, allowUpload, failOnDegraded, limits }),
       ...(preflight !== undefined ? { preflight } : {}), ...(options.inspector ? { inspector: options.inspector } : {}), cloud });
@@ -92,6 +96,7 @@ export function createClient(options: ClientOptions = {}): DeckParseClient {
         profile, password, includeImages, pageFurniture, overlaidText, trackedChanges, stayImageAreaRate, mode, ...flags } = convertOptions;
       const resolved = await resolveInput(input, from !== undefined ? { from } : {});
       const parseFlags = compact<ParseFlags>({ profile, password, includeImages, pageFurniture, overlaidText, trackedChanges, stayImageAreaRate, mode });
+      validateParseFlags(resolved, parseFlags); validateConvertFlags(resolved, flags); validateCommon({ timeout, engine, allowUpload });
       return runConvert({ input: resolved, inputLabel: input, ...(out !== undefined ? { out } : {}), flags, parseFlags,
         common: compact<CommonFlags>({ spaceId, timeout, force, engine, allowUpload, failOnDegraded, limits }),
         ...(preflight !== undefined ? { preflight } : {}), ...(options.inspector ? { inspector: options.inspector } : {}), cloud });
@@ -100,6 +105,11 @@ export function createClient(options: ClientOptions = {}): DeckParseClient {
 }
 
 function compact<T extends object>(value: Record<string, unknown>): T { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T; }
+function validateCommon(value: { timeout: CommonFlags['timeout']; engine: CommonFlags['engine']; allowUpload: CommonFlags['allowUpload'] }): void {
+  if (value.engine !== undefined && !['local', 'cloud', 'auto'].includes(value.engine)) throw DeckParseError.usage('engine must be local, cloud, or auto.');
+  if (value.allowUpload && value.engine !== 'auto') throw DeckParseError.usage('allowUpload only applies with engine "auto".');
+  if (value.timeout !== undefined && (!Number.isFinite(value.timeout) || value.timeout <= 0)) throw DeckParseError.usage('timeout must be a positive number of seconds.');
+}
 
 const defaultClient = createClient();
 export async function parse(input: string, options?: ParseInputOptions): Promise<ParsedDocument> { return defaultClient.parse(input, options); }

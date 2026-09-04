@@ -24,7 +24,7 @@ npm install -g @deckflow/deckparse
 
 The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications use the separate cloud-only [browser entry](#use-it-in-the-browser).
 
-The default npm install includes `pdfjs-dist`'s optional `@napi-rs/canvas` platform binary, which enables composite-figure cropping. The 1.0.0 release check measured 72.95 MiB for the default production install and 44.10 MiB with optional dependencies omitted (platform and npm metadata can move these numbers slightly). For a strict no-native install use:
+The default npm install includes `pdfjs-dist`'s optional `@napi-rs/canvas` platform binary, which enables composite-figure cropping. The 1.0.0 release check measured 73.01 MiB for the default production install and 44.16 MiB with optional dependencies omitted (platform and npm metadata can move these numbers slightly). For a strict no-native install use:
 
 ```bash
 npm install --omit=optional @deckflow/deckparse
@@ -55,7 +55,7 @@ doc/
 - **Convert never re-parses.** Manifest v2 stores public `deckir.v1`; local artifacts remain convertible indefinitely. The 7-day lifetime only applies to an optional cloud `irKey`.
 - **No silent fallback.** `--engine auto` stays local unless `--allow-upload` is explicitly present. `--fail-on-degraded` turns a quality warning into a failure.
 
-Local parsers enforce source, ZIP expansion/ratio, XML depth/event, URL response, timeout and worker-heap limits. The main budgets can be raised explicitly with `--max-source-bytes`, `--max-expanded-bytes`, `--max-part-bytes`, `--max-zip-entries`, `--max-url-bytes` and `--worker-heap-mb`; overrides are recorded in the artifact cache identity.
+Local parsers enforce source, ZIP expansion/ratio, asset, XML depth/event, URL response, timeout and worker-heap limits. The main budgets can be raised explicitly with `--max-source-bytes`, `--max-expanded-bytes`, `--max-part-bytes`, `--max-asset-bytes`, `--max-total-asset-bytes`, `--max-zip-entries`, `--max-url-bytes` and `--worker-heap-mb`; overrides are recorded in the artifact cache identity.
 
 ## Supported formats
 

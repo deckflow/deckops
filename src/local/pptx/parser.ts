@@ -50,12 +50,18 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     const tree = descendants(slide, 'spTree')[0];
     if (tree) parseShapeTree(tree, ctx, null);
     parseNotes(ctx);
+    auditUnsupportedRelationships(ctx);
     order = ctx.order;
     pages.push({
       id: stableId(source.sha256, `pptx:slide:${rel.target}`, 'p'), index: page,
       ...(width > 0 ? { width } : {}), ...(height > 0 ? { height } : {}),
       nodeIds: nodes.slice(before).filter((node) => node.page === page).map((node) => node.id), sourceRef: { part: rel.target, page },
     });
+  }
+  for (const part of pkg.names().filter((name) => /(?:^|\/)vbaProject\.bin$/i.test(name))) {
+    const id = stableId(source.sha256, `${part}:opaque:vba_project`);
+    nodes.push({ id, type: 'opaque', parentId: null, children: [], order: order++, sourceRef: { part }, opaque: { type: 'vba_project', reason: 'VBA is never executed by the local parser.' } });
+    checks.push({ code: 'macro_preserved', severity: 'warning', message: 'PPTX contains a VBA project. It was not executed and is preserved as an opaque part.', nodeIds: [id] });
   }
   const opaque = nodes.filter((node) => node.opaque).length;
   const quality = qualityOf(checks, {
@@ -114,9 +120,12 @@ function parsePicture(pic: XmlNode, ctx: Context, parentId: string | null): void
     page: ctx.page, zIndex: ctx.order, sourceRef: { part: ctx.part, page: ctx.page, ...(relId ? { relationship: relId } : {}), path: `picture/${nativeId}` },
     ...(bboxOf(descendants(pic, 'xfrm')[0]) ? { bbox: bboxOf(descendants(pic, 'xfrm')[0]) } : {}),
     extensions: { nativeId, name: native?.attributes.name, alt: native?.attributes.descr } };
-  if (rel?.external) { node.extensions = { ...node.extensions, externalUrl: rel.target }; node.issues = ['external_asset']; }
+  if (rel?.external) {
+    node.extensions = { ...node.extensions, externalUrl: rel.target }; node.issues = ['external_asset'];
+    ctx.checks.push({ code: 'external_asset', severity: 'warning', message: `Slide ${ctx.page} contains an externally linked image that was not downloaded.`, pages: [ctx.page], nodeIds: [id] });
+  }
   else if (rel && ctx.pkg.has(rel.target)) {
-    const bytes = ctx.pkg.read(rel.target);
+    const bytes = ctx.pkg.readAsset(rel.target);
     ctx.assets.push({ path: rel.target, data: bytes, ...(mediaTypeForPath(rel.target) ? { mediaType: mediaTypeForPath(rel.target) } : {}), sourceRef: { part: ctx.part, relationship: rel.id } });
     node.extensions = { ...node.extensions, assetPath: rel.target };
   } else {
@@ -161,8 +170,8 @@ function parseTable(table: XmlNode, frame: XmlNode, ctx: Context, parentId: stri
     ctx.nodes.push(rowNode); tableNode.children.push(rowId);
     for (const [column, cell] of children(row, 'tc').entries()) {
       const cellId = stableId(ctx.source.sha256, `${rowId}:cell:${column}`);
-      const cellText = descendants(cell, 'p').map((p) => textRuns(p, ctx.rels).map((run) => run.text).join('')).join('\n');
-      const cellNode: DeckIrNode = { id: cellId, type: 'table_cell', parentId: rowId, children: [], order: ctx.order++, text: cellText, page: ctx.page,
+      const cellRuns = descendants(cell, 'p').flatMap((paragraph, index) => [...(index ? [{ text: '\n' }] : []), ...textRuns(paragraph, ctx.rels)]);
+      const cellNode: DeckIrNode = { id: cellId, type: 'table_cell', parentId: rowId, children: [], order: ctx.order++, text: cellRuns.map((run) => run.text).join(''), runs: cellRuns, page: ctx.page,
         sourceRef: { part: ctx.part, page: ctx.page, path: `table/${nativeId}/row/${rowIndex}/cell/${column}` },
         extensions: { row: rowIndex, column, rowSpan: Number(cell.attributes.rowSpan ?? 1), gridSpan: Number(cell.attributes.gridSpan ?? 1), hMerge: cell.attributes.hMerge === '1', vMerge: cell.attributes.vMerge === '1' } };
       ctx.nodes.push(cellNode); rowNode.children.push(cellId);
@@ -177,6 +186,7 @@ function parseGroup(group: XmlNode, ctx: Context, parentId: string | null): void
   ctx.nodes.push({ id, type: 'group', parentId, children: [], order: ctx.order++, page: ctx.page,
     sourceRef: { part: ctx.part, page: ctx.page, path: `group/${nativeId}` }, extensions: { rawTransform: rawTransform(descendants(group, 'xfrm')[0]) } });
   attach(ctx, parentId, id);
+  ctx.checks.push({ code: 'group_transform_partial', severity: 'warning', message: `Slide ${ctx.page} contains a group whose child transforms remain in group-local coordinates.`, pages: [ctx.page], nodeIds: [id] });
   parseShapeTree(group, ctx, id);
 }
 
@@ -193,6 +203,18 @@ function parseNotes(ctx: Context): void {
     if (!text) continue;
     const id = stableId(ctx.source.sha256, `${rel.target}:note:${index}`);
     ctx.nodes.push({ id, type: 'speaker_note', parentId: null, children: [], order: ctx.order++, text, runs, page: ctx.page, sourceRef: { part: rel.target, page: ctx.page, path: `note/${index}` } });
+  }
+}
+
+function auditUnsupportedRelationships(ctx: Context): void {
+  for (const rel of ctx.rels.values()) {
+    const kind = /oleObject|package/i.test(rel.type) ? 'embedded_object' : /audio|video|media/i.test(rel.type) ? 'media' : undefined;
+    if (!kind) continue;
+    const id = stableId(ctx.source.sha256, `${ctx.part}:opaque:${kind}:${rel.id}`);
+    ctx.nodes.push({ id, type: 'opaque', parentId: null, children: [], order: ctx.order++, page: ctx.page,
+      sourceRef: { part: ctx.part, page: ctx.page, relationship: rel.id },
+      opaque: { type: kind, reason: 'The relationship is preserved but its binary payload is not interpreted.', data: { target: rel.target, external: rel.external } } });
+    ctx.checks.push({ code: `${kind}_unsupported`, severity: 'warning', message: `Slide ${ctx.page} contains ${kind === 'media' ? 'audio/video media' : 'an embedded object'} that is not expanded locally.`, pages: [ctx.page], nodeIds: [id] });
   }
 }
 

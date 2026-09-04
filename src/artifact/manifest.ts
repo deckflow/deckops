@@ -29,17 +29,24 @@ export async function readManifest(dir: string): Promise<Manifest> {
     try {
       const ir = validateDeckIR(JSON.parse(await fs.readFile(irPath(dir), 'utf-8')));
       if (ir.source.sha256 !== manifest.source.sha256 || ir.source.bytes !== manifest.source.bytes || ir.source.name !== manifest.source.name) throw DeckParseError.input(`${dir} has inconsistent source identities in manifest.json and ir.json.`);
+      if (ir.format !== manifest.parse.format || ir.producer.engine !== manifest.parse.engine ||
+          ir.producer.name !== manifest.parse.parser.name || ir.producer.version !== manifest.parse.parser.version) {
+        throw DeckParseError.input(`${dir} has inconsistent parser metadata in manifest.json and ir.json.`);
+      }
       if (JSON.stringify(ir.quality) !== JSON.stringify(manifest.quality)) throw DeckParseError.input(`${dir} has inconsistent quality reports in manifest.json and ir.json.`);
       const irAssets = new Map(ir.document.assets.map((asset) => [asset.path, asset]));
       for (const [relative, asset] of Object.entries(manifest.assets)) {
-        const target = path.resolve(dir, relative); const root = `${path.resolve(dir)}${path.sep}`;
-        if (!target.startsWith(root)) throw DeckParseError.input(`${dir} registers an unsafe asset path.`);
+        const target = containedPath(dir, relative);
+        if (!target) throw DeckParseError.input(`${dir} registers an unsafe asset path.`);
         const stat = await fs.lstat(target);
         if (!stat.isFile() || stat.size !== asset.bytes) throw DeckParseError.input(`${dir} has a missing or truncated registered asset: ${relative}.`);
         const hash = createHash('sha256').update(await fs.readFile(target)).digest('hex');
         if (hash !== asset.hash || irAssets.has(relative) && irAssets.get(relative)?.hash !== hash) throw DeckParseError.input(`${dir} has a corrupted registered asset: ${relative}.`);
       }
       if ([...irAssets.keys()].some((relative) => !(relative in manifest.assets))) throw DeckParseError.input(`${dir} has inconsistent asset indexes in manifest.json and ir.json.`);
+      for (const view of Object.values(manifest.views)) {
+        if (view?.files.some((relative) => !containedPath(dir, relative))) throw DeckParseError.input(`${dir} registers an unsafe view path.`);
+      }
     }
     catch (cause) { if (cause instanceof DeckParseError) throw cause; throw DeckParseError.input(`${dir} has a missing or invalid ir.json.`, { cause }); }
     return manifest;
@@ -77,7 +84,7 @@ export function parseHit(dir: string, manifest: Manifest, sha256: string | undef
 
 export function viewHit(dir: string, view: ManifestView | ManifestV1View | undefined, params: Record<string, unknown>): boolean {
   if (!view || JSON.stringify(sortKeys(view.params)) !== JSON.stringify(sortKeys(params))) return false;
-  return view.files.length > 0 && view.files.every((file) => existsSync(path.join(dir, file)));
+  return view.files.length > 0 && view.files.every((file) => { const target = containedPath(dir, file); return Boolean(target && existsSync(target)); });
 }
 
 export function locallyExpired(manifest: Manifest, now: number = Date.now()): boolean {
@@ -89,8 +96,19 @@ export function locallyExpired(manifest: Manifest, now: number = Date.now()): bo
 }
 
 function sortKeys(obj: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b)));
+  return Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, canonical(value)]));
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (isRecord(value)) return sortKeys(value);
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function majorOf(version: string): number { const value = Number.parseInt(version.match(/\d+/)?.[0] ?? '', 10); return Number.isFinite(value) ? value : -1; }
+function containedPath(dir: string, relative: string): string | undefined {
+  if (!relative || path.isAbsolute(relative)) return undefined;
+  const root = path.resolve(dir); const target = path.resolve(root, relative);
+  return target.startsWith(`${root}${path.sep}`) ? target : undefined;
+}

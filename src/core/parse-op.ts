@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { defaultArtifactDir, irPath, PROBE_FILE, probePath } from '../artifact/layout.js';
@@ -8,6 +9,7 @@ import { routeParse } from '../engine/router.js';
 import { DeckParseError } from '../errors/index.js';
 import { candidateAssetOutputPath } from '../ir/assets.js';
 import type { SourceIdentity } from '../local/common.js';
+import { DEFAULT_LOCAL_LIMITS } from '../local/limits.js';
 import {
   assessPreflight, DEFAULT_PREFLIGHT_MODE, PREFLIGHT_REQUEST_VERSION, preflightProbeOptions,
   type DeckProbeReport, type PreflightMode, type PreflightOutcome,
@@ -31,7 +33,8 @@ export async function runParse(options: ParseOpOptions): Promise<ParseEnvelope> 
   const { input, inputLabel, flags, common } = options;
   const startedAt = Date.now();
   if (input.kind === 'artifact') throw DeckParseError.usage(`${inputLabel} is already an artifact.`, { hint: 'Run `deckparse convert <artifact>` to derive a view from it.' });
-  const source = await sourceIdentity(input);
+  const requestedEngine = common.engine ?? 'local';
+  const source = await sourceIdentity(input, requestedEngine === 'cloud' ? undefined : (common.limits?.sourceBytes ?? DEFAULT_LOCAL_LIMITS.sourceBytes));
   const params = normalizeParseParams({ ...parseParams(flags, input.kind === 'link'),
     ...(flags.pageFurniture ? { pageFurniture: flags.pageFurniture } : {}),
     ...(flags.overlaidText ? { overlaidText: flags.overlaidText } : {}),
@@ -39,14 +42,17 @@ export async function runParse(options: ParseOpOptions): Promise<ParseEnvelope> 
     ...(common.limits ? { limits: common.limits } : {}) });
   const dir = options.out ?? defaultDirFor(input);
   const existing = !common.force ? await readManifest(dir).catch(() => undefined) : undefined;
-  const requestedEngine = common.engine ?? 'local';
   const cacheEngine = requestedEngine === 'auto' && !common.allowUpload ? 'local' : requestedEngine;
-  const cacheHit = existing?.manifestVersion === 2 && parseHit(dir, existing, input.kind === 'link' ? undefined : source.sha256, params, cacheEngine, expectedParser(input, cacheEngine));
+  const parserEngine = cacheEngine === 'auto' && existing?.manifestVersion === 2 ? existing.parse.engine : cacheEngine;
+  const cacheHit = existing?.manifestVersion === 2 && parseHit(dir, existing, input.kind === 'link' ? undefined : source.sha256, params, cacheEngine, expectedParser(input, parserEngine));
   const storedInspection = cacheHit && existing ? await readStoredInspection(dir, existing) : undefined;
   const inspected = await runPreflight({ input, flags, mode: options.preflight ?? DEFAULT_PREFLIGHT_MODE,
     ...(options.inspector ? { inspector: options.inspector } : {}), ...(storedInspection ? { stored: storedInspection } : {}) });
 
   if (cacheHit && existing?.manifestVersion === 2) {
+    if (common.failOnDegraded && existing.quality.status === 'degraded') {
+      throw DeckParseError.input('Cached artifact quality is degraded.', existing.quality.checks[0]?.message ? { hint: existing.quality.checks[0].message } : {});
+    }
     const outputs: OutputFile[] = [];
     if (inspected.fresh && inspected.outcome.report && inspected.outcome.summary) {
       outputs.push(await writeProbeReport(dir, inspected.outcome.report));
@@ -55,14 +61,15 @@ export async function runParse(options: ParseOpOptions): Promise<ParseEnvelope> 
     }
     const summary = inspected.outcome.summary ?? existing.inspection?.summary;
     return envelope(inputLabel, dir, existing, { reused: true, startedAt, outputs,
-      warnings: inspected.outcome.warnings, ...(summary ? { inspection: summary } : {}) });
+      warnings: [...inspected.outcome.warnings, ...existing.quality.checks.filter((check) => check.severity !== 'info').map((check) => check.message)],
+      ...(summary ? { inspection: summary } : {}) });
   }
 
   const cloud = options.cloud ?? (options.client ? async () => options.client! : undefined);
   const candidate = await routeParse({
     input: { input, inputLabel, source }, parse: { flags, common },
     ...(cloud ? { cloud } : {}),
-    signal: AbortSignal.timeout((common.timeout ?? 120) * 1000),
+    signal: AbortSignal.timeout(operationTimeoutMs(common)),
   });
   if (candidate.quality.status === 'unsupported') throw DeckParseError.unsupported('The selected engine could not produce a trustworthy document structure.');
 
@@ -112,10 +119,17 @@ async function runPreflight(options: { input: Exclude<ResolvedInput, { kind: 'ar
   }
 }
 
-async function sourceIdentity(input: Exclude<ResolvedInput, { kind: 'artifact' }>): Promise<SourceIdentity> {
+async function sourceIdentity(input: Exclude<ResolvedInput, { kind: 'artifact' }>, maxBytes?: number): Promise<SourceIdentity> {
   if (input.kind === 'link') return { sha256: createHash('sha256').update(input.url).digest('hex'), name: input.url, bytes: 0 };
-  const data = input.kind === 'document' ? await fs.readFile(input.file) : input.data;
-  return { sha256: createHash('sha256').update(data).digest('hex'), name: input.name, bytes: data.byteLength };
+  if (input.kind === 'document') {
+    const stat = await fs.stat(input.file);
+    if (maxBytes !== undefined && stat.size > maxBytes) throw DeckParseError.input('Source exceeds the local input size limit.');
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(input.file)) hash.update(chunk as Buffer);
+    return { sha256: hash.digest('hex'), name: input.name, bytes: stat.size };
+  }
+  if (maxBytes !== undefined && input.data.byteLength > maxBytes) throw DeckParseError.input('Source exceeds the local input size limit.');
+  return { sha256: createHash('sha256').update(input.data).digest('hex'), name: input.name, bytes: input.data.byteLength };
 }
 
 function buildManifest(ir: import('../ir/schema.js').DeckIR, params: Record<string, unknown>, remote: import('../ir/schema.js').ParseCandidate['remote'], inspected: PreflightOutcome): ManifestV2 {
@@ -142,6 +156,12 @@ function expectedParser(input: Exclude<ResolvedInput, { kind: 'artifact' }>, eng
   if (input.taskType === 'pptx.parse') return { name: 'deckparse-pptx', major: 1 };
   if (input.taskType === 'docx.parseTextAndImage') return { name: 'deckparse-docx', major: 1 };
   return undefined;
+}
+
+function operationTimeoutMs(common: CommonFlags): number {
+  const value = common.timeout !== undefined ? common.timeout * 1000 : common.engine === 'cloud' ? 120_000 : (common.limits?.timeoutMs ?? 120_000);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) throw DeckParseError.usage('Timeout must be a positive duration within the Node.js timer range.');
+  return value;
 }
 
 async function readStoredInspection(dir: string, manifest: Manifest): Promise<DeckProbeReport | undefined> {

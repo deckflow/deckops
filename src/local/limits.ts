@@ -4,6 +4,8 @@ export interface LocalLimits {
   zipEntryBytes: number;
   zipExpandedBytes: number;
   zipCompressionRatio: number;
+  assetBytes: number;
+  assetTotalBytes: number;
   xmlDepth: number;
   xmlAttributes: number;
   xmlTextBytes: number;
@@ -19,6 +21,8 @@ export const DEFAULT_LOCAL_LIMITS: LocalLimits = Object.freeze({
   zipEntryBytes: 128 * 1024 * 1024,
   zipExpandedBytes: 512 * 1024 * 1024,
   zipCompressionRatio: 1_000,
+  assetBytes: 32 * 1024 * 1024,
+  assetTotalBytes: 256 * 1024 * 1024,
   xmlDepth: 256,
   xmlAttributes: 256,
   xmlTextBytes: 32 * 1024 * 1024,
@@ -32,7 +36,7 @@ export const DEFAULT_LOCAL_LIMITS: LocalLimits = Object.freeze({
 export function resolveLimits(overrides: Partial<LocalLimits> = {}): LocalLimits {
   const limits = { ...DEFAULT_LOCAL_LIMITS, ...overrides };
   for (const [key, value] of Object.entries(limits)) {
-    if (!Number.isFinite(value) || value <= 0) throw new TypeError(`Local limit ${key} must be positive.`);
+    if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(`Local limit ${key} must be a positive integer.`);
   }
   return limits;
 }

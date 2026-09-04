@@ -8,6 +8,10 @@ PDF.js / pdfjs-dist
 Copyright Mozilla Foundation and contributors. Licensed under the Apache License 2.0.
 https://github.com/mozilla/pdf.js
 
+@napi-rs/canvas (optional, installed through pdfjs-dist on supported platforms)
+Copyright its contributors. Licensed under the MIT License.
+https://github.com/Brooooooklyn/canvas
+
 fflate
 Copyright 2020 Arjun Barrett. Licensed under the MIT License.
 https://github.com/101arrowz/fflate

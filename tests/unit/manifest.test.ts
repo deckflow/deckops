@@ -38,6 +38,7 @@ describe('param normalization', () => {
     expect(sameParams({}, { parseProfile: 'balanced', includeImages: true })).toBe(true);
     expect(sameParams({}, { parseProfile: 'quality' })).toBe(false);
     expect(sameParams({ password: 'x' }, { password: 'x' })).toBe(true);
+    expect(sameParams({ limits: { sourceBytes: 1, assetBytes: 2 } }, { limits: { assetBytes: 2, sourceBytes: 1 } })).toBe(true);
   });
 });
 

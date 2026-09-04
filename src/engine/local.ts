@@ -21,6 +21,9 @@ export class LocalEngine implements ParseEngine {
     if (input.input.taskType === 'keynote.parseTextAndImage') {
       return { supported: false, reason: 'unsupported_local', hint: 'Keynote IWA parsing is cloud-only. Use --engine cloud.' };
     }
+    if (input.input.taskType === 'pdf.pdfParse' && options.flags.profile && options.flags.profile !== 'balanced') {
+      return { supported: false, reason: 'profile_cloud_only', hint: 'The local pdf-lite-parse API uses its balanced profile. Use --profile balanced or --engine cloud.' };
+    }
     return { supported: true };
   }
 
@@ -32,13 +35,13 @@ export class LocalEngine implements ParseEngine {
       if (input.input.kind === 'link') {
         const fetched = await fetchHtml(input.input.url, limits, signal);
         const identity: SourceIdentity = { sha256: sha256(fetched.bytes), name: fetched.url, bytes: fetched.bytes.byteLength };
-        return await runLocalWorker({ kind: 'html', html: fetched.html, source: identity, baseUrl: fetched.url }, signal);
+        return await runLocalWorker({ kind: 'html', html: fetched.html, source: identity, baseUrl: fetched.url, limits }, signal);
       }
       const identity = input.source ?? await sourceIdentity(input.input);
       if (identity.bytes > limits.sourceBytes) throw DeckParseError.input('Source exceeds the local input size limit.');
       if (input.input.taskType === 'pdf.pdfParse') {
         const source = input.input.kind === 'document' ? input.input.file : input.input.data;
-        return await parsePdf(source, identity, {
+        return await parsePdf(source, identity, limits, {
           ...(options.flags.password !== undefined ? { password: options.flags.password } : {}),
           ...(options.flags.pageFurniture !== undefined ? { pageFurniture: options.flags.pageFurniture } : {}),
           ...(options.flags.overlaidText !== undefined ? { overlaidText: options.flags.overlaidText } : {}),
