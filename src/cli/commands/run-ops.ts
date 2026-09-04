@@ -1,11 +1,12 @@
 import { resolveCredentials } from '../../config/index.js';
 import { createCloudClient, translate } from '../../cloud/client.js';
 import { runConvert } from '../../core/convert-op.js';
-import { resolveInput } from '../../core/input.js';
+import { resolveInput, type ResolvedInput } from '../../core/input.js';
 import { runParse } from '../../core/parse-op.js';
 import { validateConvertFlags, validateParseFlags } from '../../core/validation.js';
 import { DeckParseError } from '../../errors/index.js';
 import type { CommonFlags, ConvertFlags, ParseFlags } from '../../types.js';
+import { DEFAULT_PREFLIGHT_MODE, type PreflightMode } from '../../shared/preflight.js';
 import { printEnvelope, printError, type OutputContext } from '../output.js';
 
 /**
@@ -22,6 +23,7 @@ export interface RawCliOptions {
   force?: boolean;
   space?: string;
   timeout?: string;
+  preflight?: string;
   apiKey?: string;
   token?: string;
   apiBase?: string;
@@ -68,6 +70,20 @@ export function commonFlagsOf(options: RawCliOptions): CommonFlags {
   };
 }
 
+export function preflightModeOf(options: RawCliOptions): PreflightMode {
+  const value = options.preflight ?? DEFAULT_PREFLIGHT_MODE;
+  if (!['off', 'validate', 'strict'].includes(value)) {
+    throw DeckParseError.usage('--preflight must be off, validate, or strict.');
+  }
+  return value as PreflightMode;
+}
+
+/** Existing artifacts have no source bytes to inspect; only reject an explicitly requested mode there. */
+export function preflightModeForConvert(input: ResolvedInput, options: RawCliOptions): PreflightMode | undefined {
+  if (input.kind === 'artifact' && options.preflight === undefined) return undefined;
+  return preflightModeOf(options);
+}
+
 async function clientFor(options: RawCliOptions) {
   const credentials = await resolveCredentials({
     ...(options.apiKey ? { apiKey: options.apiKey } : {}),
@@ -92,6 +108,7 @@ export async function runParseCommand(inputArg: string, options: RawCliOptions):
       ...(options.output ? { out: options.output } : {}),
       flags,
       common: commonFlagsOf(options),
+      preflight: preflightModeOf(options),
       client: await clientFor(options),
     });
     printEnvelope(envelope, ctx);
@@ -106,6 +123,7 @@ export async function runConvertCommand(inputArg: string, options: RawCliOptions
     const input = await resolveInput(inputArg, options.from ? { from: options.from } : {});
     const parseFlags = parseFlagsOf(options);
     const convertFlags = convertFlagsOf(options);
+    const preflight = preflightModeForConvert(input, options);
     validateParseFlags(input, parseFlags);
     validateConvertFlags(input, convertFlags);
 
@@ -116,6 +134,7 @@ export async function runConvertCommand(inputArg: string, options: RawCliOptions
       flags: convertFlags,
       parseFlags,
       common: commonFlagsOf(options),
+      ...(preflight !== undefined ? { preflight } : {}),
       client: await clientFor(options),
     });
     printEnvelope(envelope, ctx);

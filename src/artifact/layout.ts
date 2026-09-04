@@ -5,17 +5,23 @@ import path from 'node:path';
  *
  *   <artifact>/
  *   ├── ir.json          parse's only semantic output, server response verbatim
+ *   ├── probe.json       optional local DeckProbe schema-v2 report
  *   ├── assets/          images, named by their persistent identity
  *   ├── manifest.json    written last — registered ⇒ exists
  *   └── views/<to>/      written only by convert; parse never touches it
  */
 export const IR_FILE = 'ir.json';
+export const PROBE_FILE = 'probe.json';
 export const MANIFEST_FILE = 'manifest.json';
 export const ASSETS_DIR = 'assets';
 export const VIEWS_DIR = 'views';
 
 export function irPath(dir: string): string {
   return path.join(dir, IR_FILE);
+}
+
+export function probePath(dir: string): string {
+  return path.join(dir, PROBE_FILE);
 }
 
 export function manifestPath(dir: string): string {

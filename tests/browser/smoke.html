@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Deckparse browser SDK verification</title>
+    <style>
+      :root { color-scheme: light; font: 16px/1.5 system-ui, sans-serif; color: #132e28; background: #f2f6f3; }
+      body { max-width: 850px; padding: 60px 24px; margin: auto; }
+      h1 { font-size: 32px; line-height: 1.2; }
+      p { color: #446158; }
+      button { border: 0; border-radius: 6px; padding: 12px 20px; font: inherit; background: #14654b; color: white; cursor: pointer; }
+      button:disabled { opacity: .6; cursor: wait; }
+      #summary { font-size: 22px; font-weight: 600; margin-top: 28px; }
+      li { padding: 8px 12px; margin: 6px 0; border-radius: 4px; background: white; }
+      li[data-status="fail"] { color: #ac2424; background: #fff1f1; }
+      li[data-status="pass"] { color: #145e43; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body>
+    <h1>Browser SDK verification</h1>
+    <p>Loads the published browser bundle with native ES modules. Uses real HTTP, FormData, signed uploads, and event streams against a localhost fixture. No cloud account or Node polyfills.</p>
+    <button id="run" type="button">Run browser checks</button>
+    <div id="summary" role="status" aria-live="polite">Ready</div>
+    <ol id="results"></ol>
+    <pre id="details"></pre>
+    <script type="module" src="/smoke.js"></script>
+  </body>
+</html>

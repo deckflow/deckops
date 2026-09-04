@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { ConvertResult, ParseResult } from '@deckops/sdk';
+import type { ProbeReport, ProbeResult } from '@deckflow/deckprobe';
 import type { CloudClient } from '../../src/cloud/client.js';
+import type { NodeDocumentInspector } from '../../src/core/inspector.js';
 import { runConvert } from '../../src/core/convert-op.js';
 import { resolveInput } from '../../src/core/input.js';
 import { runParse } from '../../src/core/parse-op.js';
@@ -84,6 +86,35 @@ const writeSource = (dir: string): string => {
   return file;
 };
 
+const probeReport = (): ProbeReport => ({
+  schema_version: 2,
+  tool_version: '2.4.0',
+  status: 'ok',
+  input: { display_name: 'doc.pdf', source_kind: 'browser_bytes', file_size: 14 },
+  driver: { id: 'pdf', profile: 'pdf' },
+  results: Object.fromEntries([
+    ['document.format_profile', 'pdf'],
+    ['document.extension_matches', true],
+    ['security.encrypted', false],
+    ['security.has_macros', false],
+    ['security.has_external_relationships', true],
+    ['security.has_embedded_files', false],
+    ['pdf.page_count', 3],
+  ].map(([target, value]) => [target, {
+    target, status: 'resolved', value, confidence: 'exact', confidence_score: 1,
+    path: 'fixture.path', source: 'fixture',
+  }])),
+  execution: {
+    probe_level: 'metadata', paths: ['fixture.path'], estimated_cost: 1,
+    actual_cost: { physical_bytes_read: 14, expanded_bytes: 0, random_reads: 0 }, unresolved_targets: [],
+  },
+  diagnostics: [],
+});
+
+const fakeInspector = (result: ProbeResult = probeReport()): NodeDocumentInspector & { inspect: ReturnType<typeof vi.fn> } => ({
+  inspect: vi.fn(async () => result),
+}) as never;
+
 describe('parse → artifact', () => {
   it('lays out ir.json + assets + manifest and reuses on the second run', async () => {
     const dir = tmp();
@@ -97,6 +128,7 @@ describe('parse → artifact', () => {
       out,
       flags: {},
       common: {},
+      preflight: 'off',
       client,
     });
     expect(first.reusedParse).toBe(false);
@@ -115,6 +147,7 @@ describe('parse → artifact', () => {
       out,
       flags: {},
       common: {},
+      preflight: 'off',
       client,
     });
     expect(second.reusedParse).toBe(true);
@@ -129,6 +162,7 @@ describe('parse → artifact', () => {
       out,
       flags: {},
       common: { force: true },
+      preflight: 'off',
       client,
     });
     expect(forced.reusedParse).toBe(false);
@@ -141,6 +175,7 @@ describe('parse → artifact', () => {
       out,
       flags: { profile: 'quality' },
       common: {},
+      preflight: 'off',
       client,
     });
     expect(client.parseCalls).toBe(3);
@@ -151,11 +186,101 @@ describe('parse → artifact', () => {
     const source = writeSource(dir);
     const out = path.join(dir, 'artifact');
     const client = fakeClient();
-    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client });
+    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, preflight: 'off', client });
 
     await expect(
       runParse({ input: await resolveInput(out), inputLabel: out, out, flags: {}, common: {}, client })
     ).rejects.toMatchObject({ code: 'usage_error' });
+  });
+
+  it('runs DeckProbe before cloud parse, persists probe.json, and reuses it with the artifact', async () => {
+    const dir = tmp();
+    const source = writeSource(dir);
+    const out = path.join(dir, 'artifact');
+    const client = fakeClient();
+    const inspector = fakeInspector();
+
+    const first = await runParse({
+      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client,
+      inspector,
+    });
+    expect(inspector.inspect).toHaveBeenCalledTimes(1);
+    expect(first.inspection).toMatchObject({ profile: 'pdf', pageCount: 3, hasExternalRelationships: true });
+    expect(first.warnings).toContainEqual(expect.stringContaining('external relationships'));
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'probe.json'), 'utf-8'))).toMatchObject({ schema_version: 2 });
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf-8'))).toMatchObject({
+      inspection: { file: 'probe.json', schemaVersion: 2, requestVersion: 1, summary: { pageCount: 3 } },
+    });
+
+    const second = await runParse({
+      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client,
+      preflight: 'strict', inspector,
+    });
+    expect(second.reusedParse).toBe(true);
+    expect(inspector.inspect).toHaveBeenCalledTimes(1);
+    expect(client.parseCalls).toBe(1);
+  });
+
+  it('rejects a malformed DeckProbe report before any cloud task', async () => {
+    const dir = tmp();
+    const source = writeSource(dir);
+    const client = fakeClient();
+    const inspector = fakeInspector({
+      schema_version: 2, tool_version: '2.4.0', status: 'error',
+      error: { code: 'MALFORMED_INPUT', message: 'wrong container', exit_code: 4 },
+    });
+    await expect(runParse({
+      input: await resolveInput(source), inputLabel: source, flags: {}, common: {}, client,
+      preflight: 'validate', inspector,
+    })).rejects.toMatchObject({ code: 'input_error' });
+    expect(client.parseCalls).toBe(0);
+  });
+
+  it('skips URL input under the default validate policy without invoking the inspector', async () => {
+    const dir = tmp();
+    const client = fakeClient();
+    const inspector = fakeInspector();
+    const envelope = await runParse({
+      input: { kind: 'link', url: 'https://example.com/article' },
+      inputLabel: 'https://example.com/article',
+      out: path.join(dir, 'artifact'),
+      flags: {}, common: {}, client, inspector,
+    });
+    expect(inspector.inspect).not.toHaveBeenCalled();
+    expect(envelope.warnings).toContainEqual(expect.stringContaining('skipped for the URL input'));
+    expect(client.parseCalls).toBe(1);
+  });
+
+  it('keeps off as an explicit local preflight escape hatch', async () => {
+    const dir = tmp();
+    const source = writeSource(dir);
+    const inspector = fakeInspector();
+    const envelope = await runParse({
+      input: await resolveInput(source), inputLabel: source, out: path.join(dir, 'artifact'),
+      flags: {}, common: {}, client: fakeClient(), preflight: 'off', inspector,
+    });
+    expect(inspector.inspect).not.toHaveBeenCalled();
+    expect(envelope.inspection).toBeUndefined();
+  });
+
+  it.each([
+    ['test.pdf', 'pdf', 'pdf'],
+    ['test.pptx', 'powerpoint', 'pptx'],
+    ['test.docx', 'word', 'docx'],
+    ['test.key', 'keynote', 'key'],
+  ] as const)('uses the packaged Node DeckProbe adapter on the real %s fixture', async (fixture, driver, profile) => {
+    const dir = tmp();
+    const source = path.resolve('tests/test-data', fixture);
+    const out = path.join(dir, 'artifact');
+    const envelope = await runParse({
+      input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client: fakeClient(),
+      preflight: 'strict',
+    });
+    expect(envelope.inspection).toMatchObject({ profile, encrypted: false });
+    expect(envelope.inspection?.pageCount ?? envelope.inspection?.slideCount).toBeGreaterThan(0);
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'probe.json'), 'utf-8'))).toMatchObject({
+      schema_version: 2, status: 'ok', driver: { id: driver, profile },
+    });
   });
 });
 
@@ -165,7 +290,7 @@ describe('convert <artifact>', () => {
     const source = writeSource(dir);
     const out = path.join(dir, 'artifact');
     const client = fakeClient();
-    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client });
+    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, preflight: 'off', client });
     return { dir, out, client };
   };
 
@@ -177,6 +302,7 @@ describe('convert <artifact>', () => {
       inputLabel: out,
       flags: {},
       common: {},
+      preflight: 'off',
       client,
     });
     expect(first.reusedParse).toBe(true); // standard path never re-parses
@@ -237,6 +363,7 @@ describe('convert <document> (one-shot)', () => {
       out: target,
       flags: {},
       common: {},
+      preflight: 'off',
       client,
     });
     expect(envelope.reusedParse).toBe(false);
@@ -263,6 +390,20 @@ describe('convert <document> (one-shot)', () => {
       })
     ).rejects.toMatchObject({ code: 'unsupported' });
   });
+
+  it('preflights a one-shot source and exposes the local facts without writing an artifact', async () => {
+    const dir = tmp();
+    const source = writeSource(dir);
+    const inspector = fakeInspector();
+    const envelope = await runConvert({
+      input: await resolveInput(source), inputLabel: source, out: path.join(dir, 'portable.md'),
+      flags: {}, parseFlags: {}, common: {}, client: fakeClient(), inspector,
+    });
+    expect(envelope.inspection).toMatchObject({ profile: 'pdf', pageCount: 3 });
+    expect(envelope.warnings).toContainEqual(expect.stringContaining('external relationships'));
+    expect(inspector.inspect).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(path.join(dir, 'probe.json'))).toBe(false);
+  });
 });
 
 describe('asset failure policy', () => {
@@ -278,7 +419,7 @@ describe('asset failure policy', () => {
           images: [{ ref: deadUrl, key: 'k', suggestedPath: 'assets/gone.png', bytes: 1, hash: 'h' }],
         })) as never,
     });
-    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, client });
+    await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: {}, preflight: 'off', client });
 
     await expect(
       runConvert({ input: await resolveInput(out), inputLabel: out, flags: {}, common: {}, client })

@@ -38,6 +38,7 @@ function commonOptions(command: Command): Command {
     .option('--from <ext>', 'input format for stdin (e.g. pdf)')
     .option('--space <id>', 'cloud space id')
     .option('--timeout <seconds>', 'task wait timeout')
+    .option('--preflight <mode>', 'local DeckProbe check: off|validate|strict (default: validate)')
     .option('--force', 'ignore local reuse and redo the work')
     .option('--api-key <key>', 'API key (overrides stored credentials)')
     .option('--token <token>', 'user token (overrides stored credentials)')

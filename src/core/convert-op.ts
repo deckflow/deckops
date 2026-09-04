@@ -7,7 +7,11 @@ import { locallyExpired, viewHit, writeManifest } from '../artifact/manifest.js'
 import type { CloudClient } from '../cloud/client.js';
 import { DeckParseError } from '../errors/index.js';
 import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, OutputFile, ParseFlags } from '../types.js';
+import { convertParams, parseParams } from '../shared/params.js';
+import type { PreflightMode, PreflightOutcome } from '../shared/preflight.js';
+import type { NodeDocumentInspector } from './inspector.js';
 import type { ResolvedInput } from './input.js';
+import { runSourcePreflight } from './parse-op.js';
 
 /**
  * convert (docs/rfc.md §4.2–4.4).
@@ -27,6 +31,8 @@ export interface ConvertOpOptions {
   parseFlags?: ParseFlags;
   common: CommonFlags;
   client: CloudClient;
+  preflight?: PreflightMode;
+  inspector?: NodeDocumentInspector;
 }
 
 export async function runConvert(options: ConvertOpOptions): Promise<ConvertEnvelope> {
@@ -35,6 +41,9 @@ export async function runConvert(options: ConvertOpOptions): Promise<ConvertEnve
     throw DeckParseError.unsupported(`--to ${String(to)} is not supported yet. v1 converts to markdown only.`);
   }
   if (options.input.kind === 'artifact') {
+    if (options.preflight && options.preflight !== 'off') {
+      throw DeckParseError.usage('Preflight applies to source documents, not an existing artifact.');
+    }
     return convertArtifact(options, options.input.dir, options.input.manifest);
   }
   return convertOneShot(options);
@@ -125,33 +134,40 @@ async function convertOneShot(options: ConvertOpOptions): Promise<ConvertEnvelop
     format: result.format,
     taskId: result.taskId,
     parseTaskId: parsed.taskId,
+    ...(parsed.inspected.summary ? { inspection: parsed.inspected.summary } : {}),
     reusedParse: false,
     outputs,
-    warnings,
+    warnings: [...parsed.inspected.warnings, ...warnings],
     durationMs: Date.now() - startedAt,
   };
 }
 
-async function runParseInMemory(options: ConvertOpOptions): Promise<{ irKey: string; taskId: string }> {
+async function runParseInMemory(
+  options: ConvertOpOptions
+): Promise<{ irKey: string; taskId: string; inspected: PreflightOutcome }> {
   const { input, common, client } = options;
-  const parseFlags = oneShotParseFlags(options);
+  if (input.kind === 'artifact') {
+    throw DeckParseError.usage('unreachable: artifact handled by the standard path');
+  }
+  const parseFlags = parseParams(options.parseFlags ?? {}, input.kind === 'link');
   const source =
     input.kind === 'document'
       ? input.file
       : input.kind === 'stdin'
         ? { file: { input: input.data, name: input.name }, name: input.name }
-        : input.kind === 'link'
-          ? { url: input.url }
-          : undefined;
-  if (source === undefined) {
-    throw DeckParseError.usage('unreachable: artifact handled by the standard path');
-  }
+        : { url: input.url };
+  const inspected = await runSourcePreflight({
+    input,
+    flags: options.parseFlags ?? {},
+    ...(options.preflight !== undefined ? { mode: options.preflight } : {}),
+    ...(options.inspector !== undefined ? { inspector: options.inspector } : {}),
+  });
   const parsed = await client.parse(source, {
     ...parseFlags,
     ...(common.spaceId ? { spaceId: common.spaceId } : {}),
     ...(common.timeout ? { wait: { timeout: common.timeout } } : {}),
   });
-  return { irKey: parsed.irKey, taskId: parsed.taskId };
+  return { irKey: parsed.irKey, taskId: parsed.taskId, inspected };
 }
 
 // ------------------------------------------------------------------- helpers
@@ -164,9 +180,7 @@ async function callConvert(
 ): Promise<ConvertResult> {
   const result = await client.convert(ref, {
     to: 'markdown',
-    ...(flags.anchors !== undefined ? { markdownMeta: flags.anchors } : {}),
-    ...(flags.splitPages !== undefined ? { markdownPages: flags.splitPages } : {}),
-    ...(flags.strict !== undefined ? { markdownStrict: flags.strict } : {}),
+    ...convertParams(flags),
     ...(common.spaceId ? { spaceId: common.spaceId } : {}),
     ...(common.timeout ? { wait: { timeout: common.timeout } } : {}),
   });
@@ -267,17 +281,6 @@ function viewParamsFor(flags: ConvertFlags): Record<string, unknown> {
   return params;
 }
 
-function oneShotParseFlags(options: ConvertOpOptions): Record<string, unknown> {
-  const flags = options.parseFlags ?? {};
-  const params: Record<string, unknown> = {};
-  if (flags.password !== undefined) params.password = flags.password;
-  if (flags.profile !== undefined) params.parseProfile = flags.profile;
-  if (flags.includeImages !== undefined) params.includeImages = flags.includeImages;
-  if (flags.stayImageAreaRate !== undefined) params.stayImageAreaRate = flags.stayImageAreaRate;
-  if (options.input.kind === 'link' && flags.mode !== undefined) params.mode = flags.mode;
-  return params;
-}
-
 function defaultPortableName(input: ResolvedInput, label: string): string {
   if (input.kind === 'document') {
     const ext = path.extname(input.file);
@@ -334,4 +337,3 @@ function envelope(
     durationMs: Date.now() - extra.startedAt,
   };
 }
-

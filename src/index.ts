@@ -9,10 +9,13 @@ import { runConvert } from './core/convert-op.js';
 import { resolveInput } from './core/input.js';
 import { runParse } from './core/parse-op.js';
 import { createCloudClient, type CloudClient } from './cloud/client.js';
+import { DeckParseError } from './errors/index.js';
 import { resolveCredentials, type CredentialOverrides } from './config/index.js';
 import { readManifest } from './artifact/manifest.js';
-import { irPath } from './artifact/layout.js';
+import { irPath, probePath } from './artifact/layout.js';
 import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, ParseEnvelope, ParseFlags } from './types.js';
+import type { DeckProbeReport, PreflightMode, PreflightSummary } from './shared/preflight.js';
+import type { NodeDocumentInspector } from './core/inspector.js';
 import fs from 'node:fs/promises';
 
 export { DeckParseError, ERROR_CODES, EXIT_CODES, type ErrorCode } from './errors/index.js';
@@ -24,24 +27,35 @@ export type {
   Envelope,
   Manifest,
   ManifestAsset,
+  ManifestInspection,
   ManifestView,
   OutputFile,
   ParseEnvelope,
   ParseFlags,
   ParseTaskType,
+  PreflightMode,
+  PreflightSummary,
 } from './types.js';
+export type { DeckProbeReport } from './shared/preflight.js';
+export { createNodeDocumentInspector, type NodeDocumentInspector } from './core/inspector.js';
 
-export interface ClientOptions extends CredentialOverrides {}
+export interface ClientOptions extends CredentialOverrides {
+  inspector?: NodeDocumentInspector;
+}
 
 export interface ParseInputOptions extends ParseFlags, CommonFlags {
   /** Artifact directory. Defaults to a sibling directory named after the input. */
   out?: string;
   /** stdin/binary inputs: pick the parser by extension, e.g. "pdf". */
   from?: string;
+  /** Local DeckProbe policy. Defaults to validate; use off to skip it. */
+  preflight?: PreflightMode;
 }
 
 export interface ConvertInputOptions extends ConvertFlags, CommonFlags {
   out?: string;
+  /** One-shot source conversion defaults to validate; use off to skip it. */
+  preflight?: PreflightMode;
 }
 
 export class ParsedDocument {
@@ -60,8 +74,25 @@ export class ParsedDocument {
     return this.manifest.parse.irKey;
   }
 
+  get inspection(): PreflightSummary | undefined {
+    return this.manifest.inspection?.summary;
+  }
+
+  /** Full local DeckProbe report, when parse ran with preflight enabled. */
+  async inspectionReport(): Promise<DeckProbeReport | undefined> {
+    if (!this.manifest.inspection) return undefined;
+    try {
+      return JSON.parse(await fs.readFile(probePath(this.dir), 'utf-8')) as DeckProbeReport;
+    } catch (cause) {
+      throw DeckParseError.input(`${this.dir} is missing its registered probe report.`, {
+        hint: 'Re-run parse with preflight validate/strict.',
+        cause,
+      });
+    }
+  }
+
   async convert(options: ConvertInputOptions = {}): Promise<ConvertEnvelope> {
-    const { out, spaceId, timeout, force, ...flags } = options;
+    const { out, spaceId, timeout, force, preflight, ...flags } = options;
     return runConvert({
       input: { kind: 'artifact', dir: this.dir, manifest: this.manifest },
       inputLabel: this.dir,
@@ -72,6 +103,7 @@ export class ParsedDocument {
         ...(timeout !== undefined ? { timeout } : {}),
         ...(force !== undefined ? { force } : {}),
       },
+      ...(preflight !== undefined ? { preflight } : {}),
       client: this.client,
     });
   }
@@ -95,7 +127,7 @@ export function createClient(options: ClientOptions = {}): DeckParseClient {
   };
 
   const parseEnvelope = async (input: string, parseOptions: ParseInputOptions = {}): Promise<ParseEnvelope> => {
-    const { out, from, spaceId, timeout, force, ...flags } = parseOptions;
+    const { out, from, spaceId, timeout, force, preflight, ...flags } = parseOptions;
     const resolved = await resolveInput(input, from !== undefined ? { from } : {});
     return runParse({
       input: resolved,
@@ -107,6 +139,8 @@ export function createClient(options: ClientOptions = {}): DeckParseClient {
         ...(timeout !== undefined ? { timeout } : {}),
         ...(force !== undefined ? { force } : {}),
       },
+      ...(preflight !== undefined ? { preflight } : {}),
+      ...(options.inspector !== undefined ? { inspector: options.inspector } : {}),
       client: await clientPromise(),
     });
   };
@@ -126,7 +160,7 @@ export function createClient(options: ClientOptions = {}): DeckParseClient {
     },
 
     convert: async (input, convertOptions = {}) => {
-      const { out, spaceId, timeout, force, ...flags } = convertOptions;
+      const { out, spaceId, timeout, force, preflight, ...flags } = convertOptions;
       const resolved = await resolveInput(input);
       return runConvert({
         input: resolved,
@@ -138,6 +172,8 @@ export function createClient(options: ClientOptions = {}): DeckParseClient {
           ...(timeout !== undefined ? { timeout } : {}),
           ...(force !== undefined ? { force } : {}),
         },
+        ...(preflight !== undefined ? { preflight } : {}),
+        ...(options.inspector !== undefined ? { inspector: options.inspector } : {}),
         client: await clientPromise(),
       });
     },

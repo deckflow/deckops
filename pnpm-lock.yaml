@@ -4,13 +4,21 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@deckops/sdk@0.8.0-next.0':
+    hash: in4yrlphgwpm32lpiyji2axiqi
+    path: patches/@deckops__sdk@0.8.0-next.0.patch
+
 importers:
 
   .:
     dependencies:
+      '@deckflow/deckprobe':
+        specifier: 2.4.0
+        version: 2.4.0
       '@deckops/sdk':
-        specifier: ^0.8.0-next.0
-        version: 0.8.0-next.0
+        specifier: 0.8.0-next.0
+        version: 0.8.0-next.0(patch_hash=in4yrlphgwpm32lpiyji2axiqi)
       chalk:
         specifier: ^5.3.0
         version: 5.6.2
@@ -30,6 +38,9 @@ importers:
       '@types/node':
         specifier: ^20.10.0
         version: 20.19.43
+      esbuild:
+        specifier: ^0.27.7
+        version: 0.27.7
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(postcss@8.5.26)(typescript@5.9.3)
@@ -41,6 +52,57 @@ importers:
         version: 2.1.9(@types/node@20.19.43)
 
 packages:
+
+  '@deckflow/deckprobe-darwin-arm64@2.4.0':
+    resolution: {integrity: sha512-m053C0lBLSQz5Wfj9UhlXpeK9zFnODGnyLUEm3Qlz62B43h1DZ4I1FhbRuOGgtNBxG/jUwauyCxLgb+3NVSV+Q==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-darwin-arm64/-/deckprobe-darwin-arm64-2.4.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@deckflow/deckprobe-darwin-x64@2.4.0':
+    resolution: {integrity: sha512-GD0IVGkIqwYnBb7AIrN9EOyMydExFYn4K0iqCWXZxyjWOXPyvFsGu9sU4TuJfpmjqxWQjlIqj0am1kGLyXe2FA==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-darwin-x64/-/deckprobe-darwin-x64-2.4.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@deckflow/deckprobe-linux-arm64-gnu@2.4.0':
+    resolution: {integrity: sha512-rHBAYAjR916QaHGy7Q47VmgwReqOtgIubkkDVhYXnBB2ABwNvFGXAEMVuyyZyZImZLrnt0VJLrraK2NjRd7CkQ==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-linux-arm64-gnu/-/deckprobe-linux-arm64-gnu-2.4.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@deckflow/deckprobe-linux-arm64-musl@2.4.0':
+    resolution: {integrity: sha512-nGsM76XAsbbLC2FwYbzqTZi97Bes6RH4S2MiG1FjBTfuSttWAJn4wT+JyDW/eUs3075bv6UjQ8ME9do4s+NofA==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-linux-arm64-musl/-/deckprobe-linux-arm64-musl-2.4.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@deckflow/deckprobe-linux-x64-gnu@2.4.0':
+    resolution: {integrity: sha512-rBQgraQIBnsG//YqmEd7Sz/6mkACZtXZSszCjngYx6eSqHyEMox+f1nmHs98ZoAyjhjBlRDWDEnS7CGFVEy5aQ==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-linux-x64-gnu/-/deckprobe-linux-x64-gnu-2.4.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@deckflow/deckprobe-linux-x64-musl@2.4.0':
+    resolution: {integrity: sha512-6ZZx7xKwhwYS4RoIzYHCcy8anRVSujg6cyoE1vPyTpiewJCyUX7ml24k8KcImfkuGhb9A5ZIk3w0+9Aj9MmD8A==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-linux-x64-musl/-/deckprobe-linux-x64-musl-2.4.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@deckflow/deckprobe-win32-x64-msvc@2.4.0':
+    resolution: {integrity: sha512-d8Fnvl7nsx9O+fTeA/8IPQpOdmghL5e4Spri6NIHWWh7MgSQl9KdZ7R5zdOqqSkQKjHYINvXR6IWDjql9LfCEg==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-win32-x64-msvc/-/deckprobe-win32-x64-msvc-2.4.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [win32]
+
+  '@deckflow/deckprobe@2.4.0':
+    resolution: {integrity: sha512-TMYI0BgcYydhpSPoAqKpZF2KjPkisdr1VfG9YRHZqinZgc7GjeH1qp3Gw3fWW82es6i/pPDKx4RMA9JoIsMnfg==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe/-/deckprobe-2.4.0.tgz}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@deckops/sdk@0.8.0-next.0':
     resolution: {integrity: sha512-cbLm9y3DUN6a8ItAZcCSerXZGm4Z1dhD2VDhS35I2uukE9st7f/H1GuDHf+1SzOsoxpqJO66HL6dxxxQT2eX/A==, tarball: https://registry.npmmirror.com/@deckops/sdk/-/sdk-0.8.0-next.0.tgz}
@@ -1049,7 +1111,38 @@ packages:
 
 snapshots:
 
-  '@deckops/sdk@0.8.0-next.0':
+  '@deckflow/deckprobe-darwin-arm64@2.4.0':
+    optional: true
+
+  '@deckflow/deckprobe-darwin-x64@2.4.0':
+    optional: true
+
+  '@deckflow/deckprobe-linux-arm64-gnu@2.4.0':
+    optional: true
+
+  '@deckflow/deckprobe-linux-arm64-musl@2.4.0':
+    optional: true
+
+  '@deckflow/deckprobe-linux-x64-gnu@2.4.0':
+    optional: true
+
+  '@deckflow/deckprobe-linux-x64-musl@2.4.0':
+    optional: true
+
+  '@deckflow/deckprobe-win32-x64-msvc@2.4.0':
+    optional: true
+
+  '@deckflow/deckprobe@2.4.0':
+    optionalDependencies:
+      '@deckflow/deckprobe-darwin-arm64': 2.4.0
+      '@deckflow/deckprobe-darwin-x64': 2.4.0
+      '@deckflow/deckprobe-linux-arm64-gnu': 2.4.0
+      '@deckflow/deckprobe-linux-arm64-musl': 2.4.0
+      '@deckflow/deckprobe-linux-x64-gnu': 2.4.0
+      '@deckflow/deckprobe-linux-x64-musl': 2.4.0
+      '@deckflow/deckprobe-win32-x64-msvc': 2.4.0
+
+  '@deckops/sdk@0.8.0-next.0(patch_hash=in4yrlphgwpm32lpiyji2axiqi)':
     dependencies:
       axios: 1.19.0
       eventsource-parser: 1.1.2

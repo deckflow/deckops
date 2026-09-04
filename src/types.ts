@@ -5,6 +5,7 @@
  */
 
 import type { ConvertImage, IrFormat } from '@deckops/sdk';
+import type { PreflightMode, PreflightSummary } from './shared/preflight.js';
 
 // ------------------------------------------------------------------ manifest
 
@@ -29,6 +30,17 @@ export interface ManifestAsset {
   bytes: number;
 }
 
+export interface ManifestInspection {
+  /** DeckProbe schema-v2 report, relative to the artifact root. */
+  file: string;
+  schemaVersion: 2;
+  toolVersion: string;
+  requestVersion: number;
+  status: 'ok' | 'partial';
+  summary: PreflightSummary;
+  createdAt: string;
+}
+
 export interface Manifest {
   manifestVersion: 1;
   source: { sha256?: string; name: string; bytes?: number };
@@ -41,6 +53,7 @@ export interface Manifest {
     params: Record<string, unknown>;
     createdAt: string;
   };
+  inspection?: ManifestInspection;
   views: Partial<Record<string, ManifestView>>;
   /** Artifact-relative asset path → persistent identity. */
   assets: Record<string, ManifestAsset>;
@@ -96,6 +109,7 @@ export interface ParseEnvelope {
   irKey: string;
   irSchemaVersion: string;
   artifact: string;
+  inspection?: PreflightSummary;
   outputs: OutputFile[];
   warnings: string[];
   durationMs: number;
@@ -111,6 +125,8 @@ export interface ConvertEnvelope {
   taskId: string | null;
   /** One-shot convenience path only: the implicit parse task. */
   parseTaskId?: string;
+  /** One-shot source conversion only: local facts collected before upload. */
+  inspection?: PreflightSummary;
   reusedParse: boolean;
   outputs: OutputFile[];
   warnings: string[];
@@ -126,3 +142,4 @@ export interface ErrorEnvelope {
 export type Envelope = ParseEnvelope | ConvertEnvelope | ErrorEnvelope;
 
 export type { ConvertImage, IrFormat };
+export type { PreflightMode, PreflightSummary };

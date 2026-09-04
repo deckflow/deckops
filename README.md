@@ -22,7 +22,7 @@ npx -y @deckflow/deckparse@latest doc.pdf
 npm install -g @deckflow/deckparse
 ```
 
-Requires Node.js 18 or newer.
+The CLI and Node.js entry require Node.js 20 or newer. Frontend applications use the separate [browser entry](#use-it-in-the-browser).
 
 ## Two verbs, deliberately
 
@@ -36,6 +36,7 @@ convert  IR artifact → view        --to markdown (v1); never re-parses the sou
 ```
 doc/
 ├── ir.json          the parsed document model, server response verbatim
+├── probe.json       optional local DeckProbe report (`--preflight validate|strict`)
 ├── assets/          images by persistent identity
 ├── manifest.json    source hash, cloud references, what exists where
 └── views/markdown/  written by convert, never by parse
@@ -61,6 +62,22 @@ deckparse formats
 | `.doc` `.ppt` `.xls(x)` `.pages` `.numbers` | ❌ | ❌ | clear error + a way out |
 
 Unsupported pairs fail with a hint, never an approximation.
+
+## Local preflight with DeckProbe
+
+For local files and stdin, DeckParse validates the real document container before uploading it:
+
+```bash
+deckparse parse report.pdf                       # validate is the default
+deckparse convert slides.pptx --preflight strict -o slides.md
+deckparse parse report.pdf --preflight off       # skip for latency/CSP compatibility
+```
+
+`validate` is the CLI, Node SDK and Browser SDK default. It rejects a malformed/container-mismatched document and an encrypted document without an applicable password; probe budget/runtime failures become warnings and cloud parsing continues. `off` is the explicit performance/CSP escape hatch. `strict` is never implicit: it must be selected explicitly and also rejects unresolved required facts and probe failures. URLs always skip local preflight.
+
+The bounded metadata probe records format/profile, extension agreement, encryption, macros, external relationships, embedded files, page/slide count, and presentation size when available. Macros, external relationships and embedded objects are warnings, not default blockers. A `partial` DeckProbe report is evaluated target by target—it is not treated as a damaged file.
+
+Successful reports are stored verbatim as `probe.json`; their compact summary is registered in `manifest.json` and returned as `inspection`. DeckProbe does not render, execute content, perform OCR, or replace a malware scanner.
 
 ## Machine-readable output
 
@@ -102,15 +119,17 @@ deckparse config list     # every value, and exactly where it came from
 
 Environment variables win over stored files: `DECKPARSE_API_KEY` → `DECKFLOW_API_KEY` → `DECKHTML_API_KEY` (and `DECKPARSE_TOKEN` / `DECKPARSE_API_BASE` / `DECKPARSE_SPACE_ID` likewise). Each field resolves independently — when something authenticates oddly, `deckparse config list` shows which file or variable is responsible.
 
-**Where parsing happens:** all parsing runs in the DeckFlow cloud — the document is uploaded over HTTPS, parsed there, results downloaded back. Nothing in v1 keeps a document on your machine. If your documents cannot leave your machine, DeckParse is not for you yet.
+**Where parsing happens:** semantic parsing still runs in the DeckFlow cloud — the document is uploaded over HTTPS, parsed there, results downloaded back. The default DeckProbe preflight runs locally for file/stdin input and does not upload bytes, but it does not produce IR or Markdown. If your documents cannot leave your machine, DeckParse is not for you yet.
 
-## Use it as a library
+## Use it as a Node.js library
 
 ```ts
 import { parse, openArtifact } from '@deckflow/deckparse';
 
-const doc = await parse('doc.pdf', { profile: 'quality' });
+const doc = await parse('doc.pdf', { profile: 'quality' }); // preflight defaults to validate
 doc.irKey;                          // the cloud reference convert consumes
+doc.inspection;                     // local format/security/structure summary
+await doc.inspectionReport();       // full DeckProbe schema-v2 report
 await doc.convert();                // view materialized into the artifact
 await doc.convert({ anchors: true }); // pdf: provenance comments carrying node ids
 
@@ -121,16 +140,89 @@ await same.convert({ splitPages: true });
 
 `extract`, `modify` and `export` are reserved verbs on the same handle — the roadmap runs Parse → Extract → Modify → Export → render-verified round trips.
 
+## Use it in the browser
+
+```bash
+npm install @deckflow/deckparse
+```
+
+```ts
+import { createClient } from '@deckflow/deckparse/browser';
+
+const client = createClient({
+  apiBase: 'https://app.deckflow.com/v1',
+  token: userAccessToken, // user-scoped credential approved for browser use
+  // onUnauthorized: async () => refreshUserAccessToken(),
+});
+
+// file is the File selected by an <input type="file">.
+const controller = new AbortController();
+const doc = await client.parse(file, {
+  // preflight defaults to validate; use 'off' to avoid Worker/WASM startup
+  signal: controller.signal,
+  timeout: 300, // seconds; only bounds task waiting, not upload time
+  onProgress(event) {
+    if (event.phase === 'upload') console.log(event.progress); // 0..1
+    else if (event.phase === 'preflight') console.log(event.status);
+    else console.log(event.taskId, event.status); // available after submission
+  },
+});
+
+const ir = await doc.ir(); // in-memory server response; no filesystem access
+const view = await doc.convert();
+console.log(view.markdown, view.images);
+
+// The source is not uploaded or parsed again.
+await client.convert({ irKey: doc.irKey }, { strict: true });
+```
+
+Inputs are `File`, `{ file: Blob | Uint8Array | ArrayBuffer, name: string }`, or `{ url: 'https://…' }`. Bare paths, stdin, unnamed Blobs and Node-only options such as `out`/`force` are rejected before any request. PDF parse options (`profile`, `password`, `includeImages`), Keynote's `stayImageAreaRate`, URL `mode`, and Markdown options (`anchors`, `splitPages`, `strict`) keep their Node names. Format-specific flags are checked when the input/document format is known.
+
+`parse()` returns a `BrowserParsedDocument` with `taskId`, `type`, `irKey`, `irSchemaVersion`, `ir()`, `convert()`, optional `inspection`/`inspectionReport()`, and preflight `warnings`. For local files, browser preflight defaults to `validate`, runs in a packaged module Worker and loads DeckProbe's WASM on first use; `off` avoids that startup. URL input skips it. Conversion returns `BrowserConvertResult`: `markdown`, optional `markdownPages`, `images`, `format`, `schemaVersion`, `taskId` and `reusedParse: true`. It does **not** return local paths, create artifact directories, cache documents between calls, or download all images. A `markdownError` is an error, never successful placeholder content.
+
+### Authentication and deployment
+
+- Do not put a server API key in browser code or a frontend environment variable. The browser client deliberately has no `apiKey` option. Direct cloud access requires credentials and permissions intended for browser users; issuing short-lived/scoped credentials is a backend responsibility, not a feature this SDK creates.
+- If your application uses a secret API key or an existing login cookie, use an authenticated backend proxy and pass `apiBase: '/api/deckparse'`. The proxy must preserve the upstream API paths, authorize each operation/space, protect cookie-authenticated mutations against CSRF, and keep secrets server-side. Omitting `token` is appropriate only for such a proxy or intentionally permitted guest access. The SDK does not add a backend service.
+- A 401 may refresh through `onUnauthorized` once. Return a nonempty token string for the same user; account/default-space changes require an explicit new client. Failed refreshes reject with `auth_error`; they never switch to a guest identity/space. Task-creation POSTs are not automatically replayed on ambiguous network failures or gateway errors. Files of at least 4 MiB are uploaded first and referenced by `fileId`; that reduces large request failures but is not a server-side idempotency guarantee.
+- For direct access, configure CORS for the API, event stream, signed upload endpoints, result downloads and image assets. Allow the methods/headers actually used, including `X-Auth-Token`, `X-Auth-UUID`, `Content-Type` and `response-event-stream`; multipart uploads need `Access-Control-Expose-Headers: ETag`. API credentials must not be forwarded to signed storage URLs. Production permissions/CORS must be verified for your deployment; localhost tests cannot certify them.
+
+### Cancellation, recovery and result lifetime
+
+Every browser parse/convert accepts `signal`, `onProgress`, `timeout` (seconds), `useEventStream` and `pollInterval` (milliseconds). Upload progress reports completed upload work, not a guaranteed continuous byte-level progress stream; small inline uploads report completion after the request succeeds. Aborting stops the client's HTTP requests, uploads and waiting; it does **not** cancel or refund a cloud task that was already submitted. An aborted call preserves the signal's abort reason (normally `AbortError`). Do not automatically call `parse()` again after an uncertain submission failure.
+
+Keep the task id from `onProgress`. Other operation errors use `DeckParseError` with stable `code`, `hint` and, once known, `taskId`:
+
+```ts
+const task = await client.getTask(savedParseTaskId);
+if (task.status === 'completed') {
+  // Retrieve a view of the completed parse without another upload/parse.
+  const view = await client.convert({ taskId: task.id });
+}
+```
+
+Operations may specify `spaceId` without changing the client's default; document handles keep their parse space for later conversions. When recovering an operation in a different space, pass that same `spaceId` to `getTask()` and to a subsequent by-reference `convert()`.
+
+Cloud IR references currently have a 7-day retention period; `doc.ir()` retaining a local snapshot does not extend it. Image `ref` values are signed, expiring URLs for temporary preview, not permanent links. Persisting/offline-exporting assets is an explicit application concern. Treat document content as untrusted and sanitize rendered Markdown/HTML in your display layer.
+
+The browser entry is framework-independent ESM and safe to import during SSR. It targets modern browsers with Fetch, Web Crypto, Blob/File and AbortController; use HTTPS (localhost is suitable for development). It still uploads documents for cloud parsing — browser support does not mean offline/on-device parsing.
+
 ## Development
 
 ```bash
 pnpm install
 pnpm check          # typecheck + unit + integration + build
+pnpm check:browser  # DOM-only types + HTTP integration + browser export checks
+pnpm browser:smoke  # open the printed localhost URL for real-browser checks
 
 # conformance drives the built CLI against a real backend:
 DECKPARSE_API_BASE=… DECKPARSE_TOKEN=… \
 CONFORMANCE_PDF=sample.pdf CONFORMANCE_PPTX=sample.pptx pnpm conformance
 ```
+
+The browser distribution includes its DeckProbe module Worker and WASM asset; consumers need no Node polyfills, bundler aliases or dependency patches. Until the upstream browser fix is published, source builds apply a version-pinned pnpm patch that adds the browser entry to `@deckops/sdk`; the existing upstream Node entry is unchanged. Commit `patches/` and the lockfile together and use `pnpm install --frozen-lockfile` for reproducible builds. See [patch maintenance](patches/README.md).
+
+Browser tests use a local fake API and mostly synthetic bytes; they verify transport contracts, not cloud document parsing quality or production CORS. `pnpm browser:smoke` also probes a real local PDF through the packaged Worker/WASM, and serves its page and API on separate localhost origins to exercise preflight, signed uploads and response-header visibility in a real browser.
 
 The `--json` envelope, error codes, exit codes, artifact layout and the shared credential file format are public contracts. Changing any of them is a breaking change; note it in `CHANGELOG.md`.
 
