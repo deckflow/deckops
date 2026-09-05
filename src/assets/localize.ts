@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import pLimit from 'p-limit';
-import type { ConvertImage } from '@deckops/sdk';
+import type { ConvertImage } from '../cloud/parse/types.js';
 import { DeckParseError } from '../errors/index.js';
 import type { ManifestAsset } from '../types.js';
 

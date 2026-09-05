@@ -1,15 +1,11 @@
 import { statSync } from 'node:fs';
 import path from 'node:path';
-import {
-  createDeck,
-  type ConvertOptions as SdkConvertOptions,
-  type ConvertRef,
-  type ConvertResult,
-  type DeckClient,
-  type ParseOptions as SdkParseOptions,
-  type ParseResult,
-  type ParseSource,
-} from '@deckops/sdk';
+import { createNodeTransport } from './node.js';
+import type { TransportClient } from './transport.js';
+import type {
+  ConvertOptions as SdkConvertOptions, ConvertRef, ConvertResult,
+  ParseOptions as SdkParseOptions, ParseResult, ParseSource,
+} from './parse-facade.js';
 import type { ResolvedCredentials } from '../config/index.js';
 import { PRE_UPLOAD_THRESHOLD } from '../shared/constants.js';
 import { translateError } from '../shared/errors.js';
@@ -18,8 +14,8 @@ export { PRE_UPLOAD_THRESHOLD } from '../shared/constants.js';
 export { translateError as translate } from '../shared/errors.js';
 
 /**
- * Thin wrapper over the SDK: inject resolved credentials, translate errors.
- * DeckParse adds no cloud semantics of its own (docs/rfc.md §1 rule 1).
+ * Product boundary: inject resolved credentials and translate cloud errors.
+ * Transport, upload, task orchestration and DTOs are owned by this repository.
  */
 
 export interface CloudClient {
@@ -28,7 +24,7 @@ export interface CloudClient {
 }
 
 export function createCloudClient(credentials: ResolvedCredentials): CloudClient {
-  const deck: DeckClient = createDeck({
+  const deck: TransportClient = createNodeTransport({
     root: credentials.apiBase,
     ...(credentials.token ? { token: credentials.token } : {}),
     ...(credentials.apiKey ? { apiKey: credentials.apiKey } : {}),
@@ -53,7 +49,7 @@ export function createCloudClient(credentials: ResolvedCredentials): CloudClient
   };
 }
 
-async function preUploadLarge(deck: DeckClient, source: ParseSource): Promise<ParseSource> {
+async function preUploadLarge(deck: TransportClient, source: ParseSource): Promise<ParseSource> {
   const large = largeUpload(source);
   if (!large) {
     return source;
@@ -69,7 +65,7 @@ function largeUpload(source: ParseSource): { input: string | Uint8Array; name: s
         return { input: source, name: path.basename(source) };
       }
     } catch {
-      // Missing files fail later with the SDK's own message.
+      // Missing files fail later with the transport's own message.
     }
     return undefined;
   }
@@ -79,7 +75,7 @@ function largeUpload(source: ParseSource): { input: string | Uint8Array; name: s
       return largeUpload(file);
     }
     if (typeof file === 'object' && file !== null && 'input' in file) {
-      const nested = file as { input: unknown; name?: string };
+      const nested = file as { input: unknown; name?: (string) | undefined };
       if (nested.input instanceof Uint8Array && nested.input.byteLength >= PRE_UPLOAD_THRESHOLD) {
         return { input: nested.input, name: nested.name ?? source.name ?? 'upload.bin' };
       }

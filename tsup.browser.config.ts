@@ -7,12 +7,11 @@ export default defineConfig({
   format: ['esm'],
   platform: 'browser',
   target: 'es2022',
-  // Ship the fixed SDK with this entry. Consumers do not need our pnpm patch,
-  // Node polyfills, aliases, or a separately published upstream SDK version.
+  // Self-contained browser entry: no Node polyfills or external runtime imports.
   noExternal: [/.*/],
   bundle: true,
   splitting: false,
-  dts: { entry: { index: 'src/browser/index.ts' }, resolve: ['@deckops/sdk', '@deckops/sdk/browser'] },
+  dts: { entry: { index: 'src/browser/index.ts' } },
   // Runs after every watch rebuild too, so dev:browser cannot lose the lazy WASM asset after a clean.
   onSuccess: 'node scripts/copy-deckprobe-wasm.mjs',
   sourcemap: true,

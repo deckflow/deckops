@@ -1,4 +1,6 @@
-import { createDeck, type ParseSource, type DeckTask, type WaitForTaskOptions } from '@deckops/sdk/browser';
+import { createBrowserTransport } from '../cloud/browser.js';
+import type { ParseSource } from '../cloud/parse-facade.js';
+import type { DeckTask, WaitForTaskOptions } from '../cloud/contracts.js';
 import { DeckParseError } from '../errors/index.js';
 import { PRE_UPLOAD_THRESHOLD } from '../shared/constants.js';
 import { translateError } from '../shared/errors.js';
@@ -91,7 +93,7 @@ export function createClient(options: BrowserClientOptions = {}): BrowserClient 
     throw DeckParseError.usage('inspector must provide an inspect() function.');
   }
   const localInspector = options.inspector ?? createBrowserDocumentInspector();
-  const deck = createDeck({
+  const deck = createBrowserTransport({
     ...(options.apiBase !== undefined ? { root: apiRoot(options.apiBase) } : {}),
     ...(options.token !== undefined ? { token: options.token } : {}),
     ...(options.spaceId !== undefined ? { spaceId: options.spaceId } : {}),

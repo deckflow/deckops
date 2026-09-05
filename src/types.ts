@@ -1,7 +1,7 @@
 /** Public artifact, option and machine-readable envelope contracts. */
 
-import type { IrFormat } from '@deckops/sdk';
-export type { ConvertImage } from '@deckops/sdk';
+import type { IrFormat } from './cloud/parse/types.js';
+export type { ConvertImage } from './cloud/parse/types.js';
 import type { DeckIR, DocumentFormat, QualityReport } from './ir/schema.js';
 import type { LocalLimits } from './local/limits.js';
 import type { PreflightMode, PreflightSummary } from './shared/preflight.js';

@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import type { ConvertResult, ParseResult } from '@deckops/sdk';
+import type { ConvertResult, ParseResult } from '../../src/cloud/parse-facade.js';
 import type { ProbeReport, ProbeResult } from '@deckflow/deckprobe';
 import type { CloudClient } from '../../src/cloud/client.js';
 import type { NodeDocumentInspector } from '../../src/core/inspector.js';

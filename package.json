@@ -27,7 +27,6 @@
     "README.md",
     "CHANGELOG.md",
     "THIRD_PARTY_NOTICES",
-    "patches/README.md",
     "LICENSE"
   ],
   "scripts": {
@@ -44,7 +43,8 @@
     "typecheck:browser": "tsc -p tsconfig.browser.json --noEmit",
     "typecheck:browser-consumer": "tsc -p tsconfig.browser-consumer.json --noEmit",
     "check:browser": "pnpm typecheck:browser && pnpm test:browser && pnpm build:browser && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
-    "check": "pnpm typecheck && pnpm typecheck:browser && pnpm test && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
+    "check": "pnpm typecheck && pnpm typecheck:browser && pnpm test && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs && node scripts/check-independence.mjs",
+    "check:independence": "node scripts/check-independence.mjs",
     "check:package": "pnpm build && node scripts/check-package-size.mjs",
     "browser:smoke": "node scripts/browser-smoke.mjs",
     "prepack": "pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
@@ -73,7 +73,6 @@
   },
   "dependencies": {
     "@deckflow/deckprobe": "2.4.0",
-    "@deckops/sdk": "0.8.0-next.0",
     "chalk": "^5.3.0",
     "commander": "^11.1.0",
     "fflate": "^0.8.2",
@@ -81,14 +80,17 @@
     "p-limit": "^5.0.0",
     "parse5": "^7.3.0",
     "pdf-lite-parse": "0.1.1",
-    "saxes": "^6.0.0"
+    "saxes": "^6.0.0",
+    "axios": "1.19.0",
+    "eventsource-parser": "1.1.2"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "esbuild": "^0.27.7",
     "tsup": "^8.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "axios-mock-adapter": "^1.22.0"
   },
   "engines": {
     "node": ">=22.18.0"
@@ -97,10 +99,5 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
-  },
-  "pnpm": {
-    "patchedDependencies": {
-      "@deckops/sdk@0.8.0-next.0": "patches/@deckops__sdk@0.8.0-next.0.patch"
-    }
   }
 }

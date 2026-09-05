@@ -1,4 +1,4 @@
-import type { ParseSource } from '@deckops/sdk';
+import type { ParseSource } from '../cloud/parse-facade.js';
 import { cloudResultToCandidate } from '../ir/cloud-adapter.js';
 import type { CloudClient } from '../cloud/client.js';
 import type { EngineParseInput, EngineParseOptions, ParseEngine, SupportDecision } from './types.js';

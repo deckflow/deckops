@@ -4,11 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-patchedDependencies:
-  '@deckops/sdk@0.8.0-next.0':
-    hash: in4yrlphgwpm32lpiyji2axiqi
-    path: patches/@deckops__sdk@0.8.0-next.0.patch
-
 importers:
 
   .:
@@ -16,15 +11,18 @@ importers:
       '@deckflow/deckprobe':
         specifier: 2.4.0
         version: 2.4.0
-      '@deckops/sdk':
-        specifier: 0.8.0-next.0
-        version: 0.8.0-next.0(patch_hash=in4yrlphgwpm32lpiyji2axiqi)
+      axios:
+        specifier: 1.19.0
+        version: 1.19.0
       chalk:
         specifier: ^5.3.0
         version: 5.6.2
       commander:
         specifier: ^11.1.0
         version: 11.1.0
+      eventsource-parser:
+        specifier: 1.1.2
+        version: 1.1.2
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
@@ -47,6 +45,9 @@ importers:
       '@types/node':
         specifier: ^20.10.0
         version: 20.19.43
+      axios-mock-adapter:
+        specifier: ^1.22.0
+        version: 1.22.0(axios@1.19.0)
       esbuild:
         specifier: ^0.27.7
         version: 0.27.7
@@ -112,10 +113,6 @@ packages:
     resolution: {integrity: sha512-TMYI0BgcYydhpSPoAqKpZF2KjPkisdr1VfG9YRHZqinZgc7GjeH1qp3Gw3fWW82es6i/pPDKx4RMA9JoIsMnfg==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe/-/deckprobe-2.4.0.tgz}
     engines: {node: '>=20'}
     hasBin: true
-
-  '@deckops/sdk@0.8.0-next.0':
-    resolution: {integrity: sha512-cbLm9y3DUN6a8ItAZcCSerXZGm4Z1dhD2VDhS35I2uukE9st7f/H1GuDHf+1SzOsoxpqJO66HL6dxxxQT2eX/A==, tarball: https://registry.npmmirror.com/@deckops/sdk/-/sdk-0.8.0-next.0.tgz}
-    engines: {node: '>=18.0.0'}
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==, tarball: https://registry.npmmirror.com/@esbuild/aix-ppc64/-/aix-ppc64-0.21.5.tgz}
@@ -698,6 +695,11 @@ packages:
   asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==, tarball: https://registry.npmmirror.com/asynckit/-/asynckit-0.4.0.tgz}
 
+  axios-mock-adapter@1.22.0:
+    resolution: {integrity: sha512-dmI0KbkyAhntUR05YY96qg2H6gg0XMl2+qTW0xmYg6Up+BFBAJYRLROMXRdDEL06/Wqwa0TJThAYvFtSFdRCZw==, tarball: https://registry.npmmirror.com/axios-mock-adapter/-/axios-mock-adapter-1.22.0.tgz}
+    peerDependencies:
+      axios: '>= 0.17.0'
+
   axios@1.19.0:
     resolution: {integrity: sha512-ht/iuYZXEjFxLH/Hkezgd7m6JKlHHXEUSneaDz8uZe1Gj5QZtCnpyDsckvAiEnT89OEbCLmnte4R4sn7P0EKFw==, tarball: https://registry.npmmirror.com/axios/-/axios-1.19.0.tgz}
 
@@ -831,6 +833,9 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==, tarball: https://registry.npmmirror.com/expect-type/-/expect-type-1.4.0.tgz}
     engines: {node: '>=12.0.0'}
 
+  fast-deep-equal@3.1.3:
+    resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==, tarball: https://registry.npmmirror.com/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz}
+
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==, tarball: https://registry.npmmirror.com/fdir/-/fdir-6.5.0.tgz}
     engines: {node: '>=12.0.0'}
@@ -894,6 +899,10 @@ packages:
   https-proxy-agent@5.0.1:
     resolution: {integrity: sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA==, tarball: https://registry.npmmirror.com/https-proxy-agent/-/https-proxy-agent-5.0.1.tgz}
     engines: {node: '>= 6'}
+
+  is-buffer@2.0.5:
+    resolution: {integrity: sha512-i2R6zNFDwgEHJyQUtJEk0XFi1i0dPFn/oqjK3/vPCcDeJvW5NQ83V8QbicfF1SupOaB0h8ntgBC2YiE7dfyctQ==, tarball: https://registry.npmmirror.com/is-buffer/-/is-buffer-2.0.5.tgz}
+    engines: {node: '>=4'}
 
   is-docker@3.0.0:
     resolution: {integrity: sha512-eljcgEDlEns/7AXFosB5K/2nCM4P7FQPkGc/DWLy5rmFEWvZayGrik1d9/QIY5nJ4f9YsVvBkA6kJpHn9rISdQ==, tarball: https://registry.npmmirror.com/is-docker/-/is-docker-3.0.0.tgz}
@@ -1249,15 +1258,6 @@ snapshots:
       '@deckflow/deckprobe-linux-x64-musl': 2.4.0
       '@deckflow/deckprobe-win32-x64-msvc': 2.4.0
 
-  '@deckops/sdk@0.8.0-next.0(patch_hash=in4yrlphgwpm32lpiyji2axiqi)':
-    dependencies:
-      axios: 1.19.0
-      eventsource-parser: 1.1.2
-      p-limit: 5.0.0
-    transitivePeerDependencies:
-      - debug
-      - supports-color
-
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
 
@@ -1605,6 +1605,12 @@ snapshots:
 
   asynckit@0.4.0: {}
 
+  axios-mock-adapter@1.22.0(axios@1.19.0):
+    dependencies:
+      axios: 1.19.0
+      fast-deep-equal: 3.1.3
+      is-buffer: 2.0.5
+
   axios@1.19.0:
     dependencies:
       follow-redirects: 1.16.0
@@ -1764,6 +1770,8 @@ snapshots:
 
   expect-type@1.4.0: {}
 
+  fast-deep-equal@3.1.3: {}
+
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
       picomatch: 4.0.5
@@ -1827,6 +1835,8 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
+
+  is-buffer@2.0.5: {}
 
   is-docker@3.0.0: {}
 

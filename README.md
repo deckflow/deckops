@@ -238,7 +238,7 @@ DECKPARSE_API_BASE=… DECKPARSE_TOKEN=… \
 CONFORMANCE_PDF=sample.pdf CONFORMANCE_PPTX=sample.pptx pnpm conformance
 ```
 
-The browser distribution includes its DeckProbe module Worker and WASM asset; consumers need no Node polyfills, bundler aliases or dependency patches. Until the upstream browser fix is published, source builds apply a version-pinned pnpm patch that adds the browser entry to `@deckops/sdk`; the existing upstream Node entry is unchanged. Commit `patches/` and the lockfile together and use `pnpm install --frozen-lockfile` for reproducible builds. See [patch maintenance](patches/README.md).
+The browser distribution includes its DeckProbe module Worker and WASM asset; consumers need no Node polyfills, bundler aliases or dependency patches. The cloud transport and its regression tests are owned by this repository. Source builds have no dependency on the legacy tool SDK or a sibling checkout; use `pnpm install --frozen-lockfile` for reproducible builds. See [cloud implementation provenance](src/cloud/README.md).
 
 Browser tests use a local fake API and mostly synthetic bytes; they verify transport contracts, not cloud document parsing quality or production CORS. `pnpm browser:smoke` also probes a real local PDF through the packaged Worker/WASM, and serves its page and API on separate localhost origins to exercise preflight, signed uploads and response-header visibility in a real browser.
 

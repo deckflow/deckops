@@ -1,4 +1,4 @@
-import type { ParseResult } from '@deckops/sdk';
+import type { ParseResult } from '../cloud/parse-facade.js';
 import type { ResultArtifact } from 'pdf-lite-parse';
 import { stableId } from './ids.js';
 import { result3ToDeckIr } from './result3-adapter.js';
