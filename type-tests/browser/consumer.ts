@@ -1,6 +1,6 @@
-import { createClient, type BrowserConvertResult, type BrowserProgress } from '@deckflow/deckparse/browser';
+import { createClient, type BrowserConvertResult, type BrowserProgress } from '@deckflow/deckops/browser';
 
-const client = createClient({ apiBase: '/api/deckparse' });
+const client = createClient({ apiBase: '/api/deckops' });
 const signal = new AbortController().signal;
 const onProgress = (event: BrowserProgress): void => {
   if (event.phase === 'upload') event.progress satisfies number;

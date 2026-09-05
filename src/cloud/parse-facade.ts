@@ -102,7 +102,7 @@ export interface ConvertResult extends ConvertTaskResult {
 
 interface ParseDeps {
   createTask(params: {
-    type: string;
+    type: ParseTaskType | 'html.getByURL' | 'parse.convert';
     spaceId?: (string) | undefined;
     files?: (TaskUploadInput[]) | undefined;
     fileIds?: (string[]) | undefined;

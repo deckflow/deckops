@@ -1,4 +1,4 @@
-import { createClient, DeckParseError } from '/dist/browser/index.js';
+import { createClient, DeckOpsError } from '/dist/browser/index.js';
 
 const button = document.querySelector('#run');
 const summary = document.querySelector('#summary');
@@ -100,11 +100,11 @@ button.addEventListener('click', async () => {
     ['401 fails closed without guest downgrade', async () => {
       let error;
       try { await client('unauthorized').parse({ url: 'https://example.com/' }); } catch (caught) { error = caught; }
-      assert(error instanceof DeckParseError && error.code === 'auth_error', 'Expected stable authentication error');
+      assert(error instanceof DeckOpsError && error.code === 'auth_error', 'Expected stable authentication error');
       assert((await state('unauthorized')).requests.length === 1, 'Unauthorized request retried or downgraded');
       let streamError;
       try { await client('sse-unauthorized').parse({ url: 'https://example.com/' }); } catch (caught) { streamError = caught; }
-      assert(streamError instanceof DeckParseError && streamError.code === 'auth_error', 'SSE transport did not fail closed');
+      assert(streamError instanceof DeckOpsError && streamError.code === 'auth_error', 'SSE transport did not fail closed');
       assert((await state('sse-unauthorized')).requests.every((req) => req.headers['x-auth-token']), 'SSE retried anonymously');
     }],
     ['Token refresh retries once with the refreshed identity', async () => {
@@ -117,7 +117,7 @@ button.addEventListener('click', async () => {
     ['Task creation failure is not blindly retried', async () => {
       let error;
       try { await client('create-error').parse({ url: 'https://example.com/' }); } catch (caught) { error = caught; }
-      assert(error instanceof DeckParseError, 'Expected stable backend error');
+      assert(error instanceof DeckOpsError, 'Expected stable backend error');
       assert((await state('create-error')).requests.length === 1, 'Task submission repeated');
     }],
     ['Abort closes a live SSE wait without another task', async () => {
@@ -140,7 +140,7 @@ button.addEventListener('click', async () => {
     ['Timeout closes its event stream', async () => {
       let error;
       try { await client('pending_timeout').parse({ url: 'https://example.com/' }, { timeout: 0.1 }); } catch (caught) { error = caught; }
-      assert(error instanceof DeckParseError, 'Expected timeout error');
+      assert(error instanceof DeckOpsError, 'Expected timeout error');
       assert(error.taskId === 'task-1', 'Timeout did not retain the created task id');
       await waitFor(async () => (await state('pending_timeout')).activeStreams === 0);
     }],

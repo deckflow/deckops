@@ -2,7 +2,7 @@ import { FilesApi } from './files.js';
 import { HttpClient } from './http-client.js';
 import { TasksApi } from './tasks.js';
 import { createParse } from './parse-facade.js';
-import type { CreateDeckOptions, CreateTaskParams } from './contracts.js';
+import type { CreateDeckOptions } from './contracts.js';
 import type { DeckRuntime } from './runtime.js';
 
 /** Private product transport. No general-purpose tool shortcuts or SDK exports. */
@@ -11,7 +11,7 @@ export function createTransport(options: CreateDeckOptions, runtime: DeckRuntime
   const files = new FilesApi(http, runtime);
   const tasks = new TasksApi(http, files);
   const parse = createParse({
-    createTask: (params) => tasks.create(params as CreateTaskParams),
+    createTask: (params) => tasks.create(params),
     waitTask: (id, options) => tasks.wait(id, options),
     downTask: (id, options) => tasks.down(id, options),
   });

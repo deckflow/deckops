@@ -44,5 +44,5 @@ jobs:
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
-          name: deckparse-sbom
+          name: deckops-sbom
           path: sbom.cdx.json

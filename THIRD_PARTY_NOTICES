@@ -1,4 +1,4 @@
-DeckParse includes and depends on third-party open-source software.
+DeckOps includes and depends on third-party open-source software.
 
 pdf-lite-parse
 Copyright its contributors. Licensed under the Apache License 2.0.

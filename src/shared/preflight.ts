@@ -4,7 +4,7 @@ import type {
   ProbeReport,
   ProbeResult,
 } from '@deckflow/deckprobe';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 
 export type PreflightMode = 'off' | 'validate' | 'strict';
 
@@ -96,7 +96,7 @@ export function assessPreflight(result: DeckProbeResult, options: AssessPrefligh
 
   const expected = EXPECTED_PROFILE[options.format];
   if (result.driver.profile !== expected) {
-    throw DeckParseError.input(
+    throw DeckOpsError.input(
       `The file content is ${result.driver.profile}, but its name selects ${expected}.`,
       { hint: 'Use the correct filename extension and try again.' }
     );
@@ -104,7 +104,7 @@ export function assessPreflight(result: DeckProbeResult, options: AssessPrefligh
 
   const extensionMatches = valueOf(result, 'document.extension_matches');
   if (extensionMatches === false) {
-    throw DeckParseError.input('The filename extension does not match the document content.', {
+    throw DeckOpsError.input('The filename extension does not match the document content.', {
       hint: 'Use the correct filename extension and try again.',
     });
   }
@@ -114,7 +114,7 @@ export function assessPreflight(result: DeckProbeResult, options: AssessPrefligh
   if (unresolved.length > 0) {
     const message = `DeckProbe could not resolve required preflight facts: ${unresolved.join(', ')}.`;
     if (options.mode === 'strict') {
-      throw DeckParseError.input(message, { hint: 'Retry with preflight validate/off, or inspect the file with DeckProbe.' });
+      throw DeckOpsError.input(message, { hint: 'Retry with preflight validate/off, or inspect the file with DeckProbe.' });
     }
     warnings.push(`${message} Cloud parsing will continue.`);
   }
@@ -124,7 +124,7 @@ export function assessPreflight(result: DeckProbeResult, options: AssessPrefligh
     if (options.format === 'pdf' && options.passwordProvided) {
       warnings.push('DeckProbe found an encrypted PDF; continuing with the provided password.');
     } else {
-      throw DeckParseError.input('The document is encrypted or password-protected.', {
+      throw DeckOpsError.input('The document is encrypted or password-protected.', {
         hint: options.format === 'pdf'
           ? 'Provide the PDF password, or save an unencrypted copy.'
           : 'Save an unencrypted copy before parsing.',
@@ -166,20 +166,20 @@ function assessProbeError(
   const { code, message } = result.error;
   switch (code) {
     case 'MALFORMED_INPUT':
-      throw DeckParseError.input(`DeckProbe rejected the document container: ${message}`, {
+      throw DeckOpsError.input(`DeckProbe rejected the document container: ${message}`, {
         hint: 'Check that the file is complete and its extension matches its content.',
       });
     case 'UNSUPPORTED_FORMAT':
-      throw DeckParseError.unsupported(`DeckProbe cannot inspect this document generation: ${message}`);
+      throw DeckOpsError.unsupported(`DeckProbe cannot inspect this document generation: ${message}`);
     case 'SOURCE_IO':
-      throw DeckParseError.input(`DeckProbe could not read the input: ${message}`);
+      throw DeckOpsError.input(`DeckProbe could not read the input: ${message}`);
     case 'INVALID_REQUEST':
     case 'UNSUPPORTED_TARGET':
-      throw DeckParseError.backend(`DeckParse sent an invalid DeckProbe request: ${message}`);
+      throw DeckOpsError.backend(`DeckOps sent an invalid DeckProbe request: ${message}`);
     default: {
       const explanation = `DeckProbe preflight did not complete (${code}): ${message}`;
       if (mode === 'strict') {
-        throw DeckParseError.input(explanation, {
+        throw DeckOpsError.input(explanation, {
           hint: 'Retry with preflight validate/off, or inspect the file with DeckProbe.',
         });
       }

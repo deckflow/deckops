@@ -3,15 +3,16 @@ import { runLoginFlow } from '../../auth/login.js';
 import {
   displayPath,
   credentialsPath,
-  deckopsConfigPath,
+  configPath,
   hasCredentials,
   maskSecret,
   resolveCredentials,
   writeSharedCredentials,
 } from '../../config/index.js';
-import { DeckParseError } from '../../errors/index.js';
+import { DeckOpsError } from '../../errors/index.js';
+import { readProductConfig, writeProductOption } from '../../config/product.js';
 
-/** `deckparse formats` — the support matrix, honest about what fails. */
+/** `deckops formats` — the support matrix, honest about what fails. */
 export function runFormats(options: { json?: boolean }): void {
   const rows = [
     { input: '.pdf', parse: '✅ local', markdown: '✅ local', notes: 'no OCR; --page-furniture --overlaid-text' },
@@ -57,8 +58,8 @@ export async function runAuthStatus(options: { apiBase?: string; json?: boolean 
     return;
   }
   if (!user) {
-    throw DeckParseError.auth('Stored credential was rejected by the backend.', {
-      hint: 'Run `deckparse auth login`, or check `deckparse config list` for where it came from.',
+    throw DeckOpsError.auth('Stored credential was rejected by the backend.', {
+      hint: 'Run `deckops auth login`, or check `deckops config list` for where it came from.',
     });
   }
   process.stdout.write(`Logged in as ${user.name ?? user.id} ${chalk.dim(`(${credentials.apiBase})`)}\n`);
@@ -76,6 +77,7 @@ export async function runConfigList(options: { json?: boolean }): Promise<void> 
     source: source ?? '—',
   });
   const data = {
+    defaults: readProductConfig(),
     credentials: {
       'api-key': entry(credentials.apiKey, credentials.sources.apiKey, true),
       'token': entry(credentials.token, credentials.sources.token, true),
@@ -84,7 +86,7 @@ export async function runConfigList(options: { json?: boolean }): Promise<void> 
     },
     files: {
       'shared credentials': displayPath(credentialsPath()),
-      'deckops (read-only)': displayPath(deckopsConfigPath()),
+      'deckops defaults': displayPath(configPath()),
     },
   };
   if (options.json) {
@@ -99,13 +101,19 @@ export async function runConfigList(options: { json?: boolean }): Promise<void> 
   for (const [label, file] of Object.entries(data.files)) {
     process.stdout.write(`  ${label.padEnd(22)} ${file}\n`);
   }
+  process.stdout.write(`\nProduct defaults\n  ${JSON.stringify(data.defaults)}\n`);
 }
 
-const CONFIG_KEYS = new Set(['api-key', 'token', 'space-id', 'api-base']);
+const CONFIG_KEYS = new Set(['api-key', 'token', 'space-id', 'api-base', 'engine', 'allow-upload', 'fail-on-degraded', 'timeout', 'preflight']);
 
 export async function runConfigSet(key: string, value: string): Promise<void> {
   if (!CONFIG_KEYS.has(key)) {
-    throw DeckParseError.usage(`Unknown config key "${key}". Known: ${[...CONFIG_KEYS].join(', ')}.`);
+    throw DeckOpsError.usage(`Unknown config key "${key}". Known: ${[...CONFIG_KEYS].join(', ')}.`);
+  }
+  if (['engine', 'allow-upload', 'fail-on-degraded', 'timeout', 'preflight'].includes(key)) {
+    const file = writeProductOption(key, value);
+    process.stdout.write(`${key} saved to ${displayPath(file)}.\n`);
+    return;
   }
   const field = key === 'api-key' ? 'apiKey' : key === 'space-id' ? 'spaceId' : key === 'api-base' ? 'apiBase' : 'token';
   const file = await writeSharedCredentials({ [field]: value });

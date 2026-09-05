@@ -3,9 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { extensionOf, resolveInput, routeExtension } from '../../src/core/input.js';
-import { DeckParseError } from '../../src/errors/index.js';
+import { DeckOpsError } from '../../src/errors/index.js';
 
-const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckparse-input-'));
+const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-input-'));
 
 describe('extension routing', () => {
   it('mirrors the SDK routing table, case- and query-insensitive', () => {
@@ -27,7 +27,7 @@ describe('extension routing', () => {
         routeExtension(name);
         expect.unreachable(`${name} should have been rejected`);
       } catch (error) {
-        const e = error as DeckParseError;
+        const e = error as DeckOpsError;
         expect(e.code).toBe('unsupported');
         expect(e.hint).toMatch(hintPattern);
       }

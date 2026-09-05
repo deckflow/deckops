@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createFakeCloud } from '../tests/browser/fake-cloud.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const port = Number(process.env.DECKPARSE_SMOKE_PORT ?? '0');
+const port = Number(process.env.DECKOPS_SMOKE_PORT ?? '0');
 const cloud = await createFakeCloud();
 const website = await createFakeCloud({ staticRoot: root, port });
 console.log(`Browser SDK smoke test: ${website.origin}/?apiOrigin=${encodeURIComponent(cloud.origin)}`);

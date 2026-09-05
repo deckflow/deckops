@@ -1,4 +1,4 @@
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import type { ParseTaskType } from '../types.js';
 
 /** Extension → task type, shared by the Node and browser inputs. */
@@ -36,7 +36,7 @@ export function routeExtension(name: string): ParseTaskType {
     return route;
   }
   const hint = UNSUPPORTED_HINTS[ext];
-  throw DeckParseError.unsupported(
+  throw DeckOpsError.unsupported(
     ext
       ? `${ext} files are not supported. Supported: ${SUPPORTED_EXTENSIONS.join(', ')}.`
       : `Cannot tell the format of "${name}". Supported: ${SUPPORTED_EXTENSIONS.join(', ')}.`,

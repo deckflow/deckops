@@ -9,7 +9,7 @@ import { runParse } from '../../src/core/parse-op.js';
 import { validateDeckIR } from '../../src/ir/validate.js';
 import { createClient } from '../../src/index.js';
 
-const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckparse-local-'));
+const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-local-'));
 
 describe('local community engine', () => {
   it.each([

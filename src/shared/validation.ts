@@ -1,4 +1,4 @@
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import type { ConvertFlags, ParseFlags } from '../types.js';
 
 export type FormatKey = 'pdf' | 'pptx' | 'docx' | 'keynote' | 'link';
@@ -43,7 +43,7 @@ export function validateParseFlagsForFormat(format: FormatKey | undefined, flags
     }
     const allowed = PARSE_FLAG_FORMATS[name as keyof ParseFlags];
     if (allowed && format && !allowed.includes(format)) {
-      throw DeckParseError.usage(`--${kebab(name)} only applies to ${allowed.join('/')} input, not ${format}.`);
+      throw DeckOpsError.usage(`--${kebab(name)} only applies to ${allowed.join('/')} input, not ${format}.`);
     }
   }
 }
@@ -55,7 +55,7 @@ export function validateConvertFlagsForFormat(format: FormatKey | undefined, fla
     }
     const allowed = CONVERT_FLAG_FORMATS[name as keyof ConvertFlags];
     if (allowed && format && !allowed.includes(format)) {
-      throw DeckParseError.usage(`--${kebab(name)} only applies to ${allowed.join('/')} input, not ${format}.`);
+      throw DeckOpsError.usage(`--${kebab(name)} only applies to ${allowed.join('/')} input, not ${format}.`);
     }
   }
 }

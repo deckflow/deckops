@@ -7,7 +7,7 @@
  * bring your own). CONFORMANCE_<EXT> environment variables override, and
  * CONFORMANCE_URL adds a link one-shot case:
  *
- *   DECKPARSE_API_BASE=…  DECKPARSE_TOKEN=…  node scripts/conformance.mjs
+ *   DECKOPS_API_BASE=…  DECKOPS_TOKEN=…  node scripts/conformance.mjs
  *
  * Uses an isolated DECKFLOW_CONFIG_DIR so inherited credentials from other
  * DeckFlow tools cannot leak into the run.
@@ -25,14 +25,14 @@ if (!existsSync(cli)) {
   process.exit(1);
 }
 
-const work = mkdtempSync(path.join(tmpdir(), 'deckparse-conformance-'));
+const work = mkdtempSync(path.join(tmpdir(), 'deckops-conformance-'));
 const configDir = path.join(work, 'config');
 mkdirSync(configDir);
 const env = {
   ...process.env,
   DECKFLOW_CONFIG_DIR: configDir,
   DECKOPS_CONFIG_DIR: configDir,
-  DECKPARSE_CONFIG_DIR: configDir,
+  DECKOPS_CONFIG_DIR: configDir,
 };
 
 let failures = 0;
@@ -109,7 +109,7 @@ if (keynote) {
     try { run(['parse', keynote, '--engine', 'local']); throw new Error('should have failed'); }
     catch (error) { if (error.status !== 3) throw new Error(`exit ${error.status}, wanted 3`); }
   });
-  if (process.env.DECKPARSE_TOKEN || process.env.DECKPARSE_API_KEY) {
+  if (process.env.DECKOPS_TOKEN || process.env.DECKOPS_API_KEY) {
     check('key: explicit cloud mode remains available', () => {
       const artifact = path.join(work, 'artifact-key-cloud');
       const envelope = runJson(['parse', keynote, '--engine', 'cloud', '-o', artifact]);

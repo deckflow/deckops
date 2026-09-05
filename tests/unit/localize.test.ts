@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { assignFileNames, localizeImages, rewriteLinks } from '../../src/assets/localize.js';
 
-const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckparse-assets-'));
+const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-assets-'));
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 const md5 = (data: Buffer): string => createHash('md5').update(data).digest('hex');

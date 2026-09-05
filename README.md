@@ -1,25 +1,25 @@
-# DeckParse
+# DeckOps
 
 > Parse any document into an agent-operable representation.
 
-DeckParse turns documents into **durable IR artifacts** and derives views from them. Parse once — then convert, again and again, without ever re-reading the source.
+DeckOps turns documents into **durable IR artifacts** and derives views from them. Parse once — then convert, again and again, without ever re-reading the source.
 
 ```bash
-deckparse doc.pdf                  # document → IR artifact (doc/)
-deckparse convert doc/             # artifact → local markdown view, no re-parse/network
-deckparse convert doc.pdf -o doc.md  # one-shot: portable markdown, images localized
+deckops doc.pdf                  # document → IR artifact (doc/)
+deckops convert doc/             # artifact → local markdown view, no re-parse/network
+deckops convert doc.pdf -o doc.md  # one-shot: portable markdown, images localized
 ```
 
-It is the **Parse** pillar of the [DeckFlow](https://github.com/deckflow) family: [DeckRender](https://github.com/deckflow/deckrender) turns documents into pixels, DeckParse turns them into state an agent can hold on to.
+It is the **Parse** pillar of the [DeckFlow](https://github.com/deckflow) family: [DeckRender](https://github.com/deckflow/deckrender) turns documents into pixels, DeckOps turns them into state an agent can hold on to.
 
 ## Install
 
 ```bash
-npx -y @deckflow/deckparse@latest doc.pdf
+npx -y @deckflow/deckops@latest doc.pdf
 ```
 
 ```bash
-npm install -g @deckflow/deckparse
+npm install -g @deckflow/deckops
 ```
 
 The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications use the separate cloud-only [browser entry](#use-it-in-the-browser).
@@ -27,7 +27,7 @@ The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications 
 The default npm install includes `pdfjs-dist`'s optional `@napi-rs/canvas` platform binary, which enables composite-figure cropping. The 1.0.0 release check measured 73.01 MiB for the default production install and 44.16 MiB with optional dependencies omitted (platform and npm metadata can move these numbers slightly). For a strict no-native install use:
 
 ```bash
-npm install --omit=optional @deckflow/deckparse
+npm install --omit=optional @deckflow/deckops
 ```
 
 PDF parsing remains fully usable; only composite-figure cropping degrades and is reported in `quality`.
@@ -39,7 +39,7 @@ parse    document → IR artifact     the only parsing action; produces IR, neve
 convert  IR artifact → view        --to markdown (v1); never re-parses the source
 ```
 
-`deckparse doc.pdf` is `parse`. The artifact it leaves behind is the point:
+`deckops doc.pdf` is `parse`. The artifact it leaves behind is the point:
 
 ```
 doc/
@@ -60,7 +60,7 @@ Local parsers enforce source, ZIP expansion/ratio, asset, XML depth/event, URL r
 ## Supported formats
 
 ```bash
-deckparse formats
+deckops formats
 ```
 
 | Input | parse → IR | convert → markdown | flags |
@@ -76,12 +76,12 @@ Unsupported pairs fail with a hint, never an approximation.
 
 ## Local preflight with DeckProbe
 
-For local files and stdin, DeckParse validates the real document container before parsing it:
+For local files and stdin, DeckOps validates the real document container before parsing it:
 
 ```bash
-deckparse parse report.pdf                       # validate is the default
-deckparse convert slides.pptx --preflight strict -o slides.md
-deckparse parse report.pdf --preflight off       # skip for latency/CSP compatibility
+deckops parse report.pdf                       # validate is the default
+deckops convert slides.pptx --preflight strict -o slides.md
+deckops parse report.pdf --preflight off       # skip for latency/CSP compatibility
 ```
 
 `validate` is the CLI, Node SDK and Browser SDK default. It rejects a malformed/container-mismatched document and an encrypted document without an applicable password; probe budget/runtime failures become warnings and parsing continues. `off` is the explicit performance/CSP escape hatch. `strict` is never implicit. URLs skip local preflight.
@@ -93,7 +93,7 @@ Successful reports are stored verbatim as `probe.json`; their compact summary is
 ## Machine-readable output
 
 ```bash
-$ deckparse convert doc/ --json
+$ deckops convert doc/ --json
 {
   "ok": true,
   "op": "convert",
@@ -117,32 +117,36 @@ Errors carry a stable `error.code` and a distinct exit code:
 | 5 | `input_error`, `ir_not_found`, `ir_expired`, `ir_schema_unsupported`, `ir_invalid`, `asset_error` | fixable by the caller — each carries a hint saying how |
 | 6 | `backend_error` | task failed; includes the taskId for follow-up |
 | 7 | `not_implemented` | reserved verbs (`extract`, `modify`, `export`) |
-| 8 | `quota_error` | guest quota exhausted — `deckparse auth login` |
+| 8 | `quota_error` | guest quota exhausted — `deckops auth login` |
 
 ## Engine and authentication
 
 ```bash
-deckparse parse report.pdf                         # local, never uploads
-deckparse parse report.pdf --engine cloud          # explicit upload authorization
-deckparse parse report.pdf --engine auto            # local only; suggests cloud if degraded
-deckparse parse report.pdf --engine auto --allow-upload
+deckops parse report.pdf                         # local, never uploads
+deckops parse report.pdf --engine cloud          # explicit upload authorization
+deckops parse report.pdf --engine auto            # local only; suggests cloud if degraded
+deckops parse report.pdf --engine auto --allow-upload
 ```
 
-Authentication is only resolved when a cloud request is actually selected. Credentials live in `~/.deckflow/credentials` and are shared with every DeckFlow CLI — log in once through DeckParse, DeckRender or DeckHTML and the others pick it up:
+Authentication is only resolved when a cloud request is actually selected. Credentials live in `~/.deckflow/credentials` and are shared with every DeckFlow CLI — log in once through DeckOps, DeckRender or DeckHTML and the others pick it up:
 
 ```bash
-deckparse auth login
-deckparse config list     # every value, and exactly where it came from
+deckops auth login
+deckops config list     # every value, and exactly where it came from
 ```
 
-Environment variables win over stored files: `DECKPARSE_API_KEY` → `DECKFLOW_API_KEY` → `DECKHTML_API_KEY` (and `DECKPARSE_TOKEN` / `DECKPARSE_API_BASE` / `DECKPARSE_SPACE_ID` likewise). Each field resolves independently — when something authenticates oddly, `deckparse config list` shows which file or variable is responsible.
+Environment variables win over stored files: `DECKOPS_API_KEY` → `DECKFLOW_API_KEY` (and `DECKOPS_TOKEN` / `DECKOPS_API_BASE` / `DECKOPS_SPACE_ID` likewise). Each field resolves independently — when something authenticates oddly, `deckops config list` shows which file or variable is responsible.
+
+Shared credentials and `auth-uuid` remain under `~/.deckflow` (`DECKFLOW_CONFIG_DIR`). Product defaults live separately at `~/.deckflow/deckops/config.json`; `DECKOPS_CONFIG_DIR` changes only that product directory. For example, `deckops config set engine local` and `deckops config set preflight strict` set CLI defaults. Explicit options override product environment variables, which override stored defaults.
+
+After upgrading from DeckParse, run `deckops config migrate --dry-run`, inspect the reported paths and field names, then run `deckops config migrate`. This one-time operation merges only missing valid fields from `~/.deckparse/config.json` and the former tool's `~/.deckops/config.json`, preserves source files and existing target values, and never changes the shared UUID. Use `--from-parse <directory>` / `--from-tools <directory>` for custom legacy locations. Normal commands do not read these old directories or `DECKPARSE_*` variables. The old tools now use `decktools` / `DECKTOOLS_*`; they are not a dependency of this package.
 
 **Where parsing happens:** CLI and Node SDK parsing is local by default for PDF, PPTX, DOCX and static URL source. Cloud parsing only happens after `--engine cloud` or `--engine auto --allow-upload`. The browser entry keeps its existing cloud parse/convert contract and does not bundle local parsers.
 
 ## Use it as a Node.js library
 
 ```ts
-import { parse, openArtifact } from '@deckflow/deckparse';
+import { parse, openArtifact } from '@deckflow/deckops';
 
 const doc = await parse('doc.pdf'); // local by default; preflight defaults to validate
 doc.irKey;                          // undefined for a local artifact
@@ -161,11 +165,11 @@ await same.convert({ splitPages: true });
 ## Use it in the browser
 
 ```bash
-npm install @deckflow/deckparse
+npm install @deckflow/deckops
 ```
 
 ```ts
-import { createClient } from '@deckflow/deckparse/browser';
+import { createClient } from '@deckflow/deckops/browser';
 
 const client = createClient({
   apiBase: 'https://app.deckflow.com/v1',
@@ -201,7 +205,7 @@ Inputs are `File`, `{ file: Blob | Uint8Array | ArrayBuffer, name: string }`, or
 ### Authentication and deployment
 
 - Do not put a server API key in browser code or a frontend environment variable. The browser client deliberately has no `apiKey` option. Direct cloud access requires credentials and permissions intended for browser users; issuing short-lived/scoped credentials is a backend responsibility, not a feature this SDK creates.
-- If your application uses a secret API key or an existing login cookie, use an authenticated backend proxy and pass `apiBase: '/api/deckparse'`. The proxy must preserve the upstream API paths, authorize each operation/space, protect cookie-authenticated mutations against CSRF, and keep secrets server-side. Omitting `token` is appropriate only for such a proxy or intentionally permitted guest access. The SDK does not add a backend service.
+- If your application uses a secret API key or an existing login cookie, use an authenticated backend proxy and pass `apiBase: '/api/deckops'`. The proxy must preserve the upstream API paths, authorize each operation/space, protect cookie-authenticated mutations against CSRF, and keep secrets server-side. Omitting `token` is appropriate only for such a proxy or intentionally permitted guest access. The SDK does not add a backend service.
 - A 401 may refresh through `onUnauthorized` once. Return a nonempty token string for the same user; account/default-space changes require an explicit new client. Failed refreshes reject with `auth_error`; they never switch to a guest identity/space. Task-creation POSTs are not automatically replayed on ambiguous network failures or gateway errors. Files of at least 4 MiB are uploaded first and referenced by `fileId`; that reduces large request failures but is not a server-side idempotency guarantee.
 - For direct access, configure CORS for the API, event stream, signed upload endpoints, result downloads and image assets. Allow the methods/headers actually used, including `X-Auth-Token`, `X-Auth-UUID`, `Content-Type` and `response-event-stream`; multipart uploads need `Access-Control-Expose-Headers: ETag`. API credentials must not be forwarded to signed storage URLs. Production permissions/CORS must be verified for your deployment; localhost tests cannot certify them.
 
@@ -209,7 +213,7 @@ Inputs are `File`, `{ file: Blob | Uint8Array | ArrayBuffer, name: string }`, or
 
 Every browser parse/convert accepts `signal`, `onProgress`, `timeout` (seconds), `useEventStream` and `pollInterval` (milliseconds). Upload progress reports completed upload work, not a guaranteed continuous byte-level progress stream; small inline uploads report completion after the request succeeds. Aborting stops the client's HTTP requests, uploads and waiting; it does **not** cancel or refund a cloud task that was already submitted. An aborted call preserves the signal's abort reason (normally `AbortError`). Do not automatically call `parse()` again after an uncertain submission failure.
 
-Keep the task id from `onProgress`. Other operation errors use `DeckParseError` with stable `code`, `hint` and, once known, `taskId`:
+Keep the task id from `onProgress`. Other operation errors use `DeckOpsError` with stable `code`, `hint` and, once known, `taskId`:
 
 ```ts
 const task = await client.getTask(savedParseTaskId);
@@ -234,7 +238,7 @@ pnpm check:browser  # DOM-only types + HTTP integration + browser export checks
 pnpm browser:smoke  # open the printed localhost URL for real-browser checks
 
 # conformance drives the built CLI against a real backend:
-DECKPARSE_API_BASE=… DECKPARSE_TOKEN=… \
+DECKOPS_API_BASE=… DECKOPS_TOKEN=… \
 CONFORMANCE_PDF=sample.pdf CONFORMANCE_PPTX=sample.pptx pnpm conformance
 ```
 

@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import { parseDocx } from './docx/parser.js';
 import { parseHtmlSource } from './html/parser.js';
 import { parsePptx } from './pptx/parser.js';
@@ -21,7 +21,7 @@ export async function runLocalWorker(request: WorkerRequest, signal: AbortSignal
     worker.once('message', (response: WorkerResponse) => finish(() => {
       void worker.terminate();
       if (response.ok) resolve(response.candidate);
-      else reject(response.error.code ? new DeckParseError(response.error.code as never, response.error.message, { ...(response.error.hint ? { hint: response.error.hint } : {}) }) : new Error(response.error.message));
+      else reject(response.error.code ? new DeckOpsError(response.error.code as never, response.error.message, { ...(response.error.hint ? { hint: response.error.hint } : {}) }) : new Error(response.error.message));
     }));
     worker.once('error', (error) => finish(() => reject(error)));
     worker.once('exit', (code) => { if (code !== 0) finish(() => reject(new Error(`Local parser worker exited with code ${code}.`))); });

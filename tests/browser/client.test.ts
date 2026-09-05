@@ -1,6 +1,6 @@
 import { File as NodeFile } from 'node:buffer';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createClient, DeckParseError } from '../../src/browser/index.js';
+import { createClient, DeckOpsError } from '../../src/browser/index.js';
 import type { ProbeReport } from '@deckflow/deckprobe';
 import { createFakeCloud, type FakeCloud } from './fake-cloud.mjs';
 
@@ -221,7 +221,7 @@ describe('browser SDK over real HTTP', () => {
   });
 
   it('fails closed on 401, with no guest identity request or duplicated task', async () => {
-    await expect(clientFor('unauthorized').parse({ url: 'https://example.com/' })).rejects.toMatchObject({ name: 'DeckParseError', code: 'auth_error' });
+    await expect(clientFor('unauthorized').parse({ url: 'https://example.com/' })).rejects.toMatchObject({ name: 'DeckOpsError', code: 'auth_error' });
     expect(submissions('unauthorized')).toHaveLength(1);
     expect(cloud.state('unauthorized').requests).toHaveLength(1);
     expect(cloud.state('unauthorized').requests[0]?.headers['x-auth-token']).toBe('test-token');
@@ -271,12 +271,12 @@ describe('browser SDK over real HTTP', () => {
   });
 
   it('does not blindly retry a task-creation 502', async () => {
-    await expect(clientFor('create-error').parse({ url: 'https://example.com/' })).rejects.toBeInstanceOf(DeckParseError);
+    await expect(clientFor('create-error').parse({ url: 'https://example.com/' })).rejects.toBeInstanceOf(DeckOpsError);
     expect(submissions('create-error')).toHaveLength(1);
   }, 2_500);
 
   it.each([['quota', 'quota_error'], ['expired', 'ir_expired']] as const)('maps %s HTTP failures to a stable error code', async (name, code) => {
-    await expect(clientFor(name).convert({ irKey: 'fixture/ir.json' })).rejects.toMatchObject({ name: 'DeckParseError', code });
+    await expect(clientFor(name).convert({ irKey: 'fixture/ir.json' })).rejects.toMatchObject({ name: 'DeckOpsError', code });
   });
 
   it('treats markdownError and task failures as backend errors', async () => {
@@ -338,7 +338,7 @@ describe('browser SDK over real HTTP', () => {
 
   it('enforces timeout in seconds and closes the open SSE request', async () => {
     const started = Date.now();
-    await expect(clientFor('pending_timeout').parse({ url: 'https://example.com/' }, { timeout: 0.1 })).rejects.toMatchObject({ name: 'DeckParseError', taskId: 'task-1' });
+    await expect(clientFor('pending_timeout').parse({ url: 'https://example.com/' }, { timeout: 0.1 })).rejects.toMatchObject({ name: 'DeckOpsError', taskId: 'task-1' });
     expect(Date.now() - started).toBeLessThan(2_000);
     await vi.waitFor(() => expect(cloud.state('pending_timeout').activeStreams).toBe(0));
     expect(submissions('pending_timeout')).toHaveLength(1);
@@ -377,12 +377,12 @@ describe('browser SDK over real HTTP', () => {
     for (const input of ['/tmp/report.pdf', new Blob(['pdf']), { file: new Blob(['pdf']), name: '' },
       { file: new Blob(['pdf']), name: 'report.exe' }, { file: new Blob([]), name: 'empty.pdf' },
       { url: 'file:///tmp/report.pdf' }, { url: 'https://user:secret@example.com/' }]) {
-      await expect(client.parse(input as never)).rejects.toBeInstanceOf(DeckParseError);
+      await expect(client.parse(input as never)).rejects.toBeInstanceOf(DeckOpsError);
     }
     await expect(client.parse({ file: new Blob(['slides']), name: 'slides.pptx' }, { profile: 'quality' })).rejects.toMatchObject({ code: 'usage_error' });
-    await expect(client.convert({ irKey: 'a', taskId: 'b' } as never)).rejects.toBeInstanceOf(DeckParseError);
+    await expect(client.convert({ irKey: 'a', taskId: 'b' } as never)).rejects.toBeInstanceOf(DeckOpsError);
     await expect(client.convert({ irKey: 'a' }, { to: 'html' } as never)).rejects.toMatchObject({ code: 'unsupported' });
-    expect(() => createClient({ apiKey: 'server-secret' } as never)).toThrow(DeckParseError);
+    expect(() => createClient({ apiKey: 'server-secret' } as never)).toThrow(DeckOpsError);
     expect(cloud.state('invalid').requests).toHaveLength(0);
   });
 });

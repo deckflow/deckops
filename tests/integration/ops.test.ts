@@ -11,7 +11,7 @@ import type { NodeDocumentInspector } from '../../src/core/inspector.js';
 import { runConvert } from '../../src/core/convert-op.js';
 import { resolveInput } from '../../src/core/input.js';
 import { runParse } from '../../src/core/parse-op.js';
-import { DeckParseError } from '../../src/errors/index.js';
+import { DeckOpsError } from '../../src/errors/index.js';
 
 /**
  * Full operation flows against a fake cloud client, with fixtures shaped like
@@ -19,7 +19,7 @@ import { DeckParseError } from '../../src/errors/index.js';
  * artifact layout, reuse semantics, reusedParse, crash-safe ordering.
  */
 
-const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckparse-ops-'));
+const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-ops-'));
 const cloudCommon = (extra: Record<string, unknown> = {}) => ({ engine: 'cloud' as const, ...extra });
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
@@ -443,6 +443,6 @@ describe('asset failure policy', () => {
 describe('library handle', () => {
   it('exposes parse → handle → convert without re-parsing', async () => {
     // Covered end-to-end by the CLI paths above; here just the error type surface.
-    expect(new DeckParseError('ir_expired', 'x').exitCode).toBe(5);
+    expect(new DeckOpsError('ir_expired', 'x').exitCode).toBe(5);
   });
 });

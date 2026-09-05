@@ -14,7 +14,7 @@ import {
 } from '../../src/artifact/manifest.js';
 import type { Manifest } from '../../src/types.js';
 
-const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckparse-manifest-'));
+const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-manifest-'));
 
 const manifest = (overrides: Partial<Manifest['parse']> = {}): Manifest => ({
   manifestVersion: 1,

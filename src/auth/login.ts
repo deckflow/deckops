@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 
 /**
  * Browser login. URL shape, callback port and query parameter names are copied
@@ -78,7 +78,7 @@ function awaitCallback<T>(port: number, extract: (params: URLSearchParams) => T 
     });
 
     const timer = setTimeout(() => {
-      finish(() => reject(DeckParseError.auth('Login timed out after 5 minutes.')));
+      finish(() => reject(DeckOpsError.auth('Login timed out after 5 minutes.')));
     }, LOGIN_TIMEOUT_MS);
     timer.unref?.();
 
@@ -96,10 +96,10 @@ function awaitCallback<T>(port: number, extract: (params: URLSearchParams) => T 
       finish(() =>
         reject(
           error.code === 'EADDRINUSE'
-            ? DeckParseError.auth(`Port ${port} is already in use.`, {
+            ? DeckOpsError.auth(`Port ${port} is already in use.`, {
                 hint: 'Close whatever is listening on that port and retry.',
               })
-            : DeckParseError.auth(`Local callback server failed: ${error.message}`, { cause: error })
+            : DeckOpsError.auth(`Local callback server failed: ${error.message}`, { cause: error })
         )
       );
     });

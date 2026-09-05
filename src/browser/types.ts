@@ -24,14 +24,14 @@ export type BrowserProgress =
   | { phase: 'parse' | 'convert'; taskId: string; status: BrowserTaskStatus };
 
 export interface BrowserClientOptions {
-  /** Cloud API root or an authenticated same-origin proxy, e.g. /api/deckparse. */
+  /** Cloud API root or an authenticated same-origin proxy, e.g. /api/deckops. */
   apiBase?: string;
   /** User-scoped browser credential. Never put a server API key in browser code. */
   token?: string;
   spaceId?: string;
   /** Refresh the same user's token once after a 401; changing accounts/spaces requires a new client. */
   onUnauthorized?: () => Promise<string>;
-  /** Optional custom local inspector; DeckParse uses its DeckProbe Worker adapter by default. */
+  /** Optional custom local inspector; DeckOps uses its DeckProbe Worker adapter by default. */
   inspector?: BrowserDocumentInspector;
 }
 

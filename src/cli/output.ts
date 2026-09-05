@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import type { DeckParseError } from '../errors/index.js';
+import type { DeckOpsError } from '../errors/index.js';
 import type { ConvertEnvelope, Envelope, ParseEnvelope } from '../types.js';
 
 /**
@@ -71,7 +71,7 @@ function printWarnings(warnings: string[]): void {
   }
 }
 
-export function printError(error: DeckParseError, op: 'parse' | 'convert', ctx: OutputContext): void {
+export function printError(error: DeckOpsError, op: 'parse' | 'convert', ctx: OutputContext): void {
   if (ctx.json) {
     process.stdout.write(
       `${JSON.stringify(

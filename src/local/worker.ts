@@ -4,7 +4,7 @@ import { parseHtmlSource } from './html/parser.js';
 import { parsePptx } from './pptx/parser.js';
 import type { WorkerRequest, WorkerResponse } from './worker-protocol.js';
 
-if (!parentPort) throw new Error('deckparse local worker must run in a worker thread.');
+if (!parentPort) throw new Error('deckops local worker must run in a worker thread.');
 
 parentPort.once('message', (request: WorkerRequest) => {
   try {

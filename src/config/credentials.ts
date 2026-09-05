@@ -1,11 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { DIR_MODE, SECRET_FILE_MODE, credentialsPath, deckflowDir, deckopsConfigPath } from './paths.js';
+import { DIR_MODE, SECRET_FILE_MODE, credentialsPath, deckflowDir } from './paths.js';
 
 /**
  * Shared credential resolution. Behavior copied from deckrender's
  * config/credentials.ts (docs/rfc.md §6) with the env prefix swapped to
- * DECKPARSE_* — a machine set up for any DeckFlow tool works here untouched.
+ * DECKOPS_* — a machine set up for any DeckFlow tool works here untouched.
  */
 export interface SharedCredentials { apiKey?: string; token?: string; spaceId?: string; apiBase?: string; [key: string]: unknown }
 
@@ -13,7 +13,6 @@ export type CredentialSource =
   | 'flag'
   | `env:${string}`
   | 'file:~/.deckflow/credentials'
-  | 'file:~/.deckops/config.json'
   | 'default';
 
 export interface ResolvedCredentials {
@@ -38,10 +37,10 @@ export interface CredentialOverrides {
 
 export const DEFAULT_API_BASE = 'https://app.deckflow.com/v1';
 
-export const API_KEY_ENV_VARS = ['DECKPARSE_API_KEY', 'DECKFLOW_API_KEY', 'DECKHTML_API_KEY'] as const;
-export const TOKEN_ENV_VARS = ['DECKPARSE_TOKEN', 'DECKFLOW_TOKEN'] as const;
-export const SPACE_ID_ENV_VARS = ['DECKPARSE_SPACE_ID', 'DECKFLOW_SPACE_ID'] as const;
-export const API_BASE_ENV_VARS = ['DECKPARSE_API_BASE', 'DECKFLOW_API_BASE'] as const;
+export const API_KEY_ENV_VARS = ['DECKOPS_API_KEY', 'DECKFLOW_API_KEY'] as const;
+export const TOKEN_ENV_VARS = ['DECKOPS_TOKEN', 'DECKFLOW_TOKEN'] as const;
+export const SPACE_ID_ENV_VARS = ['DECKOPS_SPACE_ID', 'DECKFLOW_SPACE_ID'] as const;
+export const API_BASE_ENV_VARS = ['DECKOPS_API_BASE', 'DECKFLOW_API_BASE'] as const;
 
 function firstEnv(names: readonly string[]): { value: string; source: CredentialSource } | undefined {
   for (const name of names) {
@@ -66,25 +65,13 @@ export async function readSharedCredentials(): Promise<SharedCredentials> {
   if (raw === undefined) {
     return {};
   }
-  return sanitizeCredentials(raw, true);
+  return sanitizeCredentials(raw);
 }
 
-interface DeckopsConfig { token?: string; spaceId?: string; apiBase?: string }
-
-export async function readDeckopsConfig(): Promise<DeckopsConfig> {
-  const raw = await readJsonFile(deckopsConfigPath());
-  if (raw === undefined) {
-    return {};
-  }
-  return sanitizeCredentials(raw, false);
-}
-
-function sanitizeCredentials(raw: unknown, keepUnknown: true): SharedCredentials;
-function sanitizeCredentials(raw: unknown, keepUnknown: false): DeckopsConfig;
-function sanitizeCredentials(raw: unknown, keepUnknown: boolean): SharedCredentials | DeckopsConfig {
+function sanitizeCredentials(raw: unknown): SharedCredentials {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
   const record = raw as Record<string, unknown>;
-  const result: Record<string, unknown> = keepUnknown ? { ...record } : {};
+  const result: Record<string, unknown> = { ...record };
   for (const key of ['apiKey', 'token', 'spaceId'] as const) {
     if (typeof record[key] === 'string' && record[key].trim()) result[key] = record[key].trim();
     else delete result[key];
@@ -99,21 +86,19 @@ function isHttpUrl(value: string): boolean {
 }
 
 /**
- * Resolve credentials through the five-level chain:
+ * Resolve credentials through the credential chain:
  *
- *   flags → env → ~/.deckflow/credentials → ~/.deckops/config.json → defaults
+ *   flags → env → ~/.deckflow/credentials → defaults
  *
  * Each field resolves independently.
  */
 export async function resolveCredentials(overrides: CredentialOverrides = {}): Promise<ResolvedCredentials> {
   const shared = await readSharedCredentials();
-  const deckops = await readDeckopsConfig();
 
   const pick = (
     override: string | undefined,
     envNames: readonly string[],
-    sharedValue: string | undefined,
-    deckopsValue: string | undefined
+    sharedValue: string | undefined
   ): { value: string | undefined; source: CredentialSource | undefined } => {
     if (override && override.trim()) {
       return { value: override.trim(), source: 'flag' };
@@ -125,16 +110,13 @@ export async function resolveCredentials(overrides: CredentialOverrides = {}): P
     if (sharedValue) {
       return { value: sharedValue, source: 'file:~/.deckflow/credentials' };
     }
-    if (deckopsValue) {
-      return { value: deckopsValue, source: 'file:~/.deckops/config.json' };
-    }
     return { value: undefined, source: undefined };
   };
 
-  const apiKey = pick(overrides.apiKey, API_KEY_ENV_VARS, shared.apiKey, undefined);
-  const token = pick(overrides.token, TOKEN_ENV_VARS, shared.token, deckops.token);
-  const spaceId = pick(overrides.spaceId, SPACE_ID_ENV_VARS, shared.spaceId, deckops.spaceId);
-  const apiBase = pick(overrides.apiBase, API_BASE_ENV_VARS, shared.apiBase, deckops.apiBase);
+  const apiKey = pick(overrides.apiKey, API_KEY_ENV_VARS, shared.apiKey);
+  const token = pick(overrides.token, TOKEN_ENV_VARS, shared.token);
+  const spaceId = pick(overrides.spaceId, SPACE_ID_ENV_VARS, shared.spaceId);
+  const apiBase = pick(overrides.apiBase, API_BASE_ENV_VARS, shared.apiBase);
 
   return {
     ...(apiKey.value ? { apiKey: apiKey.value } : {}),

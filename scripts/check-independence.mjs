@@ -5,8 +5,11 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
 const forbidden = /@(?:deckops|decktools)\/sdk|@deckflow\/cloud-client/;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+assert.equal(manifest.name, '@deckflow/deckops');
+assert.deepEqual(manifest.bin, { deckops: 'dist/cli.js' }, 'Only the new product CLI may be exported');
 for (const section of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
   for (const [name, spec] of Object.entries(manifest[section] ?? {})) {
+    assert.ok(!['decktools', 'deckops'].includes(name), 'The product must not depend on either tools CLI');
     assert.doesNotMatch(`${name} ${spec}`, forbidden, `Forbidden product dependency in ${section}`);
     assert.doesNotMatch(spec, /^(?:file:|link:|workspace:)|deckflow\/(?:decktools|deckops)(?:\W|$)/,
       'Product builds must not depend on a sibling checkout or tool repository');

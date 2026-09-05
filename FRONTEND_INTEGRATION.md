@@ -1,4 +1,4 @@
-# DeckParse 前端接入文档
+# DeckOps 前端接入文档
 
 本文面向需要在浏览器中把 PDF、PPTX、DOCX、Keynote 或网页解析为 Markdown 的前端开发者。
 
@@ -15,16 +15,16 @@ SDK 使用云端解析服务，不是离线解析。文件输入默认以 `valid
 ## 2. 安装
 
 ```bash
-npm install @deckflow/deckparse@0.2.0
+npm install @deckflow/deckops@1.0.0
 ```
 
 必须从浏览器子路径导入：
 
 ```ts
-import { createClient } from '@deckflow/deckparse/browser';
+import { createClient } from '@deckflow/deckops/browser';
 ```
 
-不要从 `@deckflow/deckparse` 根路径导入前端 SDK；根路径是 Node.js/CLI API。
+不要从 `@deckflow/deckops` 根路径导入前端 SDK；根路径是 Node.js/CLI API。
 
 ## 3. 鉴权和 API 地址
 
@@ -32,11 +32,11 @@ import { createClient } from '@deckflow/deckparse/browser';
 
 ```ts
 const client = createClient({
-  apiBase: '/api/deckparse',
+  apiBase: '/api/deckops',
 });
 ```
 
-业务后端负责登录态、权限检查和上游密钥，浏览器只访问同源接口。代理需要保留 DeckParse 的上游 API 路径和请求方法。
+业务后端负责登录态、权限检查和上游密钥，浏览器只访问同源接口。代理需要保留 DeckOps 的上游 API 路径和请求方法。
 
 ### 直接访问 DeckFlow API
 
@@ -69,12 +69,12 @@ TypeScript：
 ```ts
 import {
   createClient,
-  DeckParseError,
+  DeckOpsError,
   type BrowserProgress,
-} from '@deckflow/deckparse/browser';
+} from '@deckflow/deckops/browser';
 
 const client = createClient({
-  apiBase: '/api/deckparse',
+  apiBase: '/api/deckops',
 });
 
 const input = document.querySelector<HTMLInputElement>('#document-input')!;
@@ -137,7 +137,7 @@ input.addEventListener('change', async () => {
       return;
     }
 
-    if (error instanceof DeckParseError) {
+    if (error instanceof DeckOpsError) {
       console.error({
         code: error.code,
         message: error.message,
@@ -163,9 +163,9 @@ import {
   createClient,
   type BrowserImage,
   type BrowserProgress,
-} from '@deckflow/deckparse/browser';
+} from '@deckflow/deckops/browser';
 
-const client = createClient({ apiBase: '/api/deckparse' });
+const client = createClient({ apiBase: '/api/deckops' });
 
 export interface MarkdownDocument {
   markdown: string;
@@ -385,7 +385,7 @@ if (task.status === 'completed') {
 
 ### 可以在 SSR 中导入吗？
 
-可以导入 `@deckflow/deckparse/browser`，但 `File` 的获取和实际解析调用应在浏览器端执行。
+可以导入 `@deckflow/deckops/browser`，但 `File` 的获取和实际解析调用应在浏览器端执行。
 
 ### SDK 会在浏览器本地保存文件吗？
 

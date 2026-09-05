@@ -1,4 +1,4 @@
-import { DeckParseError, type ErrorCode } from '../errors/index.js';
+import { DeckOpsError, type ErrorCode } from '../errors/index.js';
 
 /** Backend body codes → our codes. The precise `ir_*` codes pass through verbatim. */
 const BODY_CODE_MAP: Record<string, ErrorCode> = {
@@ -10,11 +10,11 @@ const BODY_CODE_MAP: Record<string, ErrorCode> = {
 };
 
 const NODE_HINTS: Partial<Record<ErrorCode, string>> = {
-  ir_expired: 'The IR is past its 7-day retention. Re-run `deckparse parse <source> --force` and retry.',
-  ir_not_found: 'The reference is wrong or belongs to another space. Re-run `deckparse parse <source>`.',
+  ir_expired: 'The IR is past its 7-day retention. Re-run `deckops parse <source> --force` and retry.',
+  ir_not_found: 'The reference is wrong or belongs to another space. Re-run `deckops parse <source>`.',
   ir_schema_unsupported: 'The IR was produced by an incompatible parser version. Re-parse the source.',
-  quota_error: 'Guest quota exhausted for today. Run `deckparse auth login` for higher limits.',
-  auth_error: 'Run `deckparse auth login`, or check `deckparse config list` for a stale credential.',
+  quota_error: 'Guest quota exhausted for today. Run `deckops auth login` for higher limits.',
+  auth_error: 'Run `deckops auth login`, or check `deckops config list` for a stale credential.',
 };
 
 const BROWSER_HINTS: Partial<Record<ErrorCode, string>> = {
@@ -26,7 +26,7 @@ const BROWSER_HINTS: Partial<Record<ErrorCode, string>> = {
 };
 
 const NODE_NOT_FOUND_HINT =
-  'A 404 on task creation often means a spaceId inherited from another environment — `deckparse config list` shows every value and where it came from.';
+  'A 404 on task creation often means a spaceId inherited from another environment — `deckops config list` shows every value and where it came from.';
 
 const BROWSER_NOT_FOUND_HINT =
   'Check that apiBase and spaceId belong to the same environment and that the current user can access the space.';
@@ -50,8 +50,8 @@ export function translateError(
   error: unknown,
   context: 'node' | 'browser' = 'node',
   taskId?: string
-): DeckParseError {
-  if (error instanceof DeckParseError) {
+): DeckOpsError {
+  if (error instanceof DeckOpsError) {
     return error;
   }
 
@@ -72,20 +72,20 @@ export function translateError(
     const hints = context === 'node' ? NODE_HINTS : BROWSER_HINTS;
     const notFoundHint = context === 'node' ? NODE_NOT_FOUND_HINT : BROWSER_NOT_FOUND_HINT;
     const hint = hints[code] ?? (code === 'backend_error' && error.statusCode === 404 ? notFoundHint : undefined);
-    return new DeckParseError(code, error.message, { ...(hint ? { hint } : {}), ...task, cause: error });
+    return new DeckOpsError(code, error.message, { ...(hint ? { hint } : {}), ...task, cause: error });
   }
 
   if (error instanceof Error) {
     // The SDK refuses parse results without an irKey: backend older than the split.
     if (/returned no irKey/.test(error.message)) {
-      return DeckParseError.backend(error.message, {
+      return DeckOpsError.backend(error.message, {
         hint: 'The backend needs @deckflow/platform-slave >= 0.22.0.',
         ...task,
         cause: error,
       });
     }
     if (/did not complete within/.test(error.message)) {
-      return DeckParseError.backend(error.message, {
+      return DeckOpsError.backend(error.message, {
         hint: context === 'node'
           ? 'Raise --timeout, or check the task later with its taskId.'
           : 'Increase the timeout, or check the task later with its taskId.',
@@ -93,8 +93,8 @@ export function translateError(
         cause: error,
       });
     }
-    return DeckParseError.backend(error.message, { ...task, cause: error });
+    return DeckOpsError.backend(error.message, { ...task, cause: error });
   }
 
-  return DeckParseError.backend(String(error), task);
+  return DeckOpsError.backend(String(error), task);
 }

@@ -1,4 +1,4 @@
-import { DeckParseError } from '../../errors/index.js';
+import { DeckOpsError } from '../../errors/index.js';
 import { stableId } from '../../ir/ids.js';
 import type { CandidateAsset, DeckIrNode, DeckIrRun, ParseCandidate, QualityCheck } from '../../ir/schema.js';
 import { makeIr, mediaTypeForPath, qualityOf, type SourceIdentity } from '../common.js';
@@ -21,7 +21,7 @@ interface Context {
 export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: LocalLimits): ParseCandidate {
   const pkg = new OpcPackage(data, limits);
   if (!pkg.has('[Content_Types].xml') || !pkg.has('ppt/presentation.xml')) {
-    throw DeckParseError.input('PPTX package is missing required OOXML parts.');
+    throw DeckOpsError.input('PPTX package is missing required OOXML parts.');
   }
   const presentation = pkg.xml('ppt/presentation.xml');
   const presentationRels = pkg.relationships('ppt/presentation.xml');

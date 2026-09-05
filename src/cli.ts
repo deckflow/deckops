@@ -10,12 +10,13 @@ import {
 } from './cli/commands/aux.js';
 import { runConvertCommand, runParseCommand, type RawCliOptions } from './cli/commands/run-ops.js';
 import { printError } from './cli/output.js';
-import { DeckParseError } from './errors/index.js';
+import { DeckOpsError } from './errors/index.js';
+import { migrateConfig, type MigrationOptions } from './config/migrate.js';
 import { VERSION } from './version.js';
 
 /**
  * CLI assembly (docs/rfc.md §5.1). Bare invocation is `parse` — the product is
- * called DeckParse, its default action produces the IR artifact, not markdown.
+ * called DeckOps, its default action produces the IR artifact, not markdown.
  * `extract` / `modify` / `export` are reserved so adding them later is not a
  * breaking change.
  */
@@ -80,7 +81,7 @@ function convertOptions(command: Command): Command {
 }
 
 async function main(): Promise<void> {
-  const program = new Command('deckparse')
+  const program = new Command('deckops')
     .version(VERSION)
     .description('Parse documents into durable IR artifacts; convert IR into views. Parse once, operate repeatedly.')
     // Commander errors (unknown option, missing argument) are usage errors:
@@ -124,6 +125,14 @@ async function main(): Promise<void> {
     runConfigList(options)
   );
   config.command('set <key> <value>').action((key: string, value: string) => runConfigSet(key, value));
+  config.command('migrate').description('import legacy configuration once; keep existing values and source files')
+    .option('--from-parse <directory>', 'legacy DeckParse configuration directory')
+    .option('--from-tools <directory>', 'legacy tool configuration directory')
+    .option('--shared-dir <directory>', 'shared credential directory')
+    .option('--ops-dir <directory>', 'new DeckOps configuration directory')
+    .option('--tools-dir <directory>', 'DeckTools configuration directory')
+    .option('--dry-run', 'report paths and field names without writing')
+    .action(async (options: MigrationOptions) => { process.stdout.write(`${JSON.stringify(await migrateConfig(options), null, 2)}\n`); });
 
   // Reserved verbs: calling them names the roadmap instead of "unknown command".
   for (const verb of ['extract', 'modify', 'export'] as const) {
@@ -131,9 +140,9 @@ async function main(): Promise<void> {
       .command(`${verb} [input]`, { hidden: true })
       .allowUnknownOption(true)
       .action(() => {
-        throw DeckParseError.notImplemented(
+        throw DeckOpsError.notImplemented(
           `\`${verb}\` is reserved for a future release. v1 ships parse and convert.`,
-          { hint: 'See the roadmap: https://github.com/deckflow/deckparse#roadmap' }
+          { hint: 'See the roadmap: https://github.com/deckflow/deckops#roadmap' }
         );
       });
   }
@@ -146,7 +155,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Bare invocation = parse: `deckparse doc.pdf` ≡ `deckparse parse doc.pdf`.
+  // Bare invocation = parse: `deckops doc.pdf` ≡ `deckops parse doc.pdf`.
   const argv = [...process.argv];
   const first = argv[2];
   if (first === '-' || (first && !first.startsWith('-') && !KNOWN_COMMANDS.has(first))) {
@@ -166,7 +175,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  if (error instanceof DeckParseError) {
+  if (error instanceof DeckOpsError) {
     printError(error, 'parse', { json: process.argv.includes('--json'), quiet: false });
     process.exit(error.exitCode);
   }

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import type { EngineMode, Manifest, ManifestV1, ManifestV1View, ManifestV2, ManifestView } from '../types.js';
 import { irPath, manifestPath } from './layout.js';
 import { validateDeckIR } from '../ir/validate.js';
@@ -14,44 +14,44 @@ export async function readManifest(dir: string): Promise<Manifest> {
   let parsed: unknown;
   try { parsed = JSON.parse(await fs.readFile(file, 'utf-8')); }
   catch (cause) {
-    if (!existsSync(file)) throw DeckParseError.input(`${dir} is not an artifact: no ${path.basename(file)}.`, { hint: 'Run `deckparse parse <source>` to create one.', cause });
-    throw DeckParseError.input(`${file} is not valid JSON.`, { hint: 'The artifact is damaged. Re-run parse with --force.', cause });
+    if (!existsSync(file)) throw DeckOpsError.input(`${dir} is not an artifact: no ${path.basename(file)}.`, { hint: 'Run `deckops parse <source>` to create one.', cause });
+    throw DeckOpsError.input(`${file} is not valid JSON.`, { hint: 'The artifact is damaged. Re-run parse with --force.', cause });
   }
-  if (!isRecord(parsed)) throw DeckParseError.input(`${file} is not a deckparse manifest.`);
+  if (!isRecord(parsed)) throw DeckOpsError.input(`${file} is not a deckops manifest.`);
   if (parsed.manifestVersion === 1) {
     const manifest = parsed as unknown as ManifestV1;
-    if (!manifest.parse?.irKey || !manifest.parse.type) throw DeckParseError.input(`${file} is not a valid manifest v1.`);
+    if (!manifest.parse?.irKey || !manifest.parse.type) throw DeckOpsError.input(`${file} is not a valid manifest v1.`);
     return manifest;
   }
   if (parsed.manifestVersion === 2) {
     const manifest = parsed as unknown as ManifestV2;
-    if (manifest.parse?.schemaVersion !== 'deckir.v1' || !manifest.source?.sha256 || !manifest.quality) throw DeckParseError.input(`${file} is not a valid manifest v2.`);
+    if (manifest.parse?.schemaVersion !== 'deckir.v1' || !manifest.source?.sha256 || !manifest.quality) throw DeckOpsError.input(`${file} is not a valid manifest v2.`);
     try {
       const ir = validateDeckIR(JSON.parse(await fs.readFile(irPath(dir), 'utf-8')));
-      if (ir.source.sha256 !== manifest.source.sha256 || ir.source.bytes !== manifest.source.bytes || ir.source.name !== manifest.source.name) throw DeckParseError.input(`${dir} has inconsistent source identities in manifest.json and ir.json.`);
+      if (ir.source.sha256 !== manifest.source.sha256 || ir.source.bytes !== manifest.source.bytes || ir.source.name !== manifest.source.name) throw DeckOpsError.input(`${dir} has inconsistent source identities in manifest.json and ir.json.`);
       if (ir.format !== manifest.parse.format || ir.producer.engine !== manifest.parse.engine ||
           ir.producer.name !== manifest.parse.parser.name || ir.producer.version !== manifest.parse.parser.version) {
-        throw DeckParseError.input(`${dir} has inconsistent parser metadata in manifest.json and ir.json.`);
+        throw DeckOpsError.input(`${dir} has inconsistent parser metadata in manifest.json and ir.json.`);
       }
-      if (JSON.stringify(ir.quality) !== JSON.stringify(manifest.quality)) throw DeckParseError.input(`${dir} has inconsistent quality reports in manifest.json and ir.json.`);
+      if (JSON.stringify(ir.quality) !== JSON.stringify(manifest.quality)) throw DeckOpsError.input(`${dir} has inconsistent quality reports in manifest.json and ir.json.`);
       const irAssets = new Map(ir.document.assets.map((asset) => [asset.path, asset]));
       for (const [relative, asset] of Object.entries(manifest.assets)) {
         const target = containedPath(dir, relative);
-        if (!target) throw DeckParseError.input(`${dir} registers an unsafe asset path.`);
+        if (!target) throw DeckOpsError.input(`${dir} registers an unsafe asset path.`);
         const stat = await fs.lstat(target);
-        if (!stat.isFile() || stat.size !== asset.bytes) throw DeckParseError.input(`${dir} has a missing or truncated registered asset: ${relative}.`);
+        if (!stat.isFile() || stat.size !== asset.bytes) throw DeckOpsError.input(`${dir} has a missing or truncated registered asset: ${relative}.`);
         const hash = createHash('sha256').update(await fs.readFile(target)).digest('hex');
-        if (hash !== asset.hash || irAssets.has(relative) && irAssets.get(relative)?.hash !== hash) throw DeckParseError.input(`${dir} has a corrupted registered asset: ${relative}.`);
+        if (hash !== asset.hash || irAssets.has(relative) && irAssets.get(relative)?.hash !== hash) throw DeckOpsError.input(`${dir} has a corrupted registered asset: ${relative}.`);
       }
-      if ([...irAssets.keys()].some((relative) => !(relative in manifest.assets))) throw DeckParseError.input(`${dir} has inconsistent asset indexes in manifest.json and ir.json.`);
+      if ([...irAssets.keys()].some((relative) => !(relative in manifest.assets))) throw DeckOpsError.input(`${dir} has inconsistent asset indexes in manifest.json and ir.json.`);
       for (const view of Object.values(manifest.views)) {
-        if (view?.files.some((relative) => !containedPath(dir, relative))) throw DeckParseError.input(`${dir} registers an unsafe view path.`);
+        if (view?.files.some((relative) => !containedPath(dir, relative))) throw DeckOpsError.input(`${dir} registers an unsafe view path.`);
       }
     }
-    catch (cause) { if (cause instanceof DeckParseError) throw cause; throw DeckParseError.input(`${dir} has a missing or invalid ir.json.`, { cause }); }
+    catch (cause) { if (cause instanceof DeckOpsError) throw cause; throw DeckOpsError.input(`${dir} has a missing or invalid ir.json.`, { cause }); }
     return manifest;
   }
-  throw DeckParseError.input(`${file} is from an incompatible deckparse version.`);
+  throw DeckOpsError.input(`${file} is from an incompatible deckops version.`);
 }
 
 export async function writeManifest(dir: string, manifest: Manifest): Promise<void> {

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const MiB = 1024 * 1024;
 const root = path.resolve(import.meta.dirname, '..');
-const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'deckparse-package-check-'));
+const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-package-check-'));
 let tarball;
 
 try {
@@ -27,7 +27,7 @@ try {
     return names.map((name) => `${path.relative(strictDir, file)}: ${name}`);
   });
   if (installScripts.length) throw new Error(`Strict production install declares install scripts:\n${installScripts.join('\n')}`);
-  const cli = path.join(strictDir, 'node_modules', '.bin', 'deckparse');
+  const cli = path.join(strictDir, 'node_modules', '.bin', 'deckops');
   const coldStarts = Array.from({ length: 20 }, () => {
     const started = performance.now(); execFileSync(cli, ['formats', '--json'], { encoding: 'utf8' }); return performance.now() - started;
   }).sort((a, b) => a - b);

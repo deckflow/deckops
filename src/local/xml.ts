@@ -1,5 +1,5 @@
 import { SaxesParser, type SaxesAttributeNS, type SaxesTagNS } from 'saxes';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import type { LocalLimits } from './limits.js';
 
 export interface XmlNode {
@@ -13,7 +13,7 @@ export interface XmlNode {
 export function parseXml(data: Uint8Array | string, limits: LocalLimits, part: string): XmlNode {
   const xml = typeof data === 'string' ? data : new TextDecoder().decode(data);
   if (/<!DOCTYPE\b/i.test(xml) || /<!ENTITY\b/i.test(xml)) {
-    throw DeckParseError.input(`${part} contains a forbidden DTD or entity declaration.`);
+    throw DeckOpsError.input(`${part} contains a forbidden DTD or entity declaration.`);
   }
   const root: XmlNode = { local: '#document', uri: '', attributes: {}, children: [], text: '' };
   const stack: XmlNode[] = [root];
@@ -22,10 +22,10 @@ export function parseXml(data: Uint8Array | string, limits: LocalLimits, part: s
   const parser = new SaxesParser({ xmlns: true });
   parser.on('opentag', (tag: SaxesTagNS) => {
     guardEvent();
-    if (stack.length > limits.xmlDepth) throw DeckParseError.input(`${part} exceeds the XML depth limit.`);
+    if (stack.length > limits.xmlDepth) throw DeckOpsError.input(`${part} exceeds the XML depth limit.`);
     const attrs: Record<string, string> = {};
     const values = Object.values(tag.attributes) as SaxesAttributeNS[];
-    if (values.length > limits.xmlAttributes) throw DeckParseError.input(`${part} has too many attributes on one element.`);
+    if (values.length > limits.xmlAttributes) throw DeckOpsError.input(`${part} has too many attributes on one element.`);
     for (const attr of values) {
       attrs[attr.name] = attr.value;
       attrs[attr.local] ??= attr.value;
@@ -37,13 +37,13 @@ export function parseXml(data: Uint8Array | string, limits: LocalLimits, part: s
   parser.on('text', (text: string) => {
     guardEvent();
     textBytes += Buffer.byteLength(text);
-    if (textBytes > limits.xmlTextBytes) throw DeckParseError.input(`${part} exceeds the XML text limit.`);
+    if (textBytes > limits.xmlTextBytes) throw DeckOpsError.input(`${part} exceeds the XML text limit.`);
     stack.at(-1)!.text += text;
   });
   parser.on('cdata', (text: string) => {
     guardEvent();
     textBytes += Buffer.byteLength(text);
-    if (textBytes > limits.xmlTextBytes) throw DeckParseError.input(`${part} exceeds the XML text limit.`);
+    if (textBytes > limits.xmlTextBytes) throw DeckOpsError.input(`${part} exceeds the XML text limit.`);
     stack.at(-1)!.text += text;
   });
   parser.on('closetag', () => {
@@ -51,14 +51,14 @@ export function parseXml(data: Uint8Array | string, limits: LocalLimits, part: s
     stack.pop();
   });
   parser.on('error', (error: Error) => {
-    throw DeckParseError.input(`${part} is not valid XML: ${error.message}`, { cause: error });
+    throw DeckOpsError.input(`${part} is not valid XML: ${error.message}`, { cause: error });
   });
   parser.write(xml).close();
   return root;
 
   function guardEvent(): void {
     events += 1;
-    if (events > limits.xmlEvents) throw DeckParseError.input(`${part} exceeds the XML event limit.`);
+    if (events > limits.xmlEvents) throw DeckOpsError.input(`${part} exceeds the XML event limit.`);
   }
 }
 

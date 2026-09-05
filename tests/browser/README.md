@@ -19,7 +19,7 @@ node scripts/browser-smoke.mjs
 Open the printed localhost URL and click **Run browser checks**. The page imports
 `dist/browser/index.js` directly as an ES module, without a bundler, Node globals,
 or browser automation dependency. A successful run displays `PASS — 16/16 browser
-checks`. `DECKPARSE_SMOKE_PORT` optionally fixes the server port.
+checks`. `DECKOPS_SMOKE_PORT` optionally fixes the server port.
 
 The script serves the page and API on separate localhost ports so the checks
 exercise real browser CORS enforcement, preflight requests, and exposed multipart

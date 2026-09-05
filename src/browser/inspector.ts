@@ -27,7 +27,7 @@ export interface BrowserDocumentInspector {
   ): Promise<ProbeResult>;
 }
 
-/** Reuses one module Worker per DeckParse client and keeps WASM parsing off the UI thread. */
+/** Reuses one module Worker per DeckOps client and keeps WASM parsing off the UI thread. */
 export function createBrowserDocumentInspector(): BrowserDocumentInspector {
   let worker: Worker | undefined;
   let nextId = 1;

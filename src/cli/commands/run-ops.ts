@@ -3,7 +3,8 @@ import { runConvert } from '../../core/convert-op.js';
 import { resolveInput, type ResolvedInput } from '../../core/input.js';
 import { runParse } from '../../core/parse-op.js';
 import { validateConvertFlags, validateParseFlags } from '../../core/validation.js';
-import { DeckParseError } from '../../errors/index.js';
+import { DeckOpsError } from '../../errors/index.js';
+import { readProductConfig } from '../../config/product.js';
 import type { CommonFlags, ConvertFlags, ParseFlags } from '../../types.js';
 import { DEFAULT_PREFLIGHT_MODE, type PreflightMode } from '../../shared/preflight.js';
 import { printEnvelope, printError, type OutputContext } from '../output.js';
@@ -79,13 +80,14 @@ export function convertFlagsOf(options: RawCliOptions): ConvertFlags {
 }
 
 export function commonFlagsOf(options: RawCliOptions): CommonFlags {
-  const engine = options.engine ?? process.env.DECKPARSE_ENGINE ?? 'local';
-  const allowUpload = options.allowUpload ?? envBoolean('DECKPARSE_ALLOW_UPLOAD');
-  const failOnDegraded = options.failOnDegraded ?? envBoolean('DECKPARSE_FAIL_ON_DEGRADED');
-  const timeout = options.timeout === undefined ? undefined : Number(options.timeout);
-  if (!['local', 'cloud', 'auto'].includes(engine)) throw DeckParseError.usage('--engine must be local, cloud, or auto.');
-  if (allowUpload && engine !== 'auto') throw DeckParseError.usage('--allow-upload only applies with --engine auto.');
-  if (timeout !== undefined && (!Number.isSafeInteger(timeout) || timeout <= 0)) throw DeckParseError.usage('--timeout must be a positive integer number of seconds.');
+  const defaults = readProductConfig();
+  const engine = options.engine ?? process.env.DECKOPS_ENGINE ?? defaults.engine ?? 'local';
+  const allowUpload = options.allowUpload ?? envBoolean('DECKOPS_ALLOW_UPLOAD') ?? defaults.allowUpload;
+  const failOnDegraded = options.failOnDegraded ?? envBoolean('DECKOPS_FAIL_ON_DEGRADED') ?? defaults.failOnDegraded;
+  const timeout = options.timeout === undefined ? defaults.timeout : Number(options.timeout);
+  if (!['local', 'cloud', 'auto'].includes(engine)) throw DeckOpsError.usage('--engine must be local, cloud, or auto.');
+  if (allowUpload && engine !== 'auto') throw DeckOpsError.usage('--allow-upload only applies with --engine auto.');
+  if (timeout !== undefined && (!Number.isSafeInteger(timeout) || timeout <= 0)) throw DeckOpsError.usage('--timeout must be a positive integer number of seconds.');
   const limitEntries = [
     ['sourceBytes', '--max-source-bytes', options.maxSourceBytes], ['zipExpandedBytes', '--max-expanded-bytes', options.maxExpandedBytes],
     ['zipEntryBytes', '--max-part-bytes', options.maxPartBytes], ['zipEntries', '--max-zip-entries', options.maxZipEntries],
@@ -96,7 +98,7 @@ export function commonFlagsOf(options: RawCliOptions): CommonFlags {
   for (const [name, flag, raw] of limitEntries) {
     if (raw === undefined) continue;
     const value = Number(raw);
-    if (!Number.isSafeInteger(value) || value <= 0) throw DeckParseError.usage(`${flag} must be a positive integer.`);
+    if (!Number.isSafeInteger(value) || value <= 0) throw DeckOpsError.usage(`${flag} must be a positive integer.`);
     limits[name] = value;
   }
   return {
@@ -115,13 +117,13 @@ function envBoolean(name: string): boolean | undefined {
   if (value === undefined || value === '') return undefined;
   if (['1', 'true', 'yes', 'allow'].includes(value)) return true;
   if (['0', 'false', 'no', 'deny'].includes(value)) return false;
-  throw DeckParseError.usage(`${name} must be true/false or 1/0.`);
+  throw DeckOpsError.usage(`${name} must be true/false or 1/0.`);
 }
 
 export function preflightModeOf(options: RawCliOptions): PreflightMode {
-  const value = options.preflight ?? DEFAULT_PREFLIGHT_MODE;
+  const value = options.preflight ?? readProductConfig().preflight ?? DEFAULT_PREFLIGHT_MODE;
   if (!['off', 'validate', 'strict'].includes(value)) {
-    throw DeckParseError.usage('--preflight must be off, validate, or strict.');
+    throw DeckOpsError.usage('--preflight must be off, validate, or strict.');
   }
   return value as PreflightMode;
 }
@@ -194,20 +196,20 @@ export async function runConvertCommand(inputArg: string, options: RawCliOptions
   }
 }
 
-/** `deckparse parse doc.pdf --anchors` is a category error, not a silent no-op. */
+/** `deckops parse doc.pdf --anchors` is a category error, not a silent no-op. */
 function rejectConvertFlagsOnParse(options: RawCliOptions): void {
   const set = (['to', 'anchors', 'splitPages', 'strict', 'keepRemoteImages'] as const).filter(
     (name) => options[name] !== undefined && options[name] !== false
   );
   if (set.length > 0) {
-    throw DeckParseError.usage(
-      `${set.map((name) => `--${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`).join(', ')} are view options — they belong to \`deckparse convert\`.`
+    throw DeckOpsError.usage(
+      `${set.map((name) => `--${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`).join(', ')} are view options — they belong to \`deckops convert\`.`
     );
   }
 }
 
 function fail(error: unknown, op: 'parse' | 'convert', ctx: OutputContext): never {
-  const translated = error instanceof DeckParseError ? error : translate(error);
+  const translated = error instanceof DeckOpsError ? error : translate(error);
   printError(translated, op, ctx);
   process.exit(translated.exitCode);
 }

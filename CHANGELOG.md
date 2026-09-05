@@ -1,5 +1,13 @@
 # Changelog
 
+## @deckflow/deckops 1.0.0 — migration candidate, 2026-09-05
+
+- Rename the product and its sole CLI to DeckOps / `deckops`; export `DeckOpsError` without a legacy alias. Historical entries below describe the former DeckParse package.
+- Own the required cloud transport, DTOs and regression tests directly; remove the former SDK dependency and browser patch, with no replacement shared client package.
+- Separate product defaults from shared credentials and UUID, and add an explicit, repeatable `config migrate` operation that preserves existing target values and source files.
+- Keep DeckIR, manifest v1/v2, schema identity, parser identities and `producer.deckparse` unchanged.
+- See `src/cloud/README.md` for source provenance and explicit transport deltas from the previous Node distribution.
+
 ## 1.0.0 — 2026-09-04
 
 - Make the Node CLI/SDK local-first and offline by default for PDF, PPTX, DOCX and static HTML source; cloud use now requires `--engine cloud` or `auto --allow-upload`.

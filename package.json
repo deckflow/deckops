@@ -1,5 +1,5 @@
 {
-  "name": "@deckflow/deckparse",
+  "name": "@deckflow/deckops",
   "version": "1.0.0",
   "description": "Parse any document into an agent-operable representation. Parse once, convert repeatedly: PDF, PPTX, DOCX, Keynote and URLs into durable IR artifacts and Markdown.",
   "type": "module",
@@ -19,7 +19,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "deckparse": "dist/cli.js"
+    "deckops": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -65,11 +65,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deckflow/deckparse.git"
+    "url": "git+https://github.com/deckflow/deckops.git"
   },
-  "homepage": "https://github.com/deckflow/deckparse#readme",
+  "homepage": "https://github.com/deckflow/deckops#readme",
   "bugs": {
-    "url": "https://github.com/deckflow/deckparse/issues"
+    "url": "https://github.com/deckflow/deckops/issues"
   },
   "dependencies": {
     "@deckflow/deckprobe": "2.4.0",

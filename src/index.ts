@@ -8,12 +8,12 @@ import { resolveInput } from './core/input.js';
 import type { NodeDocumentInspector } from './core/inspector.js';
 import { runParse } from './core/parse-op.js';
 import { validateConvertFlags, validateParseFlags } from './core/validation.js';
-import { DeckParseError } from './errors/index.js';
+import { DeckOpsError } from './errors/index.js';
 import { validateDeckIR } from './ir/validate.js';
 import type { DeckProbeReport, PreflightMode, PreflightSummary } from './shared/preflight.js';
 import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, ParseEnvelope, ParseFlags } from './types.js';
 
-export { DeckParseError, ERROR_CODES, EXIT_CODES, type ErrorCode } from './errors/index.js';
+export { DeckOpsError, ERROR_CODES, EXIT_CODES, type ErrorCode } from './errors/index.js';
 export { resolveCredentials, writeSharedCredentials, type ResolvedCredentials } from './config/index.js';
 export { DECK_IR_SCHEMA_VERSION, type DeckIR, type DeckIrNode, type QualityReport } from './ir/schema.js';
 export { validateDeckIR } from './ir/validate.js';
@@ -47,7 +47,7 @@ export class ParsedDocument {
   async inspectionReport(): Promise<DeckProbeReport | undefined> {
     if (!this.manifest.inspection) return undefined;
     try { return JSON.parse(await fs.readFile(probePath(this.dir), 'utf-8')) as DeckProbeReport; }
-    catch (cause) { throw DeckParseError.input(`${this.dir} is missing its registered probe report.`, { hint: 'Re-run parse with preflight validate/strict.', cause }); }
+    catch (cause) { throw DeckOpsError.input(`${this.dir} is missing its registered probe report.`, { hint: 'Re-run parse with preflight validate/strict.', cause }); }
   }
 
   async convert(options: ConvertInputOptions = {}): Promise<ConvertEnvelope> {
@@ -63,14 +63,14 @@ export class ParsedDocument {
   }
 }
 
-export interface DeckParseClient {
+export interface DeckOpsClient {
   parse(input: string, options?: ParseInputOptions): Promise<ParsedDocument>;
   openArtifact(dir: string): Promise<ParsedDocument>;
   convert(input: string, options?: ConvertInputOptions): Promise<ConvertEnvelope>;
   parseEnvelope(input: string, options?: ParseInputOptions): Promise<ParseEnvelope>;
 }
 
-export function createClient(options: ClientOptions = {}): DeckParseClient {
+export function createClient(options: ClientOptions = {}): DeckOpsClient {
   let cached: CloudClient | undefined;
   const cloud = async (): Promise<CloudClient> => {
     if (!cached) {
@@ -106,9 +106,9 @@ export function createClient(options: ClientOptions = {}): DeckParseClient {
 
 function compact<T extends object>(value: Record<string, unknown>): T { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T; }
 function validateCommon(value: { timeout: CommonFlags['timeout']; engine: CommonFlags['engine']; allowUpload: CommonFlags['allowUpload'] }): void {
-  if (value.engine !== undefined && !['local', 'cloud', 'auto'].includes(value.engine)) throw DeckParseError.usage('engine must be local, cloud, or auto.');
-  if (value.allowUpload && value.engine !== 'auto') throw DeckParseError.usage('allowUpload only applies with engine "auto".');
-  if (value.timeout !== undefined && (!Number.isFinite(value.timeout) || value.timeout <= 0)) throw DeckParseError.usage('timeout must be a positive number of seconds.');
+  if (value.engine !== undefined && !['local', 'cloud', 'auto'].includes(value.engine)) throw DeckOpsError.usage('engine must be local, cloud, or auto.');
+  if (value.allowUpload && value.engine !== 'auto') throw DeckOpsError.usage('allowUpload only applies with engine "auto".');
+  if (value.timeout !== undefined && (!Number.isFinite(value.timeout) || value.timeout <= 0)) throw DeckOpsError.usage('timeout must be a positive number of seconds.');
 }
 
 const defaultClient = createClient();

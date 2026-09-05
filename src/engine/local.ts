@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import { sha256 } from '../ir/ids.js';
 import type { ParseCandidate } from '../ir/schema.js';
 import { type SourceIdentity } from '../local/common.js';
@@ -29,7 +29,7 @@ export class LocalEngine implements ParseEngine {
 
   async parse(input: EngineParseInput, options: EngineParseOptions, signal: AbortSignal): Promise<ParseCandidate> {
     const support = this.supports(input, options);
-    if (!support.supported) throw DeckParseError.unsupported(support.reason ?? 'Input is not supported locally.', support.hint ? { hint: support.hint } : {});
+    if (!support.supported) throw DeckOpsError.unsupported(support.reason ?? 'Input is not supported locally.', support.hint ? { hint: support.hint } : {});
     try {
       const limits = resolveLimits(options.common.limits);
       if (input.input.kind === 'link') {
@@ -38,7 +38,7 @@ export class LocalEngine implements ParseEngine {
         return await runLocalWorker({ kind: 'html', html: fetched.html, source: identity, baseUrl: fetched.url, limits }, signal);
       }
       const identity = input.source ?? await sourceIdentity(input.input);
-      if (identity.bytes > limits.sourceBytes) throw DeckParseError.input('Source exceeds the local input size limit.');
+      if (identity.bytes > limits.sourceBytes) throw DeckOpsError.input('Source exceeds the local input size limit.');
       if (input.input.taskType === 'pdf.pdfParse') {
         const source = input.input.kind === 'document' ? input.input.file : input.input.data;
         return await parsePdf(source, identity, limits, {
@@ -51,11 +51,11 @@ export class LocalEngine implements ParseEngine {
       const bytes = input.input.kind === 'document' ? new Uint8Array(await fs.readFile(input.input.file)) : input.input.data;
       if (input.input.taskType === 'docx.parseTextAndImage') return await runLocalWorker({ kind: 'docx', data: bytes, source: identity, limits, options: { ...(options.flags.trackedChanges ? { trackedChanges: options.flags.trackedChanges } : {}) } }, signal);
       if (input.input.taskType === 'pptx.parse') return await runLocalWorker({ kind: 'pptx', data: bytes, source: identity, limits }, signal);
-      throw DeckParseError.unsupported('This format has no local parser.');
+      throw DeckOpsError.unsupported('This format has no local parser.');
     } catch (error) {
-      if (error instanceof DeckParseError) throw error;
+      if (error instanceof DeckOpsError) throw error;
       const message = error instanceof Error ? error.message : String(error);
-      throw DeckParseError.input(`Local parsing failed: ${message}`, { hint: 'Inspect the quality/format, or explicitly retry with --engine cloud.', cause: error });
+      throw DeckOpsError.input(`Local parsing failed: ${message}`, { hint: 'Inspect the quality/format, or explicitly retry with --engine cloud.', cause: error });
     }
   }
 }

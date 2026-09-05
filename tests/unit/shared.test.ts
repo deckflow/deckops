@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateConvertFlags, validateParseFlags } from '../../src/core/validation.js';
-import { DeckParseError } from '../../src/errors/index.js';
+import { DeckOpsError } from '../../src/errors/index.js';
 import { PRE_UPLOAD_THRESHOLD } from '../../src/shared/constants.js';
 import { translateError } from '../../src/shared/errors.js';
 import { EXTENSION_ROUTES, extensionOf, routeExtension, SUPPORTED_EXTENSIONS } from '../../src/shared/input.js';
@@ -155,19 +155,19 @@ describe('shared error translation', () => {
 
   it('preserves the Node hints and gives browser callers actionable non-CLI hints', () => {
     expect(translateError(apiError(401)).hint)
-      .toBe('Run `deckparse auth login`, or check `deckparse config list` for a stale credential.');
-    expect(translateError(apiError(404)).hint).toContain('`deckparse config list`');
+      .toBe('Run `deckops auth login`, or check `deckops config list` for a stale credential.');
+    expect(translateError(apiError(404)).hint).toContain('`deckops config list`');
     expect(translateError(new Error('Task did not complete within 60 seconds')).hint)
       .toBe('Raise --timeout, or check the task later with its taskId.');
     for (const error of [apiError(401), apiError(404), apiError(410), apiError(429), apiError(422, 'irNotFound'), new Error('Task did not complete within 60 seconds')]) {
       const translated = translateError(error, 'browser');
       expect(translated.hint).toBeTruthy();
-      expect(translated.hint).not.toMatch(/deckparse|--timeout/);
+      expect(translated.hint).not.toMatch(/deckops|--timeout/);
     }
   });
 
-  it('preserves DeckParseError identity and handles ordinary errors and unknown values', () => {
-    const known = DeckParseError.input('Missing input', { taskId: 'existing-task' });
+  it('preserves DeckOpsError identity and handles ordinary errors and unknown values', () => {
+    const known = DeckOpsError.input('Missing input', { taskId: 'existing-task' });
     expect(translateError(known, 'browser', 'other-task')).toBe(known);
     expect(translateError(new Error('oops'), 'browser', 'task-id')).toMatchObject({ code: 'backend_error', taskId: 'task-id' });
     expect(translateError('oops', 'browser', 'task-id')).toMatchObject({ code: 'backend_error', message: 'oops', taskId: 'task-id' });

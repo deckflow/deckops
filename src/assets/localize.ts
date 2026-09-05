@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import pLimit from 'p-limit';
 import type { ConvertImage } from '../cloud/parse/types.js';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import type { ManifestAsset } from '../types.js';
 
 /**
@@ -89,7 +89,7 @@ export async function localizeImages(options: LocalizeOptions): Promise<Localize
     if (image.hash) {
       const md5 = createHash('md5').update(data).digest('hex');
       if (md5 !== image.hash) {
-        throw DeckParseError.asset(`Image ${image.key} arrived corrupted (md5 mismatch).`, {
+        throw DeckOpsError.asset(`Image ${image.key} arrived corrupted (md5 mismatch).`, {
           hint: 'Retry the convert; if it persists, report the key upstream.',
         });
       }
@@ -122,9 +122,9 @@ export async function localizeImages(options: LocalizeOptions): Promise<Localize
       continue;
     }
     if (!keepRemote) {
-      throw result.reason instanceof DeckParseError
+      throw result.reason instanceof DeckOpsError
         ? result.reason
-        : DeckParseError.asset(`Image download failed: ${String(result.reason)}`);
+        : DeckOpsError.asset(`Image download failed: ${String(result.reason)}`);
     }
     warnings.push(
       result.reason instanceof Error ? result.reason.message : `image download failed: ${String(result.reason)}`
@@ -162,7 +162,7 @@ async function downloadWithRetry(fetchImpl: typeof fetch, url: string, key: stri
       }
     }
   }
-  throw DeckParseError.asset(
+  throw DeckOpsError.asset(
     `Failed to download image ${key} after ${RETRIES} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
     { hint: 'Pass --keep-remote-images to accept expiring remote links instead.' }
   );

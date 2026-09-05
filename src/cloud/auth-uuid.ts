@@ -65,8 +65,6 @@ async function getNodeConfigDir(): Promise<string> {
   const path = await import('node:path');
   return (
     process.env.DECKFLOW_CONFIG_DIR ||
-    process.env.DECKHTML_CONFIG_DIR ||
-    process.env.DECKOPS_CONFIG_DIR ||
     path.join(os.homedir(), '.deckflow')
   );
 }

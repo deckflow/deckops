@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 // externals, polyfills, Node types, or browser globals may hide a broken build.
 const result = await build({
   stdin: {
-    contents: 'export * from "@deckflow/deckparse/browser";',
+    contents: 'export * from "@deckflow/deckops/browser";',
     resolveDir: process.cwd(),
     sourcefile: 'consumer.js',
   },

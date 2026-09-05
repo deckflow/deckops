@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import type { Manifest, ParseTaskType } from '../types.js';
 import { readManifest } from '../artifact/manifest.js';
 import { routeExtension } from '../shared/input.js';
@@ -29,14 +29,14 @@ export interface ResolveInputOptions {
 export async function resolveInput(input: string, options: ResolveInputOptions = {}): Promise<ResolvedInput> {
   if (input === '-') {
     if (!options.from) {
-      throw DeckParseError.usage('Reading from stdin needs --from <ext> to pick a parser (e.g. --from pdf).');
+      throw DeckOpsError.usage('Reading from stdin needs --from <ext> to pick a parser (e.g. --from pdf).');
     }
     const ext = options.from.startsWith('.') ? options.from : `.${options.from}`;
     const name = `stdin${ext.toLowerCase()}`;
     const taskType = routeExtension(name);
     const data = options.readStdin ? options.readStdin() : fs.readFileSync(0);
     if (data.length === 0) {
-      throw DeckParseError.input('stdin was empty.');
+      throw DeckOpsError.input('stdin was empty.');
     }
     return { kind: 'stdin', data, name, taskType };
   }
@@ -49,7 +49,7 @@ export async function resolveInput(input: string, options: ResolveInputOptions =
   try {
     stat = fs.statSync(input);
   } catch {
-    throw DeckParseError.input(`No such file or directory: ${input}`);
+    throw DeckOpsError.input(`No such file or directory: ${input}`);
   }
 
   if (stat.isDirectory()) {

@@ -1,7 +1,7 @@
 import { createBrowserTransport } from '../cloud/browser.js';
 import type { ParseSource } from '../cloud/parse-facade.js';
 import type { DeckTask, WaitForTaskOptions } from '../cloud/contracts.js';
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import { PRE_UPLOAD_THRESHOLD } from '../shared/constants.js';
 import { translateError } from '../shared/errors.js';
 import { parseParams, convertParams } from '../shared/params.js';
@@ -28,7 +28,7 @@ import type {
   BrowserTask,
 } from './types.js';
 
-export { DeckParseError, ERROR_CODES, type ErrorCode } from '../errors/index.js';
+export { DeckOpsError, ERROR_CODES, type ErrorCode } from '../errors/index.js';
 export type * from './types.js';
 
 /** An in-memory result: no directories, implicit disk writes, or automatic asset downloads. */
@@ -87,10 +87,10 @@ export function createClient(options: BrowserClientOptions = {}): BrowserClient 
   if (options.token !== undefined) nonemptyString(options.token, 'token');
   if (options.spaceId !== undefined) nonemptyString(options.spaceId, 'spaceId');
   if (options.onUnauthorized !== undefined && typeof options.onUnauthorized !== 'function') {
-    throw DeckParseError.usage('onUnauthorized must be a function.');
+    throw DeckOpsError.usage('onUnauthorized must be a function.');
   }
   if (options.inspector !== undefined && typeof options.inspector.inspect !== 'function') {
-    throw DeckParseError.usage('inspector must provide an inspect() function.');
+    throw DeckOpsError.usage('inspector must provide an inspect() function.');
   }
   const localInspector = options.inspector ?? createBrowserDocumentInspector();
   const deck = createBrowserTransport({
@@ -102,7 +102,7 @@ export function createClient(options: BrowserClientOptions = {}): BrowserClient 
       // to a different space. Account changes need an explicit new client.
       const token = await options.onUnauthorized!();
       if (typeof token !== 'string' || !token.trim()) {
-        throw DeckParseError.auth('Token refresh must return a nonempty token for the same user.');
+        throw DeckOpsError.auth('Token refresh must return a nonempty token for the same user.');
       }
       return token;
     } } : {}),
@@ -114,12 +114,12 @@ export function createClient(options: BrowserClientOptions = {}): BrowserClient 
   const convert = async (ref: BrowserConvertRef, settings: BrowserConvertOptions = {}): Promise<BrowserConvertResult> => {
     assertOptions(ref, ['irKey', 'taskId'], 'conversion reference');
     if ((ref.irKey !== undefined) === (ref.taskId !== undefined)) {
-      throw DeckParseError.input('Provide exactly one of irKey or the parse taskId.');
+      throw DeckOpsError.input('Provide exactly one of irKey or the parse taskId.');
     }
     nonemptyString(ref.irKey ?? ref.taskId, 'IR reference');
     validateOperation(settings, ['to', 'anchors', 'splitPages', 'strict']);
     if (settings.to !== undefined && settings.to !== 'markdown') {
-      throw DeckParseError.unsupported('Only conversion to markdown is supported.');
+      throw DeckOpsError.unsupported('Only conversion to markdown is supported.');
     }
     validateBooleans(settings, ['anchors', 'splitPages', 'strict']);
     let taskId: string | undefined;
@@ -138,7 +138,7 @@ export function createClient(options: BrowserClientOptions = {}): BrowserClient 
       });
       throwIfAborted(settings.signal);
       if (result.markdownError) {
-        throw DeckParseError.backend(`Markdown rendering failed: ${result.markdownError}`, { taskId: result.taskId });
+        throw DeckOpsError.backend(`Markdown rendering failed: ${result.markdownError}`, { taskId: result.taskId });
       }
       return { ...result, reusedParse: true };
     } catch (error) {
@@ -152,20 +152,20 @@ export function createClient(options: BrowserClientOptions = {}): BrowserClient 
       validateOperation(settings, ['profile', 'password', 'includeImages', 'stayImageAreaRate', 'mode', 'preflight']);
       validateBooleans(settings, ['includeImages']);
       if (settings.profile !== undefined && !['fast', 'balanced', 'quality'].includes(settings.profile)) {
-        throw DeckParseError.usage('profile must be fast, balanced, or quality.');
+        throw DeckOpsError.usage('profile must be fast, balanced, or quality.');
       }
       if (settings.mode !== undefined && !['source', 'runtime'].includes(settings.mode)) {
-        throw DeckParseError.usage('mode must be source or runtime.');
+        throw DeckOpsError.usage('mode must be source or runtime.');
       }
       if (settings.password !== undefined && typeof settings.password !== 'string') {
-        throw DeckParseError.usage('password must be a string.');
+        throw DeckOpsError.usage('password must be a string.');
       }
       if (settings.stayImageAreaRate !== undefined &&
           (!Number.isFinite(settings.stayImageAreaRate) || settings.stayImageAreaRate < 0 || settings.stayImageAreaRate > 1)) {
-        throw DeckParseError.usage('stayImageAreaRate must be a number between 0 and 1.');
+        throw DeckOpsError.usage('stayImageAreaRate must be a number between 0 and 1.');
       }
       if (settings.preflight !== undefined && !['off', 'validate', 'strict'].includes(settings.preflight)) {
-        throw DeckParseError.usage('preflight must be off, validate, or strict.');
+        throw DeckOpsError.usage('preflight must be off, validate, or strict.');
       }
       throwIfAborted(settings.signal);
       const inputSource = resolveBrowserInput(input);
@@ -194,9 +194,9 @@ export function createClient(options: BrowserClientOptions = {}): BrowserClient 
                 passwordProvided: Boolean(settings.password),
               });
             } catch (error) {
-              if (error instanceof DeckParseError) throw error;
+              if (error instanceof DeckOpsError) throw error;
               if (preflightMode === 'strict') {
-                throw DeckParseError.input(`DeckProbe preflight failed to run: ${errorMessage(error)}`, {
+                throw DeckOpsError.input(`DeckProbe preflight failed to run: ${errorMessage(error)}`, {
                   hint: 'Retry with preflight validate/off.',
                   cause: error,
                 });
@@ -288,14 +288,14 @@ function rethrow(error: unknown, signal: AbortSignal | undefined, taskId?: strin
 
 function assertOptions(value: unknown, allowed: readonly string[], label: string): asserts value is object {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw DeckParseError.usage(`${label} options must be an object.`);
+    throw DeckOpsError.usage(`${label} options must be an object.`);
   }
   for (const key of Object.keys(value)) {
     if (!allowed.includes(key)) {
       const hint = key === 'apiKey'
         ? 'Keep server API keys on your backend. Use a browser user token or an authenticated proxy.'
         : 'The browser SDK accepts values and returns data; filesystem and CLI options are not supported.';
-      throw DeckParseError.usage(`Unknown ${label} option: ${key}.`, { hint });
+      throw DeckOpsError.usage(`Unknown ${label} option: ${key}.`, { hint });
     }
   }
 }
@@ -305,11 +305,11 @@ function validateOperation(options: BrowserOperationOptions, flags: readonly str
   if (options.spaceId !== undefined) nonemptyString(options.spaceId, 'spaceId');
   for (const key of ['timeout', 'pollInterval'] as const) {
     if (options[key] !== undefined && (!Number.isFinite(options[key]) || options[key]! <= 0)) {
-      throw DeckParseError.usage(`${key} must be a positive finite number.`);
+      throw DeckOpsError.usage(`${key} must be a positive finite number.`);
     }
   }
   if (options.onProgress !== undefined && typeof options.onProgress !== 'function') {
-    throw DeckParseError.usage('onProgress must be a function.');
+    throw DeckOpsError.usage('onProgress must be a function.');
   }
   validateBooleans(options, ['useEventStream']);
 }
@@ -318,13 +318,13 @@ function validateBooleans(options: object, names: readonly string[]): void {
   const record = options as Record<string, unknown>;
   for (const name of names) {
     if (record[name] !== undefined && typeof record[name] !== 'boolean') {
-      throw DeckParseError.usage(`${name} must be a boolean.`);
+      throw DeckOpsError.usage(`${name} must be a boolean.`);
     }
   }
 }
 
 function nonemptyString(value: unknown, label: string): asserts value is string {
-  if (typeof value !== 'string' || !value.trim()) throw DeckParseError.input(`${label} must be a nonempty string.`);
+  if (typeof value !== 'string' || !value.trim()) throw DeckOpsError.input(`${label} must be a nonempty string.`);
 }
 
 function errorMessage(error: unknown): string {
@@ -341,6 +341,6 @@ function apiRoot(value: string): string {
     }
     return url.href.replace(/\/$/, '');
   } catch {
-    throw DeckParseError.usage('apiBase must be an HTTP(S) API root, or a relative URL when running in a browser.');
+    throw DeckOpsError.usage('apiBase must be an HTTP(S) API root, or a relative URL when running in a browser.');
   }
 }

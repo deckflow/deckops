@@ -1,5 +1,5 @@
 import type { ParseArtifacts, ParseOptions } from 'pdf-lite-parse';
-import { DeckParseError } from '../../errors/index.js';
+import { DeckOpsError } from '../../errors/index.js';
 import { result3ToDeckIr } from '../../ir/result3-adapter.js';
 import type { ParseCandidate } from '../../ir/schema.js';
 import { mediaTypeForPath, type SourceIdentity } from '../common.js';
@@ -24,9 +24,9 @@ export async function parsePdf(input: string | Uint8Array, source: SourceIdentit
   const assets = [...artifacts.assets].map(([assetPath, data]) => ({ assetPath, data }));
   let assetBytes = 0;
   for (const asset of assets) {
-    if (asset.data.byteLength > limits.assetBytes) throw DeckParseError.input(`PDF asset ${asset.assetPath} exceeds the local asset-size limit.`);
+    if (asset.data.byteLength > limits.assetBytes) throw DeckOpsError.input(`PDF asset ${asset.assetPath} exceeds the local asset-size limit.`);
     assetBytes += asset.data.byteLength;
-    if (assetBytes > limits.assetTotalBytes) throw DeckParseError.input('PDF assets exceed the local cumulative asset-size limit.');
+    if (assetBytes > limits.assetTotalBytes) throw DeckOpsError.input('PDF assets exceed the local cumulative asset-size limit.');
   }
   const candidate = result3ToDeckIr({
     document: artifacts.document,

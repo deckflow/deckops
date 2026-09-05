@@ -1,4 +1,4 @@
-import { DeckParseError } from '../errors/index.js';
+import { DeckOpsError } from '../errors/index.js';
 import type { ConvertFlags, ParseFlags } from '../types.js';
 import type { ResolvedInput } from './input.js';
 import {
@@ -26,16 +26,16 @@ function formatOf(input: ResolvedInput): FormatKey | undefined {
 }
 
 export function validateParseFlags(input: ResolvedInput, flags: ParseFlags): void {
-  if (flags.profile && !['fast', 'balanced', 'quality'].includes(flags.profile)) throw DeckParseError.usage('--profile must be fast, balanced, or quality.');
-  if (flags.pageFurniture && !['off', 'drop', 'extract'].includes(flags.pageFurniture)) throw DeckParseError.usage('--page-furniture must be off, drop, or extract.');
-  if (flags.overlaidText && !['auto', 'keep', 'drop'].includes(flags.overlaidText)) throw DeckParseError.usage('--overlaid-text must be auto, keep, or drop.');
-  if (flags.trackedChanges && !['final', 'original', 'all'].includes(flags.trackedChanges)) throw DeckParseError.usage('--tracked-changes must be final, original, or all.');
-  if (flags.mode && !['source', 'runtime'].includes(flags.mode)) throw DeckParseError.usage('--mode must be source or runtime.');
+  if (flags.profile && !['fast', 'balanced', 'quality'].includes(flags.profile)) throw DeckOpsError.usage('--profile must be fast, balanced, or quality.');
+  if (flags.pageFurniture && !['off', 'drop', 'extract'].includes(flags.pageFurniture)) throw DeckOpsError.usage('--page-furniture must be off, drop, or extract.');
+  if (flags.overlaidText && !['auto', 'keep', 'drop'].includes(flags.overlaidText)) throw DeckOpsError.usage('--overlaid-text must be auto, keep, or drop.');
+  if (flags.trackedChanges && !['final', 'original', 'all'].includes(flags.trackedChanges)) throw DeckOpsError.usage('--tracked-changes must be final, original, or all.');
+  if (flags.mode && !['source', 'runtime'].includes(flags.mode)) throw DeckOpsError.usage('--mode must be source or runtime.');
   const format = formatOf(input);
   if (input.kind === 'artifact') {
     const set = Object.entries(flags).filter(([, value]) => value !== undefined);
     if (set.length > 0) {
-      throw DeckParseError.usage(
+      throw DeckOpsError.usage(
         `Parse flags (${set.map(([name]) => `--${kebab(name)}`).join(', ')}) cannot apply to an artifact — it is already parsed.`
       );
     }
