@@ -41,7 +41,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
     if (!staticRoot) return false;
     const file = pathname === '/' ? 'tests/browser/smoke.html'
       : pathname === '/smoke.js' ? 'tests/browser/smoke.js'
-        : pathname === '/tests/test-data/test.pdf' ? pathname.slice(1)
+        : pathname === '/tests/generated/test.pdf' ? pathname.slice(1)
           : /^\/dist\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(?:js|wasm)$/.test(pathname) ? pathname.slice(1) : undefined;
     if (!file) return false;
     try {

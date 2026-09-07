@@ -2,6 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import './generate-fixtures.mjs';
 
 const MiB = 1024 * 1024;
 const root = path.resolve(import.meta.dirname, '..');
@@ -34,7 +35,7 @@ try {
   const p95 = coldStarts[Math.ceil(coldStarts.length * 0.95) - 1];
   if (p95 > 500) throw new Error(`formats cold-start P95 is ${p95.toFixed(0)} ms; limit is 500 ms.`);
   const smokeArtifact = path.join(workspace, 'pdf-smoke');
-  const measured = await runMeasured(cli, ['parse', path.join(root, 'tests/test-data/test.pdf'), '--engine', 'local', '--preflight', 'off', '--output', smokeArtifact, '--json']);
+  const measured = await runMeasured(cli, ['parse', path.join(root, 'tests/generated/test.pdf'), '--engine', 'local', '--preflight', 'off', '--output', smokeArtifact, '--json']);
   const smoke = JSON.parse(measured.stdout);
   if (!smoke.ok || smoke.format !== 'pdf' || smoke.engine !== 'local') throw new Error('Strict production install failed the local PDF smoke test.');
   if (measured.maxRssBytes > 256 * MiB) throw new Error(`Local PDF smoke reached ${(measured.maxRssBytes / MiB).toFixed(2)} MiB RSS; limit is 256 MiB.`);

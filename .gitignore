@@ -9,6 +9,7 @@ tmp/
 # Conformance fixtures are real work files — bring your own (see its README).
 tests/test-data/*
 !tests/test-data/README.md
+tests/generated/
 
 # Internal design documents stay local; only the README ships publicly.
 docs/

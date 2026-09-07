@@ -1,4 +1,5 @@
 import path from 'node:path';
+import './generate-fixtures.mjs';
 import { fileURLToPath } from 'node:url';
 import { createFakeCloud } from '../tests/browser/fake-cloud.mjs';
 

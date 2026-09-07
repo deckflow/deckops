@@ -273,7 +273,7 @@ describe('parse → artifact', () => {
     ['test.key', 'keynote', 'key'],
   ] as const)('uses the packaged Node DeckProbe adapter on the real %s fixture', async (fixture, driver, profile) => {
     const dir = tmp();
-    const source = path.resolve('tests/test-data', fixture);
+    const source = path.resolve('tests/generated', fixture);
     const out = path.join(dir, 'artifact');
     const envelope = await runParse({
       input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), client: fakeClient(),

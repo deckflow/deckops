@@ -15,7 +15,7 @@ describe('local community engine', () => {
   it.each([
     ['test.pdf', 'pdf'], ['test.pptx', 'pptx'], ['test.docx', 'docx'],
   ] as const)('parses and converts %s without a cloud client', async (fixture, format) => {
-    const root = tmp(); const source = path.resolve('tests/test-data', fixture); const out = path.join(root, 'artifact');
+    const root = tmp(); const source = path.resolve('tests/generated', fixture); const out = path.join(root, 'artifact');
     const parsed = await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: { engine: 'local' }, preflight: 'off' });
     expect(parsed).toMatchObject({ engine: 'local', format, reusedParse: false, irSchemaVersion: 'deckir.v1' });
     expect(parsed.irKey).toBeUndefined();
@@ -43,7 +43,7 @@ describe('local community engine', () => {
   }, 30_000);
 
   it('invalidates auto cache entries when the recorded parser major changes', async () => {
-    const root = tmp(); const source = path.resolve('tests/test-data/test.docx'); const out = path.join(root, 'artifact');
+    const root = tmp(); const source = path.resolve('tests/generated/test.docx'); const out = path.join(root, 'artifact');
     await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: { engine: 'local' }, preflight: 'off' });
     const irFile = path.join(out, 'ir.json'); const manifestFile = path.join(out, 'manifest.json');
     const ir = JSON.parse(fs.readFileSync(irFile, 'utf-8')); const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf-8'));
@@ -56,7 +56,7 @@ describe('local community engine', () => {
   }, 30_000);
 
   it('invalidates old local renderer views and removes stale split-page files', async () => {
-    const root = tmp(); const source = path.resolve('tests/test-data/test.pptx'); const out = path.join(root, 'artifact');
+    const root = tmp(); const source = path.resolve('tests/generated/test.pptx'); const out = path.join(root, 'artifact');
     await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: { engine: 'local' }, preflight: 'off' });
     await runConvert({ input: await resolveInput(out), inputLabel: out, flags: { splitPages: true }, common: { engine: 'local' } });
     const page = path.join(out, 'views/markdown/001.md'); expect(fs.existsSync(page)).toBe(true);
@@ -69,21 +69,21 @@ describe('local community engine', () => {
   }, 30_000);
 
   it('does not silently upload unsupported Keynote input', async () => {
-    const source = path.resolve('tests/test-data/test.key'); let cloudCalls = 0;
+    const source = path.resolve('tests/generated/test.key'); let cloudCalls = 0;
     await expect(runParse({ input: await resolveInput(source), inputLabel: source, out: path.join(tmp(), 'artifact'), flags: {},
       common: { engine: 'auto' }, preflight: 'off', cloud: async () => { cloudCalls += 1; throw new Error('must not upload'); } })).rejects.toMatchObject({ code: 'unsupported' });
     expect(cloudCalls).toBe(0);
   });
 
   it('does not silently ignore cloud-only PDF profiles', async () => {
-    const source = path.resolve('tests/test-data/test.pdf'); let cloudCalls = 0;
+    const source = path.resolve('tests/generated/test.pdf'); let cloudCalls = 0;
     await expect(runParse({ input: await resolveInput(source), inputLabel: source, out: path.join(tmp(), 'artifact'), flags: { profile: 'quality' },
       common: { engine: 'local' }, preflight: 'off', cloud: async () => { cloudCalls += 1; throw new Error('must not upload'); } })).rejects.toMatchObject({ code: 'unsupported' });
     expect(cloudCalls).toBe(0);
   });
 
   it('uses cloud for unsupported input only after auto upload authorization', async () => {
-    const source = path.resolve('tests/test-data/test.key'); let cloudCalls = 0;
+    const source = path.resolve('tests/generated/test.key'); let cloudCalls = 0;
     const client = {
       parse: async () => { cloudCalls += 1; return { taskId: 'cloud-1', type: 'keynote.parseTextAndImage', irKey: 'remote/key.json', irSchemaVersion: 'keynote.v1', ir: { slides: [{ text: 'Cloud result' }] } }; },
       convert: async () => { throw new Error('not used'); },
@@ -97,7 +97,7 @@ describe('local community engine', () => {
   it('makes zero network requests for local file parsing and conversion', async () => {
     const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network forbidden'));
     try {
-      const source = path.resolve('tests/test-data/test.docx'); const out = path.join(tmp(), 'artifact');
+      const source = path.resolve('tests/generated/test.docx'); const out = path.join(tmp(), 'artifact');
       await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: { engine: 'local' }, preflight: 'off' });
       await runConvert({ input: await resolveInput(out), inputLabel: out, flags: {}, common: { engine: 'local' } });
       expect(network).not.toHaveBeenCalled();
@@ -105,7 +105,7 @@ describe('local community engine', () => {
   });
 
   it('validates Node SDK flags before starting local or cloud work', async () => {
-    const source = path.resolve('tests/test-data/test.docx'); const client = createClient();
+    const source = path.resolve('tests/generated/test.docx'); const client = createClient();
     await expect(client.parseEnvelope(source, { trackedChanges: 'invalid' as never })).rejects.toMatchObject({ code: 'usage_error' });
     await expect(client.parseEnvelope(source, { allowUpload: true })).rejects.toMatchObject({ code: 'usage_error' });
   });

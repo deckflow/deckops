@@ -26,7 +26,7 @@ button.addEventListener('click', async () => {
       assert(typeof createClient === 'function', 'Missing browser SDK export');
     }],
     ['DeckProbe Worker validates a real PDF before upload', async () => {
-      const bytes = await fetch('/tests/test-data/test.pdf').then((response) => response.blob());
+      const bytes = await fetch('/tests/generated/test.pdf').then((response) => response.blob());
       const events = [];
       const doc = await client('preflight').parse(new File([bytes], 'test.pdf'), {
         onProgress: (event) => events.push(event),
