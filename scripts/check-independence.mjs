@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
-const forbidden = /@(?:deckops|decktools)\/sdk|@deckflow\/cloud-client/;
+const forbidden = /@(?:deckops|decktools)\/sdk|@deckflow\/(?:cloud-client|decktools-sdk)/;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 assert.equal(manifest.name, '@deckflow/deckops');
 assert.deepEqual(manifest.bin, { deckops: 'dist/cli.js' }, 'Only the new product CLI may be exported');
@@ -21,7 +21,7 @@ for (const directory of ['src', 'dist']) {
     if (!/\.(?:ts|js|mjs)$/.test(relative)) continue;
     const file = path.join(root, directory, relative);
     const content = fs.readFileSync(file, 'utf8');
-    assert.doesNotMatch(content, /(?:from\s*|import\s*\(|require\s*\()['"](?:@(?:deckops|decktools)\/sdk|@deckflow\/cloud-client)/,
+    assert.doesNotMatch(content, /(?:from\s*|import\s*\(|require\s*\()['"](?:@(?:deckops|decktools)\/sdk|@deckflow\/(?:cloud-client|decktools-sdk))/,
       `Forbidden runtime or type import in ${directory}/${relative}`);
   }
 }

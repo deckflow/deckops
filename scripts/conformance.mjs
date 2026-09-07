@@ -32,7 +32,6 @@ const env = {
   ...process.env,
   DECKFLOW_CONFIG_DIR: configDir,
   DECKOPS_CONFIG_DIR: configDir,
-  DECKOPS_CONFIG_DIR: configDir,
 };
 
 let failures = 0;
