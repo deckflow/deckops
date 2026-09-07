@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## @deckflow/deckops 2.0.0 — 2026-09-07
 
 - License DeckOps-owned code under AGPL-3.0-only from this license-change commit onward. Preserve third-party licenses and notices; already published releases through 1.1.1 remain under their original MIT license.
+- Use a new major version to make the license transition explicit. No parsing API or runtime dependency changes from 1.1.1.
 
 ## @deckflow/deckops 1.1.1 — 2026-09-07
 

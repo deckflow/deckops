@@ -256,7 +256,7 @@ Copyright (c) 2026 DeckFlow. DeckOps-owned code is licensed under the
 [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
 
 This change applies to the source tree from the license-change commit onward
-and future releases. Previously published versions, including 1.1.1, retain
+and releases starting with 2.0.0. Previously published versions, including 1.1.1, retain
 their original MIT license; this change does not revoke permissions already granted.
 
 Third-party components retain their own licenses and copyright notices. See
