@@ -1,43 +1,69 @@
-# DeckOps 迁移实施记录
+# DeckOps 架构迁移交付记录
 
-更新：2026-09-05。**当前是已验证的源码候选，不是已发布/已切换状态。**
+更新：2026-09-07。源码、仓库、目录、npm 包、内部消费者和本机命令已切换。真实云端 conformance 尚未执行，不把 localhost fixture 验证等同于生产云端验收。
 
-## 已完成
+## 最终名称
 
-- 本仓分支 `codex/standalone-deckops-migration`，基线 `6092eaf12964dbfb08127e1e1a8d0a4e457d65cd`。M1 提交 `761fa08` 在 DeckParse 原名下完成云客户端内聚、类型/测试迁入及旧依赖清理。
-- `src/cloud/` 由本产品拥有；无旧 SDK、DeckTools SDK/CLI、共享客户端包、构建时复制或相邻仓库依赖。普通 HTTP 库直接声明。来源、原 patch hash 和明确的 Node 行为差异见 [源码说明](src/cloud/README.md)。原 patch 从工作树删除，可从 Git 基线恢复。
-- 本仓源码改为 `@deckflow/deckops@1.0.0`，唯一 binary 为 `deckops`；公开错误类改为 `DeckOpsError`，无旧名 alias。
-- 保留 DeckIR/schema、manifest v1/v2、parser identity、`producer.deckparse` 和共享 UUID。
-- 新增独立产品默认配置和显式 `config migrate [--dry-run]`；只补缺失有效字段，保留旧文件、目标值和 UUID，正常运行不回退旧产品路径。尚未对用户真实配置执行迁移。
-- 旧仓库在 `codex/decktools-migration` 准备 `decktools@1.0.0`、`@deckflow/decktools-sdk@1.0.0`、Go/Python import/module、installer、发布配置及产品环境变量改名。它的实际基线是 `master` 上的 `4a5f70677d6cb7cd5e95ee6a89a88adf942687b0`；不要合入无关历史的 `origin/main`。
-
-## 验证结果
-
-| 项目 | 结果 |
+| 对象 | 最终位置 / 发布名 |
 | --- | --- |
-| 本仓 `pnpm check` | 189 个测试通过；Node/DOM-only 类型、构建、Browser SSR/独立消费者检查通过 |
-| 独立安装/构建 | M1 的 Git archive 副本 frozen install + check 通过；只额外带入本产品的四个文档测试样本，没有兄弟仓库源码 |
-| 新名包体积/安装验证 | `check:package` 通过：tarball 约 0.94 MiB；strict 安装约 43.92 MiB，默认约 72.77 MiB；包内 Worker/WASM 随包交付 |
-| Browser 体积 | 35,148 bytes gzip，基线 35,715；实际浏览器交互 smoke 尚未完成（浏览器附加失败），不能据 mock/构建代替验收 |
-| 旧 artifact | 用 M1 CLI 生成的 DOCX artifact 在改名 CLI 中命中 `artifact-cache`，本地 convert 复用 parse、`taskId:null` |
-| DeckTools TypeScript/Node CLI | 完整 release check 通过：SDK 82、CLI 49 个测试 |
-| DeckTools Go/Python | Go SDK 与 CLI 测试通过；Python 26 个测试通过 |
-| 消费者预检 | 临时副本中 deckhtml、hyperdeck/deckhtml 编译通过；DeckRender Node/Browser 类型、90 个集成测试、构建和 Browser consumer 检查通过 |
-| 真实云端 conformance | 未执行；需要测试凭据和专用测试操作，不以 mock 通过代替 |
+| 原 DeckParse | deckflow/deckops；本地 /Volumes/workspace/caixuan/deckops；main |
+| 解析 API / CLI | @deckflow/deckops@1.0.0；唯一命令 deckops |
+| 原 DeckOps 工具仓库 | deckflow/decktools；本地 /Volumes/workspace/caixuan/decktools；原默认分支 master |
+| 通用 SDK / CLI | @deckflow/decktools-sdk@1.0.0 / decktools@1.0.0；唯一命令 decktools |
+| 实际内部消费者 | DeckRender 0.4.1、DeckHTML 0.6.5，固定新 SDK 1.0.0；hyperdeck/deckhtml 同步 main |
 
-消费者预检使用本地候选 SDK tarball 与临时目录，不代表 registry 安装和 lockfile 已验收。三个实际消费者仓库尚未修改。DeckRender 全量单测也未完成：旧 SDK 0.7.3 Browser 源码改写脚本及其单测需在正式切换时删除/替换，Browser 构建应解析正式 `@deckflow/decktools-sdk/browser` 入口；旧工具配置 fallback 和诊断提示也需清理，避免把新 DeckOps 当作旧 SDK。
+SDK scope 经用户确认使用现有 deckflow 组织。两个 GitHub 仓库保持各自 repository ID 和历史；旧工具仓库没有合入历史无关的 origin/main。
 
-## 当前阻塞和未做的外部操作
+新 DeckOps 直接拥有 src/cloud 的实现、DTO 和测试，没有旧 SDK、DeckTools SDK/CLI、共享客户端包、兄弟仓库或构建时复制依赖。普通 HTTP/ZIP/XML 等社区库仍直接声明。来源与基线行为差异见 [cloud README](src/cloud/README.md)。
 
-`npm whoami --registry=https://registry.npmjs.org/` 返回 E401，当前无法验证新包发布权限或发布。尚未发布 npm/Python/Go release、push/合并迁移分支、改 GitHub 仓库名、移动本地目录、改真实消费者及其 lockfile、调整全局 CLI 或用户配置。旧工作环境继续保留。
+保留 deckir.v1、manifest v1/v2、parser identity（如 deckparse-pptx / deckparse-docx）、producer.deckparse 和共享 UUID。没有 CLI alias 或 npm 转发包；旧 registry 历史版本不删除。
 
-## 恢复实施顺序
+## 实施与 review
 
-1. 用户完成 npm 登录，并确认对 `@deckflow/decktools-sdk`、`decktools`、`@deckflow/deckops` 的发布权限；发布前重新核验名称及 1.0.0 是否可用。候选已设置 1.0.0，首次发布不要直接运行会额外 bump 的聚合 `release` 命令。
-2. 补实际浏览器 smoke；有云端测试凭据时补 conformance，否则明确保留该验收限制。review 并合并本地源码候选至各仓库正确默认分支。
-3. 旧仓库先改为 `deckflow/decktools`，更新 remote；按 SDK → CLI 顺序发布新包，验证空目录真实安装。Go/Python 按对应发布通道验证权限并发行；不要把源码改名等同于已发布。
-4. 旧本地目录再移至 `/Volumes/workspace/caixuan/decktools`。在实际内部消费者直接更新依赖/import、处理 DeckRender Browser 适配与相关配置引用，生成新 lockfile，frozen install + 完整检查，再切换安装/部署。Hyperdeck 内的 deckhtml 本地分支落后远端，先重新核对并保留它的工作状态。
-5. 检查并让出旧全局 `deckops` 命令，旧工具环境变量改为 `DECKTOOLS_*`。把 `deckflow/deckparse` 改为 `deckflow/deckops`，更新本仓 remote，发布并安装 `@deckflow/deckops`，核对 `command -v deckops` 和版本。
-6. 更新本产品消费者 import / `DECKPARSE_*` 环境变量，先 dry-run 再执行一次性配置迁移，确认共享凭据/UUID 未变。最后将当前本地目录移至已释放的 `/Volumes/workspace/caixuan/deckops`，更新工作环境路径。
+- 761fa08：在 DeckParse 原名下内聚云客户端、类型和回归测试，解除旧 SDK / Browser patch 依赖。
+- d0dd75a / 398f43e：新名称、产品配置、显式一次性迁移及最终 SDK scope 边界检查。
+- 10131b7：修复干净 CI 缺少被忽略样本的问题，改用本仓确定性生成的合成 PDF/OOXML/IWA fixtures，不上传用户样本。
+- DeckTools f23aee2 / 5f7280a：更名、发布与共享身份隔离；review 修复损坏配置 JSON 被覆盖的问题。
+- DeckRender 99a7dad 起：真实依赖和 lockfile 切换，删除 Browser 源码改写桥，使用正式 /browser export，删除旧产品凭据 fallback。
+- DeckHTML 0bfc001 / 5536ea6：真实依赖/import、registry、lockfile 和 CLI bin；hyperdeck 内副本 fast-forward 同步。
+- DeckRender 0.4.0 曾发布旧 CLI 内嵌版本号的产物，已用 0.4.1 前进修复；5ed4bdb 增加 prepack 版本检查和强制重建。0.4.0 不是本次最终版本。
+- Go CLI 与 SDK tag 同 commit 导致初次 Release 关联错误，已纠正为 go-cli/v1.0.0；b4111f6 固定后续发布使用触发 tag，没有重写 Git tags。
 
-两个产品可独立 review/发布；不添加转发包、双命令、共享 SDK 或跨产品构建依赖。失败时回退源码提交/部署版本，原配置文件保持不动；已发布版本用修复版前进。
+源码已合入各仓库原默认分支并 push。
+
+## 验证证据
+
+| 检查 | 结果 |
+| --- | --- |
+| 新 DeckOps pnpm check | 189 测试；Node / DOM-only 类型、Browser SSR、独立消费者、构建及依赖检查通过 |
+| 独立 Git archive | frozen install + check + package-budget 通过，无兄弟仓库或额外用户样本 |
+| CI | [Node 22.18 / 24 与 package-budget 全部通过](https://github.com/deckflow/deckops/actions/runs/34078770208) |
+| 包预算 | tarball 0.94 MiB；strict 43.92 MiB；默认 72.77 MiB；独立验证冷启动 P95 70 ms、PDF RSS 161.80 MiB |
+| 实际浏览器 | 新 DeckOps 16/16、DeckRender 21/21；双 localhost origin，覆盖 Worker/WASM、CORS、上传、SSE/polling、刷新、取消及超时 |
+| Browser gzip | 新 DeckOps 35,148 bytes，DeckRender 43,928 bytes |
+| 旧 artifact | M1 DOCX artifact 在新 CLI 中命中 artifact-cache，离线 convert，taskId 为 null |
+| npm 安装运行 | 新 DeckOps / DeckHTML registry 安装通过；严格预检本地 PDF 解析及 artifact convert 成功，taskId 为 null，convert reusedParse 为 true |
+| DeckTools | Node SDK 82 + CLI 51；Go SDK / CLI；Python 26 测试通过 |
+| DeckRender | 239 单元、90 集成、32 CLI；[最终发布修复 CI 通过](https://github.com/deckflow/deckrender/actions/runs/34079164336) |
+| DeckHTML | frozen install、build、CLI、139 单元测试；[CI 通过](https://github.com/deckflow/deckhtml/actions/runs/34078964388)；hyperdeck 内副本 frozen install + build 通过 |
+
+PDF 降级质量告警仍按原策略返回，不因改名隐瞒结构解析局限。
+
+## 配置与本机交接
+
+- 共享 credentials / auth-uuid 位于 ~/.deckflow，仅跟随 DECKFLOW_CONFIG_DIR；Browser 保留 localStorage["df_uuid"]。
+- 产品配置分别为 ~/.deckflow/deckops/config.json 与 ~/.deckflow/decktools/config.json。产品目录覆盖不会迁移身份。
+- 已执行真实 config migrate dry-run、迁移、再次 dry-run：只补缺失的 apiBase。逐字段检查原目标值、共享 UUID 和旧配置文件未变，第二次无变化；记录不包含凭据值。
+- /Users/fei/.local/bin/deckops 与 decktools 启动各自已安装的 npm CLI，固定本机 Node 24，版本均为 1.0.0。
+- 原 deckops 软链接备份为 /Users/fei/.local/bin/deckops.legacy-20260907，原 PDF-CLI/.venv 未改动；备份只供人工恢复，不是新产品兼容入口。
+- 本地目录已交接，无旧目录 alias。编辑器保存的旧 DeckParse / 旧 DeckOps 项目需关闭后按最终路径重新打开，避免旧任务落到另一个产品目录；当前工具没有修改已有任务 cwd 的接口。
+
+## Go / Python 分发与未验收项
+
+- Go SDK github.com/deckflow/decktools/sdks/go@v1.0.0：远端 go mod download 验证通过。
+- [Go CLI v1.0.0](https://github.com/deckflow/decktools/releases/tag/go-cli/v1.0.0)：六个平台归档、checksums 与 installer 已发布；下载 macOS arm64 二进制版本验证通过。
+- [Python SDK v1.0.0](https://github.com/deckflow/decktools/releases/tag/python-sdk/v1.0.0)：wheel / sdist 已发布；发行名 decktools-sdk、import decktools。尚未发布 PyPI，README 提供可用 wheel 地址。
+- 真实云端 conformance 未执行，需要专用测试凭据和操作。mock / localhost 结果不代表生产 API、云端解析质量或生产 CORS 已验收。
+- GitHub 报告 DeckTools 既有依赖安全告警（本次 push 时 83 项）；未混入大范围依赖升级，需另行 triage，不代表完成安全审计。
+
+回退使用源提交、旧部署版本及保留的配置/CLI 备份；已发布版本用修复版前进，不 unpublish、不重写历史，不恢复跨产品依赖。
