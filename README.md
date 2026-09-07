@@ -24,15 +24,15 @@ npm install -g @deckflow/deckops
 
 The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications use the separate cloud-only [browser entry](#use-it-in-the-browser).
 
-Local PDF parsing uses `pdf-lite-parse@0.2.0` and exports embedded images without expensive composite-figure rasterization. Extractable overlay text is retained separately; visual fidelity losses are reported in `quality`. `--no-images` (SDK: `includeImages: false`) skips image export entirely.
+Local PDF parsing uses `pdf-lite-parse@0.2.1` and exports embedded images without expensive composite-figure rasterization. Extractable overlay text is retained separately; visual fidelity losses are reported in `quality`. `--no-images` (SDK: `includeImages: false`) skips image export entirely.
 
-The default npm install may still include `pdfjs-dist`'s optional `@napi-rs/canvas` platform binary, even though DeckOps does not request composite cropping. For a smaller, strict no-native install use:
+Ordinary `npm install @deckflow/deckops` is now lightweight for PDF parsing: the parser embeds a pinned subset of PDF.js and its portable resources, with no separately installed `pdfjs-dist` or automatic canvas dependency. DeckProbe's independent optional platform CLI packages are unchanged. To omit those as well and use the strict no-native installation:
 
 ```bash
 npm install --omit=optional @deckflow/deckops
 ```
 
-Embedded-image PDF parsing remains usable without canvas. Use the cloud engine explicitly when full figure fidelity is needed.
+Embedded-image PDF parsing works in both installation modes without canvas. Use the cloud engine explicitly when full figure fidelity is needed. Applications calling `pdf-lite-parse` directly can explicitly install canvas for its opt-in composite mode; DeckOps does not enable it automatically.
 
 ## Two verbs, deliberately
 

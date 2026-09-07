@@ -19,7 +19,7 @@ try {
   fs.writeFileSync(path.join(strictDir, 'package.json'), '{"private":true}');
   execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-online', '--omit=dev', '--omit=optional', tarball], { cwd: strictDir, stdio: 'inherit' });
   const installedBytes = sizeOf(path.join(strictDir, 'node_modules'));
-  if (installedBytes > 55 * MiB) throw new Error(`Strict production install is ${(installedBytes / MiB).toFixed(2)} MiB; limit is 55 MiB.`);
+  if (installedBytes > 24 * MiB) throw new Error(`Strict production install is ${(installedBytes / MiB).toFixed(2)} MiB; limit is 24 MiB.`);
   const native = filesUnder(path.join(strictDir, 'node_modules')).filter((file) => file.endsWith('.node'));
   if (native.length) throw new Error(`Strict production install contains native binaries:\n${native.join('\n')}`);
   const installScripts = filesUnder(path.join(strictDir, 'node_modules')).filter((file) => file.endsWith('package.json')).flatMap((file) => {
@@ -44,7 +44,23 @@ try {
   fs.writeFileSync(path.join(defaultDir, 'package.json'), '{"private":true}');
   execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-online', '--omit=dev', tarball], { cwd: defaultDir, stdio: 'inherit' });
   const defaultBytes = sizeOf(path.join(defaultDir, 'node_modules'));
+  if (defaultBytes > 30 * MiB) throw new Error(`Default production install is ${(defaultBytes / MiB).toFixed(2)} MiB; limit is 30 MiB.`);
   const defaultNative = filesUnder(path.join(defaultDir, 'node_modules')).filter((file) => file.endsWith('.node')).length;
+  if (defaultNative) throw new Error('Default installation must not pull in native canvas extensions.');
+  for (const directory of [strictDir, defaultDir]) {
+    const files = filesUnder(path.join(directory, 'node_modules'));
+    if (files.some(file => /node_modules[\\/](@napi-rs[\\/]|pdfjs-dist[\\/])/.test(file))) {
+      throw new Error('PDF parsing must use the embedded runtime, without a separate canvas/PDF.js dependency.');
+    }
+  }
+  const defaultCli = path.join(defaultDir, 'node_modules', '.bin', 'deckops');
+  const defaultOutput = path.join(workspace, 'default-pdf-smoke');
+  const defaultSmoke = JSON.parse(execFileSync(defaultCli, ['parse', path.join(root, 'tests/generated/test.pdf'),
+    '--engine', 'local', '--preflight', 'off', '--output', defaultOutput, '--json'], {encoding:'utf8'}));
+  if (!defaultSmoke.ok || defaultSmoke.engine !== 'local') throw new Error('Default production install failed the local PDF smoke test.');
+  const ir = JSON.parse(fs.readFileSync(path.join(defaultOutput, 'ir.json'), 'utf8'));
+  const parserVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).dependencies['pdf-lite-parse'];
+  if (ir.producer.version !== parserVersion) throw new Error('Installed PDF parser version does not match the dependency pin.');
   process.stdout.write(`tarball ${(item.size / MiB).toFixed(2)} MiB; strict install ${(installedBytes / MiB).toFixed(2)} MiB; default install ${(defaultBytes / MiB).toFixed(2)} MiB (${defaultNative} native binaries); cold-start P95 ${p95.toFixed(0)} ms; PDF RSS ${(measured.maxRssBytes / MiB).toFixed(2)} MiB; files >1 MiB ${large.length}\n`);
 } finally {
   if (tarball) fs.rmSync(tarball, { force: true });

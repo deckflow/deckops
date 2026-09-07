@@ -1,6 +1,6 @@
 {
   "name": "@deckflow/deckops",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Parse any document into an agent-operable representation. Parse once, convert repeatedly: PDF, PPTX, DOCX, Keynote and URLs into durable IR artifacts and Markdown.",
   "type": "module",
   "main": "./dist/index.js",
@@ -79,7 +79,7 @@
     "open": "^10.1.0",
     "p-limit": "^5.0.0",
     "parse5": "^7.3.0",
-    "pdf-lite-parse": "0.2.0",
+    "pdf-lite-parse": "0.2.1",
     "saxes": "^6.0.0",
     "axios": "1.19.0",
     "eventsource-parser": "1.1.2"

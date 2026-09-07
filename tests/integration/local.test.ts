@@ -8,6 +8,7 @@ import { resolveInput } from '../../src/core/input.js';
 import { runParse } from '../../src/core/parse-op.js';
 import { validateDeckIR } from '../../src/ir/validate.js';
 import { createClient } from '../../src/index.js';
+import { PDF_PARSER_VERSION } from '../../src/version.js';
 
 const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-local-'));
 
@@ -62,13 +63,13 @@ describe('local community engine', () => {
       await runParse(options);
       const manifestFile = path.join(out, 'manifest.json');
       const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf-8'));
-      expect(manifest.parse.parser.version).toBe('0.2.0');
+      expect(manifest.parse.parser.version).toBe(PDF_PARSER_VERSION);
       manifest.parse.parser.version = '0.1.2';
       fs.writeFileSync(manifestFile, JSON.stringify(manifest));
       expect(await runParse(options)).toMatchObject({ engine: 'local', reusedParse: false });
       expect(await runParse(options)).toMatchObject({ engine: 'artifact-cache', reusedParse: true });
       const current = await readManifest(out);
-      expect(current).toMatchObject({ parse: { parser: { version: '0.2.0' } } });
+      expect(current).toMatchObject({ parse: { parser: { version: PDF_PARSER_VERSION } } });
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }, 30_000);
 

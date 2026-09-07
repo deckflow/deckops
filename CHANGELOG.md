@@ -1,5 +1,11 @@
 # Changelog
 
+## @deckflow/deckops 1.1.1 — 2026-09-07
+
+- Upgrade to `pdf-lite-parse@0.2.1`, which embeds a fixed, allowlisted PDF.js runtime and resources instead of declaring a runtime `pdfjs-dist` dependency.
+- Ordinary npm installations no longer pull in canvas for PDF parsing. Keep DeckProbe's independent optional platform CLI packages unchanged; `--omit=optional` remains available for a strict no-native installation.
+- Add default-install PDF smoke tests and enforce smaller installed-size budgets plus absence of separate PDF.js/canvas packages.
+
 ## @deckflow/deckops 1.1.0 — 2026-09-07
 
 - Upgrade the exact `pdf-lite-parse` dependency to 0.2.0. Local PDF parsing exports embedded images by default without expensive composite-figure rasterization; extractable overlay text and fidelity warnings remain visible.

@@ -7,8 +7,10 @@ https://github.com/deckflow/pdf-lite-parse
 PDF.js / pdfjs-dist
 Copyright Mozilla Foundation and contributors. Licensed under the Apache License 2.0.
 https://github.com/mozilla/pdf.js
+An allowlisted runtime and resource subset is embedded in pdf-lite-parse.
+See its dist/vendor/pdfjs/PROVENANCE.json, LICENSE, and resource license notices.
 
-@napi-rs/canvas (optional, installed through pdfjs-dist on supported platforms)
+@napi-rs/canvas (only if explicitly installed by a consumer; not a dependency)
 Copyright its contributors. Licensed under the MIT License.
 https://github.com/Brooooooklyn/canvas
 
