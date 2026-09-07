@@ -1,5 +1,10 @@
 DeckOps includes and depends on third-party open-source software.
 
+DeckOps-owned code is licensed under AGPL-3.0-only; see the root LICENSE.
+That license does not relicense the third-party components listed below.
+Their applicable original licenses, copyright statements and attribution
+notices must be retained when redistributing those components.
+
 pdf-lite-parse
 Copyright its contributors. Licensed under the Apache License 2.0.
 https://github.com/deckflow/pdf-lite-parse

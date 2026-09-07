@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- License DeckOps-owned code under AGPL-3.0-only from this license-change commit onward. Preserve third-party licenses and notices; already published releases through 1.1.1 remain under their original MIT license.
+
 ## @deckflow/deckops 1.1.1 — 2026-09-07
 
 - Upgrade to `pdf-lite-parse@0.2.1`, which embeds a fixed, allowlisted PDF.js runtime and resources instead of declaring a runtime `pdfjs-dist` dependency.

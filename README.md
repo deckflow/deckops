@@ -252,4 +252,19 @@ The `--json` envelope, error codes, exit codes, artifact layout and the shared c
 
 ## License
 
-MIT © DeckFlow
+Copyright (c) 2026 DeckFlow. DeckOps-owned code is licensed under the
+[GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
+
+This change applies to the source tree from the license-change commit onward
+and future releases. Previously published versions, including 1.1.1, retain
+their original MIT license; this change does not revoke permissions already granted.
+
+Third-party components retain their own licenses and copyright notices. See
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) and the licenses accompanying those
+components, including the PDF.js resources embedded in `pdf-lite-parse`.
+The DeckOps license does not replace or remove those notices.
+
+Source and build instructions are available in this repository; use the tag or
+commit corresponding to the version you distribute. When distributing or
+operating a modified network-accessible version, follow the applicable
+corresponding-source requirements in AGPL-3.0, including section 13.
