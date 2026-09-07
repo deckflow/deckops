@@ -36,8 +36,8 @@ importers:
         specifier: ^7.3.0
         version: 7.3.0
       pdf-lite-parse:
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.2.0
+        version: 0.2.0
       saxes:
         specifier: ^6.0.0
         version: 6.0.0
@@ -990,8 +990,8 @@ packages:
     resolution: {integrity: sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ==, tarball: https://registry.npmmirror.com/pathval/-/pathval-2.0.1.tgz}
     engines: {node: '>= 14.16'}
 
-  pdf-lite-parse@0.1.1:
-    resolution: {integrity: sha512-w3VTPMqsR2VGkKqugVdNXANbgpYG1vwZ1KzVx7UtEGVlWgzGrXOVPd38FX913KFYzef3ehsSId16NTVVvJnBIQ==, tarball: https://registry.npmmirror.com/pdf-lite-parse/-/pdf-lite-parse-0.1.1.tgz}
+  pdf-lite-parse@0.2.0:
+    resolution: {integrity: sha512-gDSViweLMiJHUWfPcoi9V3R2/bj3J83NtbhBUupZjqMXi95rvWsVj3qYHoQczv3VD+WT+NYdPJd6svql/ucSYw==, tarball: https://registry.npmjs.org/pdf-lite-parse/-/pdf-lite-parse-0.2.0.tgz}
     engines: {node: '>=22.18'}
     hasBin: true
 
@@ -1910,7 +1910,7 @@ snapshots:
 
   pathval@2.0.1: {}
 
-  pdf-lite-parse@0.1.1:
+  pdf-lite-parse@0.2.0:
     dependencies:
       pdfjs-dist: 6.2.108
 

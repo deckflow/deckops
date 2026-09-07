@@ -16,6 +16,7 @@ export async function parsePdf(input: string | Uint8Array, source: SourceIdentit
   // Deliberately lazy: formats/help and OOXML paths do not load PDF.js.
   const { parseArtifacts } = await import('pdf-lite-parse');
   const upstreamOptions: ParseOptions = {
+    images: options.includeImages === false ? 'none' : 'embedded',
     ...(options.password !== undefined ? { password: options.password } : {}),
     ...(options.pageFurniture !== undefined ? { pageFurniture: options.pageFurniture } : {}),
     ...(options.overlaidText !== undefined ? { overlaidText: options.overlaidText } : {}),
@@ -31,6 +32,7 @@ export async function parsePdf(input: string | Uint8Array, source: SourceIdentit
   const candidate = result3ToDeckIr({
     document: artifacts.document,
     source,
+    producer: { engine: 'local', name: 'pdf-lite-parse', version: artifacts.metadata.parserVersion },
     assets: assets.map(({ assetPath, data }) => ({ path: assetPath, data, ...(mediaTypeForPath(assetPath) ? { mediaType: mediaTypeForPath(assetPath) } : {}) })),
   });
   if (options.includeImages === false) {

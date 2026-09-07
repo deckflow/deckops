@@ -24,13 +24,15 @@ npm install -g @deckflow/deckops
 
 The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications use the separate cloud-only [browser entry](#use-it-in-the-browser).
 
-The default npm install includes `pdfjs-dist`'s optional `@napi-rs/canvas` platform binary, which enables composite-figure cropping. The 1.0.0 release check measured 73.01 MiB for the default production install and 44.16 MiB with optional dependencies omitted (platform and npm metadata can move these numbers slightly). For a strict no-native install use:
+Local PDF parsing uses `pdf-lite-parse@0.2.0` and exports embedded images without expensive composite-figure rasterization. Extractable overlay text is retained separately; visual fidelity losses are reported in `quality`. `--no-images` (SDK: `includeImages: false`) skips image export entirely.
+
+The default npm install may still include `pdfjs-dist`'s optional `@napi-rs/canvas` platform binary, even though DeckOps does not request composite cropping. For a smaller, strict no-native install use:
 
 ```bash
 npm install --omit=optional @deckflow/deckops
 ```
 
-PDF parsing remains fully usable; only composite-figure cropping degrades and is reported in `quality`.
+Embedded-image PDF parsing remains usable without canvas. Use the cloud engine explicitly when full figure fidelity is needed.
 
 ## Two verbs, deliberately
 
@@ -51,7 +53,7 @@ doc/
 ```
 
 - **Local and private by default.** `--engine local` is the default, requires no login, and never constructs a cloud client. URL source mode only fetches the URL the user supplied and bounded redirects.
-- **Parse twice, pay once.** Same bytes + engine + parser major + options = instant artifact reuse. `--json` reports `"engine": "artifact-cache"`.
+- **Parse twice, pay once.** Same bytes + engine + compatible parser version + options = instant artifact reuse. Compatibility uses the parser major, plus the minor for pre-1.0 PDF releases. `--json` reports `"engine": "artifact-cache"`.
 - **Convert never re-parses.** Manifest v2 stores public `deckir.v1`; local artifacts remain convertible indefinitely. The 7-day lifetime only applies to an optional cloud `irKey`.
 - **No silent fallback.** `--engine auto` stays local unless `--allow-upload` is explicitly present. `--fail-on-degraded` turns a quality warning into a failure.
 

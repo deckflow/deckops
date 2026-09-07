@@ -17,7 +17,7 @@ try {
   tarball = path.join(root, item.filename);
   const strictDir = path.join(workspace, 'strict'); fs.mkdirSync(strictDir);
   fs.writeFileSync(path.join(strictDir, 'package.json'), '{"private":true}');
-  execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', '--omit=dev', '--omit=optional', tarball], { cwd: strictDir, stdio: 'inherit' });
+  execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-online', '--omit=dev', '--omit=optional', tarball], { cwd: strictDir, stdio: 'inherit' });
   const installedBytes = sizeOf(path.join(strictDir, 'node_modules'));
   if (installedBytes > 55 * MiB) throw new Error(`Strict production install is ${(installedBytes / MiB).toFixed(2)} MiB; limit is 55 MiB.`);
   const native = filesUnder(path.join(strictDir, 'node_modules')).filter((file) => file.endsWith('.node'));
@@ -42,7 +42,7 @@ try {
   const large = filesUnder(path.join(strictDir, 'node_modules')).filter((file) => fs.statSync(file).size > MiB);
   const defaultDir = path.join(workspace, 'default'); fs.mkdirSync(defaultDir);
   fs.writeFileSync(path.join(defaultDir, 'package.json'), '{"private":true}');
-  execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', '--omit=dev', tarball], { cwd: defaultDir, stdio: 'inherit' });
+  execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-online', '--omit=dev', tarball], { cwd: defaultDir, stdio: 'inherit' });
   const defaultBytes = sizeOf(path.join(defaultDir, 'node_modules'));
   const defaultNative = filesUnder(path.join(defaultDir, 'node_modules')).filter((file) => file.endsWith('.node')).length;
   process.stdout.write(`tarball ${(item.size / MiB).toFixed(2)} MiB; strict install ${(installedBytes / MiB).toFixed(2)} MiB; default install ${(defaultBytes / MiB).toFixed(2)} MiB (${defaultNative} native binaries); cold-start P95 ${p95.toFixed(0)} ms; PDF RSS ${(measured.maxRssBytes / MiB).toFixed(2)} MiB; files >1 MiB ${large.length}\n`);

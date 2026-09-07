@@ -7,7 +7,7 @@ export function result3ToDeckIr(options: {
   document: ResultArtifact;
   source: SourceIdentity;
   assets?: CandidateAsset[];
-  producer?: { engine: 'local' | 'cloud'; name: string; version: string };
+  producer: { engine: 'local' | 'cloud'; name: string; version: string };
 }): ParseCandidate {
   const { document, source } = options;
   const allElements = [...document.elements, ...(document.furniture ?? [])];
@@ -77,7 +77,7 @@ export function result3ToDeckIr(options: {
   }));
   const ir = makeIr({
     format: 'pdf', source,
-    producer: options.producer ?? { engine: 'local', name: 'pdf-lite-parse', version: '0.1.1' },
+    producer: options.producer,
     metadata: { ...document.docInfo, outline: document.outline, encrypted: document.source.encrypted },
     pages, nodes, ...(options.assets ? { assets: options.assets } : {}), quality,
   });

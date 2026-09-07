@@ -71,11 +71,12 @@ export function sameParams(a: Record<string, unknown>, b: Record<string, unknown
   return JSON.stringify(normalizeParseParams(a)) === JSON.stringify(normalizeParseParams(b));
 }
 
-export function parseHit(dir: string, manifest: Manifest, sha256: string | undefined, params: Record<string, unknown>, engine?: EngineMode, parser?: { name: string; major: number }): boolean {
+export function parseHit(dir: string, manifest: Manifest, sha256: string | undefined, params: Record<string, unknown>, engine?: EngineMode, parser?: { name: string; major: number; minor?: number }): boolean {
   if (!sha256 || manifest.source.sha256 !== sha256 || !existsSync(irPath(dir))) return false;
   if (!sameParams(manifest.parse.params, params)) return false;
   if (manifest.manifestVersion === 1) return engine === undefined || engine === 'cloud';
   if (parser && (manifest.parse.parser.name !== parser.name || majorOf(manifest.parse.parser.version) !== parser.major)) return false;
+  if (parser?.minor !== undefined && Number(manifest.parse.parser.version.split('.')[1]) !== parser.minor) return false;
   if (engine === 'local' && manifest.parse.engine !== 'local') return false;
   if (engine === 'cloud' && manifest.parse.engine !== 'cloud') return false;
   if (engine === 'auto' && manifest.quality.status !== 'pass') return false;

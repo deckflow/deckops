@@ -44,7 +44,8 @@ describe('local parser safety and rendering', () => {
   });
 
   it('preserves result.v3 hierarchy and renders explicit PDF table cells', () => {
-    const candidate = result3ToDeckIr({ source: { ...source, name: 'table.pdf' }, document: {
+    const candidate = result3ToDeckIr({ source: { ...source, name: 'table.pdf' },
+      producer: { engine: 'local', name: 'fixture-parser', version: '1.0.0' }, document: {
       version: 'result.v3', source: { sha256: source.sha256, pages: 1, encrypted: false }, profile: 'balanced',
       docInfo: {}, outline: null, annotations: [], warnings: [], stats: {},
       pages: [{ index: 1, width: 100, height: 100, status: 'ok', sourceObjectCoverage: 1, probe: { imageAreaRatio: 0 } }],

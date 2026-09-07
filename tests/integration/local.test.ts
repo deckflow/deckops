@@ -55,6 +55,23 @@ describe('local community engine', () => {
     expect(reparsed).toMatchObject({ engine: 'local', reusedParse: false }); expect(cloudCalls).toBe(0);
   }, 30_000);
 
+  it.each(['local', 'auto'] as const)('invalidates pre-0.2 PDF parse caches in %s mode', async (engine) => {
+    const root = tmp(); const source = path.resolve('tests/generated/test.pdf'); const out = path.join(root, 'artifact');
+    try {
+      const options = { input: await resolveInput(source), inputLabel: source, out, flags: {}, common: { engine }, preflight: 'off' as const };
+      await runParse(options);
+      const manifestFile = path.join(out, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf-8'));
+      expect(manifest.parse.parser.version).toBe('0.2.0');
+      manifest.parse.parser.version = '0.1.2';
+      fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+      expect(await runParse(options)).toMatchObject({ engine: 'local', reusedParse: false });
+      expect(await runParse(options)).toMatchObject({ engine: 'artifact-cache', reusedParse: true });
+      const current = await readManifest(out);
+      expect(current).toMatchObject({ parse: { parser: { version: '0.2.0' } } });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }, 30_000);
+
   it('invalidates old local renderer views and removes stale split-page files', async () => {
     const root = tmp(); const source = path.resolve('tests/generated/test.pptx'); const out = path.join(root, 'artifact');
     await runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: { engine: 'local' }, preflight: 'off' });

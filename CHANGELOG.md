@@ -1,5 +1,12 @@
 # Changelog
 
+## @deckflow/deckops 1.1.0 — 2026-09-07
+
+- Upgrade the exact `pdf-lite-parse` dependency to 0.2.0. Local PDF parsing exports embedded images by default without expensive composite-figure rasterization; extractable overlay text and fidelity warnings remain visible.
+- Pass `includeImages: false` through as `images: 'none'`, skipping image export instead of extracting then discarding assets.
+- Record the actual upstream parser version in IR/manifests and invalidate pre-1.0 PDF parse caches across minor versions. Existing artifacts remain convertible.
+- Retain offline operation, lazy PDF loading, resource isolation, and the strict no-native install path.
+
 ## @deckflow/deckops 1.0.0 — 2026-09-07
 
 - Rename the product and its sole CLI to DeckOps / `deckops`; export `DeckOpsError` without a legacy alias. Historical entries below describe the former DeckParse package.
