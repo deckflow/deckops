@@ -41,6 +41,7 @@ jobs:
           path: .
           format: cyclonedx-json
           output-file: sbom.cdx.json
+          upload-release-assets: false
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
