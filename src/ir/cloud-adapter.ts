@@ -6,9 +6,9 @@ import type { CandidateAsset, DeckIrNode, DeckIrPage, DocumentFormat, ParseCandi
 import { makeIr, qualityOf, type SourceIdentity } from '../local/common.js';
 import type { ParseTaskType } from '../types.js';
 
-export async function cloudResultToCandidate(parsed: ParseResult, source: SourceIdentity): Promise<ParseCandidate> {
+export async function cloudResultToCandidate(parsed: ParseResult, source: SourceIdentity, signal?: AbortSignal): Promise<ParseCandidate> {
   const result3 = findResult3(parsed.ir);
-  const assets = await cloudAssets(parsed.ir);
+  const assets = await cloudAssets(parsed.ir, signal);
   if (result3) {
     const candidate = result3ToDeckIr({ document: result3, source, assets,
       producer: { engine: 'cloud', name: 'deckflow-cloud', version: '1' } });
@@ -92,7 +92,7 @@ function collectText(value: unknown): string[] {
   return [...(typeof record.t === 'string' ? [record.t] : []), ...Object.entries(record).filter(([key]) => key !== 't').flatMap(([, child]) => collectText(child))];
 }
 
-async function cloudAssets(ir: unknown): Promise<CandidateAsset[]> {
+async function cloudAssets(ir: unknown, signal?: AbortSignal): Promise<CandidateAsset[]> {
   const images = object(ir)?.images;
   if (!Array.isArray(images)) return [];
   const result: CandidateAsset[] = [];
@@ -100,7 +100,7 @@ async function cloudAssets(ir: unknown): Promise<CandidateAsset[]> {
     const image = object(raw); const url = image && (image.accessURL ?? image.url);
     const assetPath = image && (image.assetPath ?? image.path);
     if (typeof url !== 'string' || typeof assetPath !== 'string') continue;
-    try { const response = await fetch(url); if (response.ok) result.push({ path: assetPath, data: new Uint8Array(await response.arrayBuffer()) }); } catch { /* remote reference remains in raw cloud metadata */ }
+    try { const response = await fetch(url, signal ? { signal } : {}); if (response.ok) result.push({ path: assetPath, data: new Uint8Array(await response.arrayBuffer()) }); } catch { signal?.throwIfAborted(); /* Missing assets are reported by candidate assessment. */ }
   }
   return result;
 }

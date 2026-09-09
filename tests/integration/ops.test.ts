@@ -212,7 +212,7 @@ describe('parse → artifact', () => {
     expect(first.warnings).toContainEqual(expect.stringContaining('external relationships'));
     expect(JSON.parse(fs.readFileSync(path.join(out, 'probe.json'), 'utf-8'))).toMatchObject({ schema_version: 2 });
     expect(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf-8'))).toMatchObject({
-      inspection: { file: 'probe.json', schemaVersion: 2, requestVersion: 1, summary: { pageCount: 3 } },
+      inspection: { file: 'probe.json', schemaVersion: 2, requestVersion: 2, summary: { pageCount: 3 } },
     });
 
     const second = await runParse({

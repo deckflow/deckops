@@ -15,6 +15,7 @@ export interface EngineParseInput {
 }
 
 export interface EngineParseOptions {
+  onTask?: (task: { id: string }) => void;
   flags: ParseFlags;
   common: CommonFlags;
 }

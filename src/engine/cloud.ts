@@ -1,3 +1,5 @@
+import { cloudSupport } from './policy.js';
+import { DeckOpsError } from '../errors/index.js';
 import type { ParseSource } from '../cloud/parse-facade.js';
 import { cloudResultToCandidate } from '../ir/cloud-adapter.js';
 import type { CloudClient } from '../cloud/client.js';
@@ -6,15 +8,19 @@ import type { EngineParseInput, EngineParseOptions, ParseEngine, SupportDecision
 export class CloudEngine implements ParseEngine {
   readonly id = 'cloud' as const;
   constructor(private readonly client: CloudClient) {}
-  supports(): SupportDecision { return { supported: true }; }
-  async parse(input: EngineParseInput, options: EngineParseOptions, _signal: AbortSignal) {
+  supports(input: EngineParseInput, options: EngineParseOptions): SupportDecision { return cloudSupport(input, options.flags); }
+  async parse(input: EngineParseInput, options: EngineParseOptions, signal: AbortSignal) {
+    signal.throwIfAborted();
+    if (!this.supports(input, options).supported) throw DeckOpsError.unsupported('Cloud parser cannot preserve the requested parameters.');
     const parsed = await this.client.parse(sourceFor(input.input), {
+      signal,
+      ...(options.onTask ? { onTask: options.onTask } : {}),
       ...cloudParams(options.flags, input.input.kind === 'link'),
       ...(options.common.spaceId ? { spaceId: options.common.spaceId } : {}),
       ...(options.common.timeout ? { wait: { timeout: options.common.timeout } } : {}),
     });
     if (!input.source) throw new Error('Cloud parsing needs a resolved source identity.');
-    return cloudResultToCandidate(parsed, input.source);
+    return cloudResultToCandidate(parsed, input.source, signal);
   }
 }
 function sourceFor(input: EngineParseInput['input']): ParseSource {

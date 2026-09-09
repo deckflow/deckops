@@ -1,6 +1,6 @@
 {
   "name": "@deckflow/deckops",
-  "version": "2.0.0",
+  "version": "2.1.1",
   "description": "Parse any document into an agent-operable representation. Parse once, convert repeatedly: PDF, PPTX, DOCX, Keynote and URLs into durable IR artifacts and Markdown.",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,6 +24,7 @@
   "files": [
     "dist",
     "schemas",
+    "skills",
     "README.md",
     "CHANGELOG.md",
     "THIRD_PARTY_NOTICES",
@@ -42,13 +43,15 @@
     "typecheck": "tsc --noEmit",
     "typecheck:browser": "tsc -p tsconfig.browser.json --noEmit",
     "typecheck:browser-consumer": "tsc -p tsconfig.browser-consumer.json --noEmit",
+    "check:skill": "node scripts/check-skill.mjs",
     "check:browser": "pnpm typecheck:browser && pnpm test:browser && pnpm build:browser && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
-    "check": "pnpm typecheck && pnpm typecheck:browser && pnpm test && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs && node scripts/check-independence.mjs",
+    "check": "pnpm check:skill && pnpm typecheck && pnpm typecheck:browser && pnpm test && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs && node scripts/check-independence.mjs && pnpm check:read",
     "check:independence": "node scripts/check-independence.mjs",
     "check:package": "pnpm build && node scripts/check-package-size.mjs",
     "browser:smoke": "node scripts/browser-smoke.mjs",
-    "prepack": "pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
-    "conformance": "node scripts/conformance.mjs"
+    "prepack": "pnpm check:skill && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
+    "conformance": "node scripts/conformance.mjs",
+    "check:read": "node scripts/check-read.mjs"
   },
   "keywords": [
     "cli",
@@ -72,25 +75,25 @@
     "url": "https://github.com/deckflow/deckops/issues"
   },
   "dependencies": {
-    "@deckflow/deckprobe": "2.4.0",
+    "@deckflow/deckprobe": "2.6.0",
+    "axios": "1.19.0",
     "chalk": "^5.3.0",
     "commander": "^11.1.0",
+    "eventsource-parser": "1.1.2",
     "fflate": "^0.8.2",
     "open": "^10.1.0",
     "p-limit": "^5.0.0",
     "parse5": "^7.3.0",
     "pdf-lite-parse": "0.2.1",
-    "saxes": "^6.0.0",
-    "axios": "1.19.0",
-    "eventsource-parser": "1.1.2"
+    "saxes": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "axios-mock-adapter": "^1.22.0",
     "esbuild": "^0.27.7",
     "tsup": "^8.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0",
-    "axios-mock-adapter": "^1.22.0"
+    "vitest": "^2.1.0"
   },
   "engines": {
     "node": ">=22.18.0"

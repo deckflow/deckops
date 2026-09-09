@@ -60,9 +60,14 @@ export function result3ToDeckIr(options: {
     else if (page.status === 'degraded') checks.push({ code: 'page_degraded', severity: 'warning', pages: [page.index], message: `PDF page ${page.index} was parsed with reduced fidelity.` });
   }
   const textCharacters = nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0);
-  if (document.pages.length > 0 && textCharacters < document.pages.length * 20 && document.pages.some((page) => page.probe?.imageAreaRatio > 0.9)) {
-    checks.push({ code: 'ocr_required', severity: 'error', pages: document.pages.filter((page) => page.probe?.imageAreaRatio > 0.9).map((page) => page.index), message: 'The PDF appears scanned and has too little usable text. Local OCR is not included.' });
-  }
+  const textByPage = new Map<number, number>();
+  for (const node of nodes) if (node.page !== undefined) textByPage.set(node.page, (textByPage.get(node.page) ?? 0) + (node.text?.trim().length ?? 0));
+  const scannedPages = document.pages.filter(page => {
+    const characters = textByPage.get(page.index) ?? 0;
+    return characters < 20 && page.probe?.imageAreaRatio > 0.9;
+  });
+  if (scannedPages.length) checks.push({ code: 'ocr_required', severity: 'warning', pages: scannedPages.map(page => page.index),
+    message: 'Some pages have a large raster and little extracted text; they may need OCR (image covers can also match).', detail: { method: 'image-text-heuristic' } });
   const quality = qualityOf(dedupeChecks(checks), {
     pages: { parsed: document.pages.filter((page) => page.status !== 'failed').length, total: document.pages.length },
     objects: { parsed: allElements.length - unknownElements.length, opaque: unknownElements.length, total: allElements.length },

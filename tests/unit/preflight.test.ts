@@ -109,7 +109,7 @@ describe('target-level policy', () => {
     })).toThrow('rejected the document container');
     expect(assessPreflight(failure('BUDGET_EXCEEDED'), {
       mode: 'validate', format: 'pptx', passwordProvided: false,
-    }).warnings[0]).toContain('Cloud parsing will continue');
+    }).warnings[0]).toContain('Parsing will continue with preflight uncertainty');
     expect(() => assessPreflight(failure('BUDGET_EXCEEDED'), {
       mode: 'strict', format: 'pptx', passwordProvided: false,
     })).toThrow('did not complete');

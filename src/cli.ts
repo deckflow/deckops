@@ -8,15 +8,16 @@ import {
   runConfigSet,
   runFormats,
 } from './cli/commands/aux.js';
-import { runConvertCommand, runParseCommand, type RawCliOptions } from './cli/commands/run-ops.js';
+import { runConvertCommand, runParseCommand, runReadCommand, type RawCliOptions } from './cli/commands/run-ops.js';
+import { runInstallCommand } from './cli/commands/install.js';
 import { printError } from './cli/output.js';
 import { DeckOpsError } from './errors/index.js';
 import { migrateConfig, type MigrationOptions } from './config/migrate.js';
+import { CAPABILITIES } from './engine/policy.js';
 import { VERSION } from './version.js';
 
 /**
- * CLI assembly (docs/rfc.md §5.1). Bare invocation is `parse` — the product is
- * called DeckOps, its default action produces the IR artifact, not markdown.
+ * CLI assembly (docs/rfc.md §5.1). Bare invocation reads Markdown; explicit parse retains durable IR artifacts.
  * `extract` / `modify` / `export` are reserved so adding them later is not a
  * breaking change.
  */
@@ -25,8 +26,11 @@ const KNOWN_COMMANDS = new Set([
   'parse',
   'convert',
   'formats',
+  'capabilities',
+  'read',
   'auth',
   'config',
+  'install',
   'extract',
   'modify',
   'export',
@@ -42,7 +46,9 @@ function commonOptions(command: Command): Command {
     .option('--preflight <mode>', 'local DeckProbe check: off|validate|strict (default: validate)')
     .option('--engine <engine>', 'parse engine: local|cloud|auto (default: local)')
     .option('--allow-upload', 'allow auto mode to upload when local quality is insufficient')
-    .option('--fail-on-degraded', 'fail when the selected local parser reports degraded quality')
+    .option('--no-allow-upload', 'deny upload for this invocation')
+    .option('--fail-on-degraded', 'reject the final result when quality is degraded')
+    .option('--no-fail-on-degraded', 'allow best-effort results for this invocation')
     .option('--max-source-bytes <bytes>', 'local parser source-size limit')
     .option('--max-expanded-bytes <bytes>', 'local OOXML cumulative expanded-size limit')
     .option('--max-part-bytes <bytes>', 'local OOXML single-part expanded-size limit')
@@ -83,10 +89,19 @@ function convertOptions(command: Command): Command {
 async function main(): Promise<void> {
   const program = new Command('deckops')
     .version(VERSION)
-    .description('Parse documents into durable IR artifacts; convert IR into views. Parse once, operate repeatedly.')
+    .description('Read documents as Markdown by default. Use parse for durable IR artifacts.')
     // Commander errors (unknown option, missing argument) are usage errors:
     // exit 2 per the contract, not commander's default 1.
     .exitOverride();
+
+  parseOptions(commonOptions(program.command('read <input>', { hidden: true, isDefault: true })))
+    .option('--format <format>', 'content format: markdown|ir', 'markdown')
+    .option('--report <file>', 'write an independent run report')
+    .option('--anchors', 'include element provenance comments')
+    .option('--split-pages', 'use explicit convert for split output')
+    .action((input: string, options: RawCliOptions) => runReadCommand(input, options));
+  program.command('capabilities').description('Inspect local/cloud capabilities and upgrade requirements')
+    .option('--json', 'machine-readable capability registry').action(() => { process.stdout.write(JSON.stringify(CAPABILITIES, null, 2) + '\n'); });
 
   parseOptions(commonOptions(program.command('parse <input>').description('document → IR artifact'))).action(
     (input: string, options: RawCliOptions) => runParseCommand(input, options)
@@ -134,6 +149,19 @@ async function main(): Promise<void> {
     .option('--dry-run', 'report paths and field names without writing')
     .action(async (options: MigrationOptions) => { process.stdout.write(`${JSON.stringify(await migrateConfig(options), null, 2)}\n`); });
 
+  const collectAgent = (value: string, previous: string[]): string[] => [...previous, value];
+  program
+    .command('install')
+    .description('install packaged DeckOps assets for coding agents')
+    .option('--skills', 'install the DeckOps agent skill')
+    .option('--agent <agent>', 'target auto|codex|claude|agents (repeatable)', collectAgent, [])
+    .option('-g, --global', 'install into user-level agent directories')
+    .option('--dir <directory>', 'explicit skills container; installs into <directory>/deckops')
+    .option('--force', 'replace conflicting or locally modified managed skill files')
+    .option('--dry-run', 'report the complete plan without writing')
+    .option('--json', 'machine-readable install receipt')
+    .action((options) => runInstallCommand(options));
+
   // Reserved verbs: calling them names the roadmap instead of "unknown command".
   for (const verb of ['extract', 'modify', 'export'] as const) {
     program
@@ -155,11 +183,11 @@ async function main(): Promise<void> {
     }
   }
 
-  // Bare invocation = parse: `deckops doc.pdf` ≡ `deckops parse doc.pdf`.
+  // Bare input uses the content entry point; explicit commands retain their contracts.
   const argv = [...process.argv];
   const first = argv[2];
   if (first === '-' || (first && !first.startsWith('-') && !KNOWN_COMMANDS.has(first))) {
-    argv.splice(2, 0, 'parse');
+    argv.splice(2, 0, 'read');
   }
 
   try {

@@ -24,6 +24,8 @@ export interface PreflightSummary {
   hasEmbeddedFiles?: boolean;
   pageCount?: number;
   slideCount?: number;
+  smartartDataPartCount?: number;
+  chartPartCount?: number;
   slideSize?: Record<string, unknown>;
 }
 
@@ -39,7 +41,7 @@ export interface AssessPreflightOptions {
   passwordProvided: boolean;
 }
 
-export const PREFLIGHT_REQUEST_VERSION = 1;
+export const PREFLIGHT_REQUEST_VERSION = 2;
 
 const REQUIRED_TARGETS = [
   'document.format_profile',
@@ -57,7 +59,7 @@ const SECURITY_FACT_TARGETS: Record<PreflightFormat, readonly string[]> = {
 
 const FORMAT_FACT_TARGETS: Record<PreflightFormat, readonly string[]> = {
   pdf: ['pdf.page_count'],
-  pptx: ['powerpoint.slide_count', 'powerpoint.slide_size'],
+  pptx: ['powerpoint.slide_count', 'powerpoint.slide_size', 'powerpoint.chart_part_count', 'powerpoint.smartart_data_part_count', 'powerpoint.unique_image_asset_count'],
   docx: ['word.page_count'],
   keynote: ['keynote.slide_count'],
 };
@@ -78,6 +80,7 @@ export function preflightProbeOptions(format: PreflightFormat): ProbeCallOptions
     level: 'metadata',
     minimumConfidence: 'high',
     targets: [...REQUIRED_TARGETS, ...SECURITY_FACT_TARGETS[format], ...FORMAT_FACT_TARGETS[format]],
+    ...(format === 'pptx' ? { targetConfidence: { 'powerpoint.slide_count': 'exact' as const }, formatOptions: { 'powerpoint.slide_count_path': 'presentation-xml' } } : {}),
     allowPiggyback: true,
     telemetry: false,
     budget: {
@@ -116,7 +119,7 @@ export function assessPreflight(result: DeckProbeResult, options: AssessPrefligh
     if (options.mode === 'strict') {
       throw DeckOpsError.input(message, { hint: 'Retry with preflight validate/off, or inspect the file with DeckProbe.' });
     }
-    warnings.push(`${message} Cloud parsing will continue.`);
+    warnings.push(`${message} Parsing will continue with preflight uncertainty.`);
   }
 
   const encrypted = booleanValue(result, 'security.encrypted');
@@ -148,6 +151,8 @@ export function summarize(report: DeckProbeReport): PreflightSummary {
   const slideCount = numberValue(report, report.driver.profile === 'key' ? 'keynote.slide_count' : 'powerpoint.slide_count');
   const slideSize = objectValue(report, 'powerpoint.slide_size');
   return {
+    ...(numberValue(report, 'powerpoint.smartart_data_part_count') !== undefined ? { smartartDataPartCount: numberValue(report, 'powerpoint.smartart_data_part_count')! } : {}),
+    ...(numberValue(report, 'powerpoint.chart_part_count') !== undefined ? { chartPartCount: numberValue(report, 'powerpoint.chart_part_count')! } : {}),
     profile: report.driver.profile,
     ...(encrypted !== undefined ? { encrypted } : {}),
     ...(hasMacros !== undefined ? { hasMacros } : {}),
@@ -183,7 +188,7 @@ function assessProbeError(
           hint: 'Retry with preflight validate/off, or inspect the file with DeckProbe.',
         });
       }
-      return { warnings: [`${explanation}. Cloud parsing will continue.`] };
+      return { warnings: [`${explanation}. Parsing will continue with preflight uncertainty.`] };
     }
   }
 }

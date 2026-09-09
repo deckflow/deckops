@@ -29,6 +29,15 @@ try {
   });
   if (installScripts.length) throw new Error(`Strict production install declares install scripts:\n${installScripts.join('\n')}`);
   const cli = path.join(strictDir, 'node_modules', '.bin', 'deckops');
+  const skillsContainer = path.join(workspace, 'agent-skills');
+  const skillReceipt = JSON.parse(execFileSync(cli, ['install', '--skills', '--dir', skillsContainer, '--json'], { encoding: 'utf8' }));
+  const installedSkill = path.join(skillsContainer, 'deckops');
+  if (!skillReceipt.ok || skillReceipt.op !== 'install' || !fs.existsSync(path.join(installedSkill, 'SKILL.md'))) {
+    throw new Error('The production package could not install its DeckOps agent skill.');
+  }
+  for (const relative of ['LICENSE', 'NOTICE', 'references/artifact.md', 'references/formats.md', 'references/limits.md', 'references/output.md', 'references/recipes.md']) {
+    if (!fs.existsSync(path.join(installedSkill, relative))) throw new Error(`Installed skill is missing ${relative}.`);
+  }
   const coldStarts = Array.from({ length: 20 }, () => {
     const started = performance.now(); execFileSync(cli, ['formats', '--json'], { encoding: 'utf8' }); return performance.now() - started;
   }).sort((a, b) => a - b);

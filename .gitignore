@@ -13,3 +13,6 @@ tests/generated/
 
 # Internal design documents stay local; only the README ships publicly.
 docs/
+
+# Generated document artifacts are not release source.
+output/

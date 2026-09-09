@@ -5,7 +5,6 @@ import type { ParseCandidate } from '../ir/schema.js';
 import { type SourceIdentity } from '../local/common.js';
 import { fetchHtml } from '../local/html/parser.js';
 import { resolveLimits } from '../local/limits.js';
-import { parsePdf } from '../local/pdf/adapter.js';
 import { runLocalWorker } from '../local/runner.js';
 import type { EngineParseInput, EngineParseOptions, ParseEngine, SupportDecision } from './types.js';
 
@@ -41,12 +40,12 @@ export class LocalEngine implements ParseEngine {
       if (identity.bytes > limits.sourceBytes) throw DeckOpsError.input('Source exceeds the local input size limit.');
       if (input.input.taskType === 'pdf.pdfParse') {
         const source = input.input.kind === 'document' ? input.input.file : input.input.data;
-        return await parsePdf(source, identity, limits, {
+        return await runLocalWorker({ kind: 'pdf', input: source, source: identity, limits, options: {
           ...(options.flags.password !== undefined ? { password: options.flags.password } : {}),
           ...(options.flags.pageFurniture !== undefined ? { pageFurniture: options.flags.pageFurniture } : {}),
           ...(options.flags.overlaidText !== undefined ? { overlaidText: options.flags.overlaidText } : {}),
           ...(options.flags.includeImages !== undefined ? { includeImages: options.flags.includeImages } : {}),
-        });
+        } }, signal);
       }
       const bytes = input.input.kind === 'document' ? new Uint8Array(await fs.readFile(input.input.file)) : input.input.data;
       if (input.input.taskType === 'docx.parseTextAndImage') return await runLocalWorker({ kind: 'docx', data: bytes, source: identity, limits, options: { ...(options.flags.trackedChanges ? { trackedChanges: options.flags.trackedChanges } : {}) } }, signal);

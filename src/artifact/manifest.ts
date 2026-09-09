@@ -79,7 +79,6 @@ export function parseHit(dir: string, manifest: Manifest, sha256: string | undef
   if (parser?.minor !== undefined && Number(manifest.parse.parser.version.split('.')[1]) !== parser.minor) return false;
   if (engine === 'local' && manifest.parse.engine !== 'local') return false;
   if (engine === 'cloud' && manifest.parse.engine !== 'cloud') return false;
-  if (engine === 'auto' && manifest.quality.status !== 'pass') return false;
   return true;
 }
 

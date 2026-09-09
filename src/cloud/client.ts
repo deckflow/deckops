@@ -26,6 +26,7 @@ export interface CloudClient {
 export function createCloudClient(credentials: ResolvedCredentials): CloudClient {
   const deck: TransportClient = createNodeTransport({
     root: credentials.apiBase,
+    retryMutations: false,
     ...(credentials.token ? { token: credentials.token } : {}),
     ...(credentials.apiKey ? { apiKey: credentials.apiKey } : {}),
     ...(credentials.spaceId ? { spaceId: credentials.spaceId } : {}),
@@ -34,7 +35,7 @@ export function createCloudClient(credentials: ResolvedCredentials): CloudClient
   return {
     parse: async (source, options) => {
       try {
-        return await deck.parse(await preUploadLarge(deck, source), options);
+        return await deck.parse(await preUploadLarge(deck, source, options?.signal), options);
       } catch (error) {
         throw translateError(error);
       }
@@ -49,12 +50,13 @@ export function createCloudClient(credentials: ResolvedCredentials): CloudClient
   };
 }
 
-async function preUploadLarge(deck: TransportClient, source: ParseSource): Promise<ParseSource> {
+async function preUploadLarge(deck: TransportClient, source: ParseSource, signal?: AbortSignal): Promise<ParseSource> {
+  signal?.throwIfAborted();
   const large = largeUpload(source);
   if (!large) {
     return source;
   }
-  const uploaded = await deck.files.upload(large.input, { name: large.name });
+  const uploaded = await deck.files.upload(large.input, { name: large.name, ...(signal ? { signal } : {}) });
   return { fileId: uploaded.id, name: large.name };
 }
 

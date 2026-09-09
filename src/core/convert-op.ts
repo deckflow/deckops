@@ -6,10 +6,11 @@ import path from 'node:path';
 import type { ConvertResult } from '../cloud/parse-facade.js';
 import type { IrFormat } from '../cloud/parse/types.js';
 import { localizeImages, rewriteLinks } from '../assets/localize.js';
-import { assetsDir, irPath, viewDir } from '../artifact/layout.js';
+import { assetsDir, irPath, viewDir, probePath } from '../artifact/layout.js';
 import { locallyExpired, viewHit, writeManifest } from '../artifact/manifest.js';
 import type { CloudClient } from '../cloud/client.js';
-import { routeParse } from '../engine/router.js';
+import { assessCandidate, type Assessment } from '../quality/assessment.js';
+import { routeParse, finalQualityGate } from '../engine/router.js';
 import { DeckOpsError } from '../errors/index.js';
 import { candidateAssetOutputPath } from '../ir/assets.js';
 import type { DeckIR, ParseCandidate } from '../ir/schema.js';
@@ -25,21 +26,32 @@ import type { ResolvedInput } from './input.js';
 import { runSourcePreflight } from './parse-op.js';
 
 export interface ConvertOpOptions {
+  assessment?: Assessment;
   input: ResolvedInput; inputLabel: string; out?: string; flags: ConvertFlags; parseFlags?: ParseFlags; common: CommonFlags;
+  onContent?: (markdown: string) => void;
   client?: CloudClient; cloud?: () => Promise<CloudClient>; preflight?: PreflightMode; inspector?: NodeDocumentInspector;
 }
 
 export async function runConvert(options: ConvertOpOptions): Promise<ConvertEnvelope> {
   if ((options.flags.to ?? 'markdown') !== 'markdown') throw DeckOpsError.unsupported(`--to ${String(options.flags.to)} is not supported yet.`);
+  let content: string | undefined;
+  const work = { ...options, onContent: (value: string) => { content = value; } };
+  let result: ConvertEnvelope;
   if (options.input.kind === 'artifact') {
     if (options.preflight && options.preflight !== 'off') throw DeckOpsError.usage('Preflight applies to source documents, not an existing artifact.');
-    return convertArtifact(options, options.input.dir, options.input.manifest);
-  }
-  return convertOneShot(options);
+    result = await convertArtifact(work, options.input.dir, options.input.manifest);
+  } else result = await convertOneShot(work);
+  return { ...result, ...(content !== undefined ? { content } : {}) };
 }
 
 async function convertArtifact(options: ConvertOpOptions, dir: string, manifest: Manifest): Promise<ConvertEnvelope> {
   const startedAt = Date.now();
+  if (manifest.manifestVersion === 2) {
+    const ir = validateDeckIR(JSON.parse(await fs.readFile(irPath(dir), 'utf8')));
+    const probe = manifest.inspection ? await fs.readFile(probePath(dir), 'utf8').then(body => JSON.parse(body) as import('../shared/preflight.js').DeckProbeReport).catch(() => undefined) : undefined;
+    options = { ...options, assessment: assessCandidate({ ir, quality: ir.quality, assets: [] }, probe) };
+    finalQualityGate({ quality: ir.quality, assessment: options.assessment! }, options.common.failOnDegraded);
+  }
   if (manifest.manifestVersion === 2 && options.common.failOnDegraded && manifest.quality.status === 'degraded') {
     throw DeckOpsError.input('Artifact quality is degraded.', manifest.quality.checks[0]?.message ? { hint: manifest.quality.checks[0].message } : {});
   }
@@ -50,9 +62,9 @@ async function convertArtifact(options: ConvertOpOptions, dir: string, manifest:
   const viewParams = { ...viewParamsFor(options.flags), rendererEngine: useCloud ? 'cloud' : 'local' };
   const view = manifest.views.markdown;
   const rendererMatches = rendererCompatible(manifest, useCloud);
-  if (!options.common.force && rendererMatches && viewHit(dir, view, viewParams)) {
+  if (!options.out && !options.common.force && rendererMatches && viewHit(dir, view, viewParams)) {
     return envelope(options, { startedAt, engine: 'artifact-cache', format: formatOf(manifest), taskId: null, reusedParse: true,
-      outputs: view!.files.map((file) => ({ file: path.join(dir, file), bytes: 0 })), warnings: [], ...(manifest.manifestVersion === 2 ? { quality: manifest.quality } : {}) });
+      outputs: await Promise.all(view!.files.map(async (file) => ({ file: path.join(dir, file), bytes: (await fs.stat(path.join(dir, file))).size }))), warnings: [], ...(manifest.manifestVersion === 2 ? { quality: manifest.quality } : {}) });
   }
   if (useCloud) return convertArtifactCloud(options, dir, manifest, viewParams, startedAt);
   return convertArtifactLocal(options, dir, manifest as ManifestV2, viewParams, startedAt);
@@ -67,7 +79,7 @@ async function convertArtifactLocal(options: ConvertOpOptions, dir: string, mani
   manifest.views.markdown = { engine: 'local', rendererVersion: MARKDOWN_RENDERER_VERSION, params: viewParams,
     files: outputs.map((output) => path.relative(dir, output.file)), createdAt: new Date().toISOString() };
   await writeManifest(dir, manifest);
-  if (options.out) outputs.push(...await writePortableLocal(options.out, ir, dir, options.flags));
+  if (options.out) outputs.push(...await writePortableLocal(options.out, ir, dir, options.flags, options.onContent));
   return envelope(options, { startedAt, engine: 'local', format: ir.format as IrFormat, taskId: null, reusedParse: true,
     outputs, warnings: rendered.warnings, quality: ir.quality });
 }
@@ -88,7 +100,7 @@ async function convertArtifactCloud(options: ConvertOpOptions, dir: string, mani
     manifest.assets[relative] = { key: asset.key, hash, bytes: asset.bytes };
   }
   await writeManifest(dir, manifest);
-  if (options.out) { const portable = await writePortableCloud(options.out, result, options.flags); materialized.outputs.push(...portable.outputs); materialized.warnings.push(...portable.warnings); }
+  if (options.out) { const portable = await writePortableCloud(options.out, result, options.flags, options.onContent); materialized.outputs.push(...portable.outputs); materialized.warnings.push(...portable.warnings); }
   return envelope(options, { startedAt, engine: 'cloud', format: result.format, taskId: result.taskId, reusedParse: true,
     outputs: materialized.outputs, warnings: materialized.warnings, ...(manifest.manifestVersion === 2 ? { quality: manifest.quality } : {}) });
 }
@@ -100,26 +112,27 @@ async function convertOneShot(options: ConvertOpOptions): Promise<ConvertEnvelop
   const source = await sourceIdentity(input, options.common.engine === 'cloud' ? undefined : (options.common.limits?.sourceBytes ?? DEFAULT_LOCAL_LIMITS.sourceBytes));
   const cloud = cloudFactory(options);
   const candidate = await routeParse({ input: { input, inputLabel: options.inputLabel, source },
+    ...(inspected.report ? { probe: inspected.report } : {}),
     parse: { flags: options.parseFlags ?? {}, common: options.common }, ...(cloud ? { cloud } : {}),
     signal: AbortSignal.timeout(operationTimeoutMs(options.common)) });
   if ((options.common.engine === 'cloud' || options.flags.strict) && candidate.remote) {
     const result = await callConvert(await requireCloud(options), { irKey: candidate.remote.irKey }, options.flags, options.common);
     const target = options.out ?? defaultPortableName(input, options.inputLabel);
-    const portable = await writePortableCloud(target, result, options.flags);
+    const portable = await writePortableCloud(target, result, options.flags, options.onContent);
     return { ok: true, op: 'convert', input: options.inputLabel, to: 'markdown', engine: 'cloud', format: result.format,
       taskId: result.taskId, parseTaskId: candidate.remote.taskId, ...(inspected.summary ? { inspection: inspected.summary } : {}),
-      reusedParse: false, quality: candidate.quality, outputs: portable.outputs, warnings: [...inspected.warnings, ...(candidate.warnings ?? []), ...portable.warnings], durationMs: Date.now() - startedAt };
+      reusedParse: false, ...(candidate.assessment ? { assessment: candidate.assessment } : {}), ...(candidate.decision ? { decision: candidate.decision } : {}), quality: candidate.quality, outputs: portable.outputs, warnings: [...inspected.warnings, ...(candidate.warnings ?? []), ...portable.warnings], durationMs: Date.now() - startedAt };
   }
   if (options.flags.strict) throw DeckOpsError.unsupported('Markdown --strict is a cloud-renderer option.', { hint: 'Remove --strict or select --engine cloud.' });
   const target = options.out ?? defaultPortableName(input, options.inputLabel);
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'deckops-assets-'));
+  const tempDir = target === '-' ? await stdoutAssetDir() : await fs.mkdtemp(path.join(os.tmpdir(), 'deckops-assets-'));
   try {
     await writeCandidateAssets(tempDir, candidate);
-    const outputs = await writePortableLocal(target, candidate.ir, tempDir, options.flags);
+    const outputs = await writePortableLocal(target, candidate.ir, tempDir, options.flags, options.onContent);
     return { ok: true, op: 'convert', input: options.inputLabel, to: 'markdown', engine: 'local', format: candidate.ir.format as IrFormat,
       taskId: null, ...(candidate.remote ? { parseTaskId: candidate.remote.taskId } : {}), ...(inspected.summary ? { inspection: inspected.summary } : {}),
-      reusedParse: false, quality: candidate.quality, outputs, warnings: [...inspected.warnings, ...(candidate.warnings ?? [])], durationMs: Date.now() - startedAt };
-  } finally { await fs.rm(tempDir, { recursive: true, force: true }); }
+      reusedParse: false, ...(candidate.assessment ? { assessment: candidate.assessment } : {}), ...(candidate.decision ? { decision: candidate.decision } : {}), quality: candidate.quality, outputs, warnings: [...inspected.warnings, ...(candidate.warnings ?? []), ...renderMarkdown(candidate.ir).warnings], durationMs: Date.now() - startedAt };
+  } finally { if (target !== '-') await fs.rm(tempDir, { recursive: true, force: true }); }
 }
 
 async function writeArtifactMarkdown(dir: string, markdown: string, pages?: string[]): Promise<OutputFile[]> {
@@ -129,17 +142,22 @@ async function writeArtifactMarkdown(dir: string, markdown: string, pages?: stri
   return outputs;
 }
 
-async function writePortableLocal(target: string, ir: DeckIR, artifactDir: string, flags: ConvertFlags): Promise<OutputFile[]> {
-  if (target === '-') { process.stdout.write(renderMarkdown(ir, { anchors: flags.anchors }).markdown); return []; }
+async function writePortableLocal(target: string, ir: DeckIR, artifactDir: string, flags: ConvertFlags, onContent?: (markdown: string) => void): Promise<OutputFile[]> {
+  if (target === '-') { onContent?.(renderMarkdown(ir, { anchors: flags.anchors, assetPrefix: path.join(path.resolve(artifactDir), 'assets') + '/' }).markdown); return []; }
   const base = target.endsWith('.md') ? target.slice(0, -3) : target; const mdPath = `${base}.md`; const assetsName = `${path.basename(base)}.assets`;
   const rendered = renderMarkdown(ir, { anchors: flags.anchors, assetPrefix: `${assetsName}/` });
   await fs.mkdir(path.dirname(path.resolve(mdPath)), { recursive: true }); await fs.writeFile(mdPath, rendered.markdown, 'utf-8');
   const outputs: OutputFile[] = [{ file: mdPath, bytes: Buffer.byteLength(rendered.markdown) }];
   for (const asset of ir.document.assets) {
     const from = path.join(artifactDir, asset.path); const to = path.join(path.dirname(mdPath), assetsName, path.basename(asset.path));
-    try { await fs.mkdir(path.dirname(to), { recursive: true }); await fs.copyFile(from, to); outputs.push({ file: to, bytes: asset.bytes }); } catch { /* missing assets remain visible as broken links and quality warnings */ }
+    try { await fs.mkdir(path.dirname(to), { recursive: true }); await fs.copyFile(from, to); outputs.push({ file: to, bytes: asset.bytes }); } catch (cause) { throw DeckOpsError.input('Could not export a registered Markdown asset.', { cause }); }
   }
   return outputs;
+}
+
+async function stdoutAssetDir(): Promise<string> {
+  const root = path.resolve(process.env.DECKOPS_CACHE_DIR ?? path.join(os.homedir(), '.cache', 'deckops'), 'exports');
+  await fs.mkdir(root, { recursive: true, mode: 0o700 }); return fs.mkdtemp(path.join(root, 'assets-'));
 }
 
 async function writeCandidateAssets(dir: string, candidate: ParseCandidate): Promise<void> {
@@ -161,8 +179,13 @@ async function materializeCloud(dir: string, result: ConvertResult, flags: Conve
   return { outputs, warnings: localized.warnings, files, savedAssets: localized.saved };
 }
 
-async function writePortableCloud(target: string, result: ConvertResult, flags: ConvertFlags): Promise<{ outputs: OutputFile[]; warnings: string[] }> {
-  if (target === '-') { process.stdout.write(result.markdown); return { outputs: [], warnings: ['stdout keeps remote image links; they expire in hours.'] }; }
+async function writePortableCloud(target: string, result: ConvertResult, flags: ConvertFlags, onContent?: (markdown: string) => void): Promise<{ outputs: OutputFile[]; warnings: string[] }> {
+  if (target === '-') {
+    const dir = await stdoutAssetDir();
+    const localized = await localizeImages({ images: result.images, destDir: dir, linkPrefix: dir + '/', ...(flags.keepRemoteImages !== undefined ? { keepRemote: flags.keepRemoteImages } : {}) });
+    onContent?.(rewriteLinks(result.markdown, localized.rewrites));
+    return { outputs: Object.values(localized.saved).map(asset => ({ file: path.join(dir, asset.file), bytes: asset.bytes })), warnings: localized.warnings };
+  }
   const base = target.endsWith('.md') ? target.slice(0, -3) : target; const mdPath = `${base}.md`; const assetsName = `${path.basename(base)}.assets`;
   const localized = await localizeImages({ images: result.images, destDir: path.join(path.dirname(mdPath), assetsName), linkPrefix: `${assetsName}/`, ...(flags.keepRemoteImages !== undefined ? { keepRemote: flags.keepRemoteImages } : {}) });
   await fs.mkdir(path.dirname(path.resolve(mdPath)), { recursive: true }); const body = rewriteLinks(result.markdown, localized.rewrites); await fs.writeFile(mdPath, body, 'utf-8');
@@ -191,4 +214,4 @@ async function sourceIdentity(input: Exclude<ResolvedInput, { kind: 'artifact' }
 function cloudFactory(options: ConvertOpOptions): (() => Promise<CloudClient>) | undefined { return options.cloud ?? (options.client ? async () => options.client! : undefined); }
 async function requireCloud(options: ConvertOpOptions): Promise<CloudClient> { const factory = cloudFactory(options); if (!factory) throw DeckOpsError.usage('Cloud conversion was requested but no cloud client is configured.'); return factory(); }
 function operationTimeoutMs(common: CommonFlags): number { const value = common.timeout !== undefined ? common.timeout * 1000 : common.engine === 'cloud' ? 120_000 : (common.limits?.timeoutMs ?? 120_000); if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) throw DeckOpsError.usage('Timeout must be a positive duration within the Node.js timer range.'); return value; }
-function envelope(options: ConvertOpOptions, extra: { startedAt: number; engine: ConvertEnvelope['engine']; format: IrFormat; taskId: string | null; reusedParse: boolean; outputs: OutputFile[]; warnings: string[]; quality?: import('../ir/schema.js').QualityReport }): ConvertEnvelope { return { ok: true, op: 'convert', input: options.inputLabel, to: 'markdown', engine: extra.engine, format: extra.format, taskId: extra.taskId, reusedParse: extra.reusedParse, ...(extra.quality ? { quality: extra.quality } : {}), outputs: extra.outputs, warnings: extra.warnings, durationMs: Date.now() - extra.startedAt }; }
+function envelope(options: ConvertOpOptions, extra: { startedAt: number; engine: ConvertEnvelope['engine']; format: IrFormat; taskId: string | null; reusedParse: boolean; outputs: OutputFile[]; warnings: string[]; quality?: import('../ir/schema.js').QualityReport }): ConvertEnvelope { return { ok: true, op: 'convert', input: options.inputLabel, to: 'markdown', engine: extra.engine, format: extra.format, taskId: extra.taskId, reusedParse: extra.reusedParse, ...(extra.quality ? { quality: extra.quality } : {}), ...(options.assessment ? { assessment: options.assessment } : {}), outputs: extra.outputs, warnings: extra.warnings, durationMs: Date.now() - extra.startedAt }; }

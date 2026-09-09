@@ -9,7 +9,7 @@ export interface SourceIdentity {
 
 export function qualityOf(checks: QualityCheck[], coverage: QualityReport['coverage']): QualityReport {
   const status = checks.some((check) => check.severity === 'error' || check.severity === 'warning') ? 'degraded' : 'pass';
-  return { status, checks, coverage, ...(status === 'degraded' ? { recommendation: 'cloud' as const } : {}) };
+  return { status, checks, coverage };
 }
 
 export function makeIr(options: {

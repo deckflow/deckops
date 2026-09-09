@@ -105,6 +105,8 @@ export interface CandidateAsset {
 }
 
 export interface ParseCandidate {
+  assessment?: import('../shared/assessment-types.js').Assessment;
+  decision?: import('../shared/policy-types.js').RouteDecision;
   ir: DeckIR;
   quality: QualityReport;
   assets: CandidateAsset[];

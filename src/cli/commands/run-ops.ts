@@ -1,4 +1,5 @@
 import { translateError as translate } from '../../shared/errors.js';
+import { runRead } from '../../core/read-op.js';
 import { runConvert } from '../../core/convert-op.js';
 import { resolveInput, type ResolvedInput } from '../../core/input.js';
 import { runParse } from '../../core/parse-op.js';
@@ -16,6 +17,8 @@ import { printEnvelope, printError, type OutputContext } from '../output.js';
  */
 
 export interface RawCliOptions {
+  format?: string;
+  report?: string;
   from?: string;
   output?: string;
   json?: boolean;
@@ -86,7 +89,8 @@ export function commonFlagsOf(options: RawCliOptions): CommonFlags {
   const failOnDegraded = options.failOnDegraded ?? envBoolean('DECKOPS_FAIL_ON_DEGRADED') ?? defaults.failOnDegraded;
   const timeout = options.timeout === undefined ? defaults.timeout : Number(options.timeout);
   if (!['local', 'cloud', 'auto'].includes(engine)) throw DeckOpsError.usage('--engine must be local, cloud, or auto.');
-  if (allowUpload && engine !== 'auto') throw DeckOpsError.usage('--allow-upload only applies with --engine auto.');
+  if (options.engine === 'local' && options.allowUpload === true) throw DeckOpsError.usage('Explicit --engine local conflicts with --allow-upload.');
+  if (engine === 'cloud' && allowUpload === false) throw DeckOpsError.usage('--engine cloud conflicts with upload denial.');
   if (timeout !== undefined && (!Number.isSafeInteger(timeout) || timeout <= 0)) throw DeckOpsError.usage('--timeout must be a positive integer number of seconds.');
   const limitEntries = [
     ['sourceBytes', '--max-source-bytes', options.maxSourceBytes], ['zipExpandedBytes', '--max-expanded-bytes', options.maxExpandedBytes],
@@ -105,6 +109,7 @@ export function commonFlagsOf(options: RawCliOptions): CommonFlags {
     ...(options.space !== undefined ? { spaceId: options.space } : {}),
     ...(timeout !== undefined ? { timeout } : {}),
     ...(options.force !== undefined ? { force: options.force } : {}),
+    policySource: { engine: options.engine !== undefined ? 'cli' : process.env.DECKOPS_ENGINE !== undefined ? 'environment' : defaults.engine !== undefined ? 'config' : 'builtin', allowUpload: options.allowUpload !== undefined ? 'cli' : process.env.DECKOPS_ALLOW_UPLOAD !== undefined ? 'environment' : defaults.allowUpload !== undefined ? 'config' : 'builtin' },
     engine: engine as NonNullable<CommonFlags['engine']>,
     ...(allowUpload !== undefined ? { allowUpload } : {}),
     ...(failOnDegraded !== undefined ? { failOnDegraded } : {}),
@@ -208,8 +213,40 @@ function rejectConvertFlagsOnParse(options: RawCliOptions): void {
   }
 }
 
-function fail(error: unknown, op: 'parse' | 'convert', ctx: OutputContext): never {
+function fail(error: unknown, op: 'parse' | 'convert' | 'read', ctx: OutputContext): never {
   const translated = error instanceof DeckOpsError ? error : translate(error);
   printError(translated, op, ctx);
   process.exit(translated.exitCode);
+}
+
+export async function runReadCommand(inputArg: string, options: RawCliOptions): Promise<void> {
+  try {
+    const input = await resolveInput(inputArg, options.from ? { from: options.from } : {});
+    const flags = parseFlagsOf(options); validateParseFlags(input, flags);
+    const result = await runRead({ input, inputLabel: inputArg, flags, common: commonFlagsOf(options), preflight: preflightModeOf(options),
+      cloud: () => clientFor(options), ...(options.output !== undefined ? { out: options.output } : {}),
+      ...(options.format !== undefined ? { format: options.format as 'markdown' | 'ir' } : {}), ...(options.report ? { reportFile: options.report } : {}),
+      ...(options.anchors !== undefined ? { anchors: options.anchors } : {}), ...(options.splitPages !== undefined ? { splitPages: options.splitPages } : {}) });
+    if (options.json) process.stdout.write(JSON.stringify(result) + '\n');
+    else if (result.content !== null) process.stdout.write(typeof result.content === 'string' ? result.content : JSON.stringify(result.content) + '\n');
+    if (!options.json) {
+      const issue = result.report.assessment.issues.find(i => i.severity !== 'info' && i.impact !== 'informational');
+      if (issue) process.stderr.write(`quality: ${issue.message}\n`);
+      const summary = result.report.assessment.summary;
+      if (issue && summary) process.stderr.write(`coverage: ${summary.parsedPages}/${summary.sourcePages ?? '?'} pages/slides; missing=${summary.missingPageCount}; failed=${summary.failedPages.length}; searchableTextCharacters=${summary.searchableTextCharacters}\n`);
+      const recommendation = result.report.assessment.recommendation;
+      if (recommendation) process.stderr.write(`recommendation: ${recommendation.message}\n`);
+      const delivery = result.report.warnings.find(w => w.startsWith('Replaced '));
+      if (delivery) process.stderr.write(`delivery: ${delivery}\n`);
+      const decision = result.report.decision;
+      if (decision && (issue || decision.reason === 'upgrade_failed')) {
+        process.stderr.write(`route: ${decision.action}; ${decision.reason}\n`);
+        if (decision.next?.message) process.stderr.write(`hint: ${decision.next.message}\n`);
+        if (decision.next) process.stderr.write(`next: ${decision.next.argv.map(arg => "'" + arg.replaceAll("'", "'\\''") + "'").join(' ')}\n`);
+      }
+      if (result.format === 'ir') process.stderr.write(`artifactBase: ${result.report.artifactBase}\n`);
+      const preflight = result.report.warnings.find(w => w.includes('preflight') || w.includes('DeckProbe'));
+      if (preflight) process.stderr.write(`${preflight}\n`);
+    }
+  } catch (error) { fail(error, 'read', { json: Boolean(options.json), quiet: Boolean(options.quiet) }); }
 }

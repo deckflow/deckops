@@ -1,3 +1,4 @@
+import { parsePdf } from './pdf/adapter.js';
 import { Worker } from 'node:worker_threads';
 import { DeckOpsError } from '../errors/index.js';
 import { parseDocx } from './docx/parser.js';
@@ -32,6 +33,7 @@ export async function runLocalWorker(request: WorkerRequest, signal: AbortSignal
 }
 
 function runDirect(request: WorkerRequest) {
+  if (request.kind === 'pdf') return parsePdf(request.input, request.source, request.limits, request.options);
   if (request.kind === 'docx') return Promise.resolve(parseDocx(request.data, request.source, request.limits, request.options));
   if (request.kind === 'pptx') return Promise.resolve(parsePptx(request.data, request.source, request.limits));
   return Promise.resolve(parseHtmlSource(request.html, request.source, request.baseUrl));

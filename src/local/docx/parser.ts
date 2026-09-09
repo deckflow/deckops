@@ -66,7 +66,7 @@ export function parseDocx(data: Uint8Array, source: SourceIdentity, limits: Loca
     textCharacters: ctx.nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0),
   });
   const metadata = readCoreProperties(pkg);
-  const ir = makeIr({ format: 'docx', source, producer: { name: 'deckparse-docx', version: '1' }, metadata,
+  const ir = makeIr({ format: 'docx', source, producer: { name: 'deckparse-docx', version: '2' }, metadata,
     nodes: ctx.nodes, assets: ctx.assets, quality });
   return { ir, quality, assets: ctx.assets, warnings: quality.checks.map((check) => check.message) };
 }
@@ -162,7 +162,7 @@ function collectRuns(node: XmlNode, ctx: Context, part: string, inheritedHref?: 
         const rPr = first(current, 'rPr');
         runs.push({ text: value,
           ...(first(rPr ?? emptyNode(), 'b') ? { bold: true } : {}), ...(first(rPr ?? emptyNode(), 'i') ? { italic: true } : {}),
-          ...(first(rPr ?? emptyNode(), 'u') ? { underline: true } : {}), ...(first(rPr ?? emptyNode(), 'strike') ? { strike: true } : {}),
+          ...(first(rPr ?? emptyNode(), 'u') ? { underline: true } : {}), ...(onOff(first(rPr ?? emptyNode(), 'strike')) ? { strike: true } : {}),
           ...(nextHref ? { href: nextHref } : {}),
           ...(ctx.strategy === 'all' && (nextDeleted || nextInserted) ? { style: { revision: nextDeleted ? 'deleted' : 'inserted' } } : {}),
         });
@@ -294,3 +294,5 @@ function xmlSnapshot(node: XmlNode): Record<string, unknown> {
 }
 
 function emptyNode(): XmlNode { return { local: '', uri: '', attributes: {}, children: [], text: '' }; }
+
+function onOff(node: XmlNode | undefined): boolean { return !!node && !['0', 'false', 'off'].includes((node.attributes.val ?? node.attributes['w:val'] ?? '').toLowerCase()); }

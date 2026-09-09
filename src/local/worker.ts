@@ -1,3 +1,4 @@
+import { parsePdf } from './pdf/adapter.js';
 import { parentPort } from 'node:worker_threads';
 import { parseDocx } from './docx/parser.js';
 import { parseHtmlSource } from './html/parser.js';
@@ -6,9 +7,10 @@ import type { WorkerRequest, WorkerResponse } from './worker-protocol.js';
 
 if (!parentPort) throw new Error('deckops local worker must run in a worker thread.');
 
-parentPort.once('message', (request: WorkerRequest) => {
+parentPort.once('message', async (request: WorkerRequest) => {
   try {
-    const candidate = request.kind === 'docx' ? parseDocx(request.data, request.source, request.limits, request.options)
+    const candidate = request.kind === 'pdf' ? await parsePdf(request.input, request.source, request.limits, request.options)
+      : request.kind === 'docx' ? parseDocx(request.data, request.source, request.limits, request.options)
       : request.kind === 'pptx' ? parsePptx(request.data, request.source, request.limits)
         : parseHtmlSource(request.html, request.source, request.baseUrl);
     parentPort!.postMessage({ ok: true, candidate } satisfies WorkerResponse);

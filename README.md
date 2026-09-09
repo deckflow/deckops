@@ -2,10 +2,13 @@
 
 > Parse any document into an agent-operable representation.
 
-DeckOps turns documents into **durable IR artifacts** and derives views from them. Parse once — then convert, again and again, without ever re-reading the source.
+DeckOps reads documents as **Markdown by default**, with quality evidence and policy-controlled upgrades. Explicit `parse` creates durable IR artifacts for repeated use.
 
 ```bash
-deckops doc.pdf                  # document → IR artifact (doc/)
+deckops doc.pdf                  # Markdown only on stdout
+deckops doc.pdf --json           # content + assessment + routing decision
+deckops doc.pdf -o doc.md        # portable Markdown and adjacent image assets
+deckops parse doc.pdf            # explicit durable IR artifact (doc/)
 deckops convert doc/             # artifact → local markdown view, no re-parse/network
 deckops convert doc.pdf -o doc.md  # one-shot: portable markdown, images localized
 ```
@@ -26,7 +29,7 @@ The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications 
 
 Local PDF parsing uses `pdf-lite-parse@0.2.1` and exports embedded images without expensive composite-figure rasterization. Extractable overlay text is retained separately; visual fidelity losses are reported in `quality`. `--no-images` (SDK: `includeImages: false`) skips image export entirely.
 
-Ordinary `npm install @deckflow/deckops` is now lightweight for PDF parsing: the parser embeds a pinned subset of PDF.js and its portable resources, with no separately installed `pdfjs-dist` or automatic canvas dependency. DeckProbe's independent optional platform CLI packages are unchanged. To omit those as well and use the strict no-native installation:
+Ordinary `npm install @deckflow/deckops` is now lightweight for PDF parsing: the parser embeds a pinned subset of PDF.js and its portable resources, with no separately installed `pdfjs-dist` or automatic canvas dependency. DeckProbe is pinned to the published 2.6.0 package; it uses its matching optional native CLI when available and falls back to WASM otherwise. To omit those as well and use the strict no-native installation:
 
 ```bash
 npm install --omit=optional @deckflow/deckops
@@ -34,10 +37,68 @@ npm install --omit=optional @deckflow/deckops
 
 Embedded-image PDF parsing works in both installation modes without canvas. Use the cloud engine explicitly when full figure fidelity is needed. Applications calling `pdf-lite-parse` directly can explicitly install canvas for its opt-in composite mode; DeckOps does not enable it automatically.
 
+## Content and upgrade policy
+
+```bash
+deckops report.pdf > report.md
+deckops report.pdf --report report.run.json > report.md
+deckops report.pdf --format ir --json
+deckops report.pdf --engine auto --allow-upload
+deckops capabilities --json
+```
+
+Plain stdout contains only the selected content; stderr carries actionable diagnostics.
+`--json` returns one `deckops.read.v1` object. File output returns `content: null` and file receipts.
+Use `-o report.md` for portable image links; redirected stdout refers to persistent local cache
+assets under `DECKOPS_CACHE_DIR` (default `~/.cache/deckops`). Cache files remain until explicitly
+removed. Independent exports use an adjacent `report.assets-<id>/` directory so failed rewrites
+cannot damage a previous export's links. `--format ir -o FILE` is rejected; use `parse -o DIR`
+for a portable IR bundle. `--quiet` on the default entry keeps content and actionable problems.
+
+The Node SDK also exposes `read()`:
+
+```ts
+import { read } from '@deckflow/deckops';
+const result = await read('report.pdf', { engine: 'local' });
+console.log(result.content);
+console.log(result.report.assessment, result.report.decision);
+const structured = await read('report.pdf', { format: 'ir' });
+```
+
+SDK options do not inherit CLI product configuration. `cloudLimits` can bound source bytes/pages;
+unverifiable page limits or monetary `maxCost` prevent submission. A timeout/unknown preflight
+is never upload authorization. OCR/SmartArt/table repair capabilities are currently marked
+unverified and do not automatically trigger paid attempts. Known alternate document parsing and
+cloud-only formats use the declared API contract, followed by conservative candidate comparison.
+Cloud failures retain a usable local candidate; an unresolved submission journal prevents automatic
+resubmission. Existing artifact reads never upload the source. Source facts, heuristic quality
+issues and unassessed dimensions remain distinct; no accuracy score is invented.
+
+## Use from a coding agent
+
+DeckOps ships an Agent Skill that teaches coding agents when to parse a source, when to reuse an artifact, how to preserve provenance, and how to report quality limits. Install it at project scope with:
+
+```bash
+deckops install --skills
+```
+
+Auto mode installs into agent directories already present in the project and falls back to `.agents/skills/deckops/`. Select a host or inspect the plan explicitly when needed:
+
+```bash
+deckops install --skills --agent codex
+deckops install --skills --agent claude -g
+deckops install --skills --dir /path/to/agent/skills
+deckops install --skills --dry-run --json
+```
+
+The package and installer use the same files from [`skills/deckops/`](skills/deckops/). Upgrades protect managed files that were edited after installation and preserve other local files in the skill directory; `--force` explicitly replaces conflicting managed content. Installing the skill does not change DeckOps credentials, engine defaults, or document data.
+
 ## Two verbs, deliberately
 
 ```
-parse    document → IR artifact     the only parsing action; produces IR, never markdown
+SOURCE   document → Markdown        default content entry
+parse    document → IR artifact     persistent IR workflow
+capabilities  local/cloud registry  machine-readable upgrade capabilities
 convert  IR artifact → view        --to markdown (v1); never re-parses the source
 ```
 
@@ -55,7 +116,7 @@ doc/
 - **Local and private by default.** `--engine local` is the default, requires no login, and never constructs a cloud client. URL source mode only fetches the URL the user supplied and bounded redirects.
 - **Parse twice, pay once.** Same bytes + engine + compatible parser version + options = instant artifact reuse. Compatibility uses the parser major, plus the minor for pre-1.0 PDF releases. `--json` reports `"engine": "artifact-cache"`.
 - **Convert never re-parses.** Manifest v2 stores public `deckir.v1`; local artifacts remain convertible indefinitely. The 7-day lifetime only applies to an optional cloud `irKey`.
-- **No silent fallback.** `--engine auto` stays local unless `--allow-upload` is explicitly present. `--fail-on-degraded` turns a quality warning into a failure.
+- **No silent fallback.** `--engine auto` upgrades only with upload authorization and a matching supported remedy. Authorization may come from flags, environment or user config; `--no-allow-upload` overrides it. `--fail-on-degraded` rejects the final result after candidate selection and output checks.
 
 Local parsers enforce source, ZIP expansion/ratio, asset, XML depth/event, URL response, timeout and worker-heap limits. The main budgets can be raised explicitly with `--max-source-bytes`, `--max-expanded-bytes`, `--max-part-bytes`, `--max-asset-bytes`, `--max-total-asset-bytes`, `--max-zip-entries`, `--max-url-bytes` and `--worker-heap-mb`; overrides are recorded in the artifact cache identity.
 
@@ -268,3 +329,30 @@ Source and build instructions are available in this repository; use the tag or
 commit corresponding to the version you distribute. When distributing or
 operating a modified network-accessible version, follow the applicable
 corresponding-source requirements in AGPL-3.0, including section 13.
+
+## Lightweight quality and paid cloud parsing
+
+Local parsing extracts available content quickly. It does not run OCR or reconstruct
+complex visual semantics. Default Markdown remains best-effort: quality limitations are
+reported on stderr without turning them into execution failures. Agent integrations should
+use `deckops SOURCE --json` (content plus report) or retain `--report RUN.json` and stderr.
+
+`report.assessment.summary` includes known source/parsed pages, missing and failed pages,
+searchable body text, suspected OCR pages, visual-risk pages and control-character counts.
+Unknown source counts remain absent. Missing-page lists are capped at 1,000; the full count
+and truncation flag remain available. `no_issue_detected` does not certify completeness.
+
+`assessment.recommendation` may suggest paid cloud high-quality parsing even in local mode;
+`decision` independently records whether policy permits execution. Local never uploads.
+Automatic cloud submission still requires upload authorization, compatible parameters,
+verified capabilities and configured limits. OCR, layout and other specialized remedies
+without a verified service contract remain in the capability catalog as unverified;
+a user may explicitly select cloud parsing without a promise that it repairs every defect.
+Cloud output retains its own quality assessment. `--fail-on-degraded` remains opt-in.
+
+Markdown preserves ordinary `&&` and literal code contents, and replaces unsupported C0/DEL
+controls with U+FFFD plus diagnostics; original IR is retained. Output byte counts describe
+actual files, including cache hits. Identical assets within an artifact's candidates and
+selected result share immutable files through hard links where supported, with normal-file
+fallback. Updates replace files atomically; do not edit artifact assets in place. Portable
+exports remain independent copies. Global deduplication and old export cleanup are deferred.

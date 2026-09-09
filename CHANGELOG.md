@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.1.1 — 2026-09-09 — Lightweight quality and delivery fixes
+
+- Summarize missing/failed pages, body text, OCR/visual risks and unsupported controls; expose
+  paid cloud recommendations independently of local/auto/cloud execution policy.
+- Preserve best-effort Markdown and optional strict gating; provide the same assessment in
+  read, parse and convert, including cached artifacts. Local OCR remains unsupported.
+- Fix command ampersands and code fencing, report control replacement without changing IR,
+  respect disabled DOCX strike styles, and report actual output bytes on cache hits.
+- Share immutable identical assets across candidates and selected artifacts, using atomic
+  replacement and copy fallback. Invalidate affected DOCX parser and Markdown renderer caches.
+- Update the bundled Agent skill to consume quality reports and keep upload choices explicit.
+- Depend on the published DeckProbe 2.6.0 package; remove the temporary vendor archive and bundled dependency override.
+
+- Ship a DeckOps Agent Skill with format, artifact, output, recipe, and limit references for traceable document-to-knowledge workflows.
+- Add `deckops install --skills` with project/global/explicit targets, dry-run JSON receipts, managed-file hash protection, and preservation of local additions.
+- Validate skill resources during checks and prepack, and verify installation from the production npm tarball.
+
+## 2.1.0 — 2026-09-09
+
+- Default bare CLI calls now return Markdown; add `read()` SDK, `--format ir`, JSON content envelopes and independent run reports.
+- Introduce evidence-based assessments, a shared capability registry, policy provenance, negative overrides, candidate comparison and a final quality gate.
+- Detect sparse raster PDF pages individually; unknown/unverified remedies and visual-only warnings do not automatically upload.
+- Preserve local/cloud candidates, freeze local source bytes, propagate cancellation, journal uncertain submissions and disable mutation retries.
+- Integrate DeckProbe 2.6.0 bounded preflight and exact SmartArt inventory; bundle the tested upstream release snapshot for independent installs.
+- Keep stdout ownership in the CLI and preserve cache/export image lifetimes.
+
 ## @deckflow/deckops 2.0.0 — 2026-09-07
 
 - License DeckOps-owned code under AGPL-3.0-only from this license-change commit onward. Preserve third-party licenses and notices; already published releases through 1.1.1 remain under their original MIT license.

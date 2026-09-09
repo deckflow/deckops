@@ -1,6 +1,7 @@
 import type { DeckIR, DeckIrNode, DeckIrRun } from '../ir/schema.js';
+import { cleanControlCharacters, countControlCharacters } from '../shared/text-quality.js';
 
-export const MARKDOWN_RENDERER_VERSION = '1.0.0';
+export const MARKDOWN_RENDERER_VERSION = '1.1.0';
 
 export interface RenderedMarkdown {
   markdown: string;
@@ -16,7 +17,8 @@ export function renderMarkdown(ir: DeckIR, options: { anchors?: boolean | undefi
   const pages = options.splitPages && ir.document.pages.length > 0
     ? ir.document.pages.map((page) => renderSet(page.nodeIds.map((id) => byId.get(id)).filter((node): node is DeckIrNode => Boolean(node) && node!.parentId === null)))
     : undefined;
-  return { markdown, ...(pages ? { pages } : {}), warnings: [] };
+  const controlCharacters = countControlCharacters(markdown);
+  return { markdown: cleanControlCharacters(markdown), ...(pages ? { pages: pages.map(cleanControlCharacters) } : {}), warnings: controlCharacters ? [`Replaced ${controlCharacters} unsupported control characters with U+FFFD in Markdown; original IR text is preserved.`] : [] };
 }
 
 function renderNode(node: DeckIrNode, byId: Map<string, DeckIrNode>, options: { anchors?: boolean | undefined; assetPrefix?: string | undefined }): string {
@@ -27,14 +29,14 @@ function renderNode(node: DeckIrNode, byId: Map<string, DeckIrNode>, options: { 
   if (node.type === 'heading') own = `${'#'.repeat(clamp(Number(node.extensions?.level ?? 2), 1, 6))} ${text}`;
   else if (node.type === 'list_item') own = `${listMarker(node)} ${indentLines(text, 2)}`;
   else if (node.type === 'blockquote') own = text.split('\n').map((line) => `> ${line}`).join('\n');
-  else if (node.type === 'code' || node.type === 'code_block') own = `\`\`\`${String(node.extensions?.language ?? '')}\n${node.text ?? ''}\n\`\`\``;
-  else if (node.type === 'image' || node.type === 'figure') own = renderImage(node, options.assetPrefix ?? '');
+  else if (node.type === 'code' || node.type === 'code_block') own = fencedCode(node.text ?? '', String(node.extensions?.language ?? ''));
+  else if (node.type === 'image' || node.type === 'figure' || node.type === 'picture' || node.type === 'chart') own = renderImage(node, options.assetPrefix ?? '');
   else if (node.type === 'formula') own = node.extensions?.formula && typeof node.extensions.formula === 'object' && 'latex' in node.extensions.formula
     ? `$$\n${String((node.extensions.formula as { latex?: unknown }).latex ?? node.text ?? '')}\n$$` : text;
   else if (node.type === 'table') own = renderTable(node, byId);
   else if (!['table_row', 'table_cell', 'group', 'section', 'article', 'main', 'header', 'footer', 'nav', 'aside', 'list'].includes(node.type)) own = text;
   const childBody = node.type === 'table' ? '' : children.map((child) => renderNode(child, byId, options)).filter(Boolean).join('\n\n');
-  return `${anchor}${[own, childBody].filter(Boolean).join('\n\n')}`.trim();
+  return `${anchor}${[own, childBody].filter(Boolean).join('\n\n')}`.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
 }
 
 function renderTable(table: DeckIrNode, byId: Map<string, DeckIrNode>): string {
@@ -74,8 +76,7 @@ function renderImage(node: DeckIrNode, prefix: string): string {
 
 function renderRuns(runs: DeckIrRun[]): string {
   return runs.map((run) => {
-    let value = escapeMarkdown(run.text);
-    if (run.code) value = `\`${value.replace(/`/g, '\\`')}\``;
+    let value = run.code ? inlineCode(run.text) : escapeMarkdown(run.text);
     if (run.bold) value = `**${value}**`;
     if (run.italic) value = `*${value}*`;
     if (run.strike) value = `~~${value}~~`;
@@ -90,7 +91,7 @@ function listMarker(node: DeckIrNode): string {
 }
 
 function escapeMarkdown(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/([\\`*_[\]{}])/g, '\\$1');
+  return value.replace(/&(?=(?:#\d+|#x[\da-f]+|[a-z][\da-z]*);)/gi, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/([\\`*_[\]{}])/g, '\\$1');
 }
 
 function escapeTable(value: string): string { return escapeMarkdown(value).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>'); }
@@ -98,4 +99,14 @@ function escapeLink(value: string): string { return value.replace(/[()\s]/g, (ch
 function escapeComment(value: string): string { return value.replace(/--/g, '—'); }
 function indentLines(value: string, spaces: number): string { return value.replace(/\n/g, `\n${' '.repeat(spaces)}`); }
 function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min)); }
-function normalize(value: string): string { return `${value.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()}\n`; }
+function normalize(value: string): string { return `${value.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '')}\n`; }
+
+function inlineCode(text: string): string {
+  const delimiter = '`'.repeat((text.match(/`+/g) ?? []).reduce((max, s) => Math.max(max, s.length), 0) + 1);
+  const padding = /^`|`$/.test(text) || /^ .* $/s.test(text) && /[^ ]/.test(text) ? ' ' : '';
+  return `${delimiter}${padding}${text}${padding}${delimiter}`;
+}
+function fencedCode(text: string, language: string): string {
+  const delimiter = '`'.repeat((text.match(/`+/g) ?? []).reduce((max, s) => Math.max(max, s.length), 2) + 1);
+  return `${delimiter}${language.replace(/[`\r\n]/g, '')}\n${text}\n${delimiter}`;
+}

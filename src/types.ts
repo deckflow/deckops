@@ -76,6 +76,9 @@ export interface ConvertFlags {
 }
 
 export interface CommonFlags {
+  signal?: AbortSignal;
+  policySource?: Record<string, string>;
+  cloudLimits?: { maxSourceBytes?: number; maxSourcePages?: number; maxCost?: { amount: string; currency: string } };
   spaceId?: string; timeout?: number; force?: boolean;
   engine?: EngineMode; allowUpload?: boolean; failOnDegraded?: boolean;
   limits?: Partial<LocalLimits>;
@@ -84,6 +87,8 @@ export interface CommonFlags {
 export interface OutputFile { file: string; bytes: number }
 
 export interface ParseEnvelope {
+  assessment?: import('./shared/assessment-types.js').Assessment;
+  decision?: import('./shared/policy-types.js').RouteDecision;
   ok: true; op: 'parse'; input: string; engine: OutputEngine; type: ParseTaskType | 'html.getByURL';
   format: DocumentFormat; quality: QualityReport; taskId: string | null; reusedParse: boolean;
   irKey?: string; irSchemaVersion: 'deckir.v1'; artifact: string; inspection?: PreflightSummary;
@@ -91,13 +96,16 @@ export interface ParseEnvelope {
 }
 
 export interface ConvertEnvelope {
+  assessment?: import('./shared/assessment-types.js').Assessment;
+  decision?: import('./shared/policy-types.js').RouteDecision;
+  content?: string;
   ok: true; op: 'convert'; input: string; to: 'markdown'; engine: OutputEngine; format: IrFormat;
   taskId: string | null; parseTaskId?: string; inspection?: PreflightSummary; reusedParse: boolean;
   quality?: QualityReport; outputs: OutputFile[]; warnings: string[]; durationMs: number;
 }
 
 export interface ErrorEnvelope {
-  ok: false; op: 'parse' | 'convert'; error: { code: string; message: string; hint?: string; taskId?: string };
+  ok: false; op: 'parse' | 'convert' | 'install' | 'read'; error: { code: string; message: string; hint?: string; taskId?: string };
 }
 
 export type Envelope = ParseEnvelope | ConvertEnvelope | ErrorEnvelope;
