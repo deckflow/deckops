@@ -1,3 +1,4 @@
+import pLimit from 'p-limit';
 import type { ParseResult } from '../cloud/parse-facade.js';
 import type { ResultArtifact } from 'pdf-lite-parse';
 import { stableId } from './ids.js';
@@ -17,22 +18,23 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   }
   const format = formatForType(parsed.type as ParseTaskType);
   const nodes: DeckIrNode[] = [];
+  const sink: CloudNodeSink = { nodes, byId: new Map() };
   const pages: DeckIrPage[] = [];
   const raw = parsed.ir as Record<string, unknown>;
   const pageItems = format === 'pptx' || format === 'keynote' ? array(raw.slides) : [];
   if (pageItems.length) {
     pageItems.forEach((item, index) => {
       const before = nodes.length;
-      walkCloud(item, nodes, source.sha256, `pages/${index}`, index + 1, null);
+      walkCloud(item, sink, source.sha256, `pages/${index}`, index + 1, null);
       pages.push({ id: stableId(source.sha256, `cloud:page:${index}`, 'p'), index: index + 1,
         ...(number(raw.width ?? object(raw.slideSize)?.cx) ? { width: number(raw.width ?? object(raw.slideSize)?.cx) } : {}),
         ...(number(raw.height ?? object(raw.slideSize)?.cy) ? { height: number(raw.height ?? object(raw.slideSize)?.cy) } : {}),
         nodeIds: nodes.slice(before).map((node) => node.id), sourceRef: { page: index + 1, path: `slides/${index}` } });
     });
   } else if (Array.isArray(raw.content)) {
-    raw.content.forEach((item, index) => walkCloud(item, nodes, source.sha256, `content/${index}`, undefined, null));
+    raw.content.forEach((item, index) => walkCloud(item, sink, source.sha256, `content/${index}`, undefined, null));
   } else {
-    walkCloud(raw, nodes, source.sha256, 'root', undefined, null);
+    walkCloud(raw, sink, source.sha256, 'root', undefined, null);
   }
   const checks: QualityCheck[] = [];
   if (nodes.length === 0) checks.push({ code: 'cloud_schema_unmapped', severity: 'error', message: `Cloud schema ${parsed.irSchemaVersion} did not contain mappable document nodes.` });
@@ -52,9 +54,25 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   return { ir, quality, assets, remote: { taskId: parsed.taskId, irKey: parsed.irKey }, warnings: quality.checks.map((check) => check.message) };
 }
 
-function walkCloud(value: unknown, nodes: DeckIrNode[], hash: string, locator: string, page?: number, parentId: string | null = null): void {
+/**
+ * 收集遍历产出的节点。
+ *
+ * 除了数组还带一份 id → 节点的索引：建父子关系原本是 `nodes.find()`，每建一个节点线性
+ * 扫一遍全表，在几千节点的文档上是平方级开销（实测一份 99 页文档 2838 个节点）。
+ */
+interface CloudNodeSink {
+  nodes: DeckIrNode[];
+  byId: Map<string, DeckIrNode>;
+}
+
+function push(sink: CloudNodeSink, node: DeckIrNode): void {
+  sink.nodes.push(node);
+  sink.byId.set(node.id, node);
+}
+
+function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: string, page?: number, parentId: string | null = null): void {
   if (!value || typeof value !== 'object') return;
-  if (Array.isArray(value)) { value.forEach((item, index) => walkCloud(item, nodes, hash, `${locator}/${index}`, page, parentId)); return; }
+  if (Array.isArray(value)) { value.forEach((item, index) => walkCloud(item, sink, hash, `${locator}/${index}`, page, parentId)); return; }
   const record = value as Record<string, unknown>;
   const text = cloudText(record);
   const kind = cloudKind(record, text);
@@ -68,22 +86,22 @@ function walkCloud(value: unknown, nodes: DeckIrNode[], hash: string, locator: s
     // 资产」，凭空产出一条 cloud_asset_unavailable 并把 quality 顶成 degraded。
     const assetPath = string(record.assetPath ?? record.suggestedPath);
     const externalUrl = string(record.accessURL ?? record.url);
-    const node: DeckIrNode = { id, type: kind, parentId, children: [], order: nodes.length, ...(text ? { text } : {}),
+    const node: DeckIrNode = { id, type: kind, parentId, children: [], order: sink.nodes.length, ...(text ? { text } : {}),
       ...(page ? { page } : {}), sourceRef: { path: locator, ...(page ? { page } : {}) },
       ...(xfrm && [xfrm.x, xfrm.y, xfrm.cx, xfrm.cy].every((item) => typeof item === 'number') ?
         { bbox: [xfrm.x as number, xfrm.y as number, (xfrm.x as number) + (xfrm.cx as number), (xfrm.y as number) + (xfrm.cy as number)] } : {}),
       extensions: { cloud: { id: record.id, name: record.name, style: record.style }, ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}) } };
-    nodes.push(node); if (parentId) nodes.find((item) => item.id === parentId)?.children.push(id); nextParent = id;
+    push(sink, node); if (parentId) sink.byId.get(parentId)?.children.push(id); nextParent = id;
     // 表格必须按 table → table_row → table_cell 发，和 local/pptx、local/docx、result3 三个
     // 适配器一致：Markdown 渲染器只认这三种类型，让通用遍历把单元格摊成一串 shape 子节点，
     // 整张表会在渲染时被静默丢掉——IR 里看得见，产物里一个字都没有。
-    if (kind.includes('table') && emitCloudTable(record, node, nodes, hash, locator, page)) {
+    if (kind.includes('table') && emitCloudTable(record, node, sink, hash, locator, page)) {
       skipKeys.add('table');
     }
   }
   for (const [key, child] of Object.entries(record)) {
     if (skipKeys.has(key)) continue;
-    if (child && typeof child === 'object') walkCloud(child, nodes, hash, `${locator}/${key}`, page, nextParent);
+    if (child && typeof child === 'object') walkCloud(child, sink, hash, `${locator}/${key}`, page, nextParent);
   }
 }
 
@@ -106,7 +124,7 @@ const WALK_SKIP_KEYS = ['style', 'xfrm', 'txBody', 'text', 't', 'name', 'id', 't
 function emitCloudTable(
   record: Record<string, unknown>,
   table: DeckIrNode,
-  nodes: DeckIrNode[],
+  sink: CloudNodeSink,
   hash: string,
   locator: string,
   page?: number,
@@ -123,14 +141,14 @@ function emitCloudTable(
   rows.forEach((cells, rowIndex) => {
     const rowLocator = `${locator}/row/${rowIndex}`;
     const rowId = stableId(hash, `cloud:${rowLocator}`);
-    const row: DeckIrNode = { id: rowId, type: 'table_row', parentId: table.id, children: [], order: nodes.length,
+    const row: DeckIrNode = { id: rowId, type: 'table_row', parentId: table.id, children: [], order: sink.nodes.length,
       ...(page ? { page } : {}), sourceRef: { path: rowLocator, ...(page ? { page } : {}) } };
-    nodes.push(row); table.children.push(rowId);
+    push(sink, row); table.children.push(rowId);
     cells.forEach((cell, column) => {
       const cellLocator = `${rowLocator}/cell/${column}`;
       const cellId = stableId(hash, `cloud:${cellLocator}`);
       const text = cloudText(cell);
-      nodes.push({ id: cellId, type: 'table_cell', parentId: rowId, children: [], order: nodes.length,
+      push(sink, { id: cellId, type: 'table_cell', parentId: rowId, children: [], order: sink.nodes.length,
         ...(text ? { text } : {}), ...(page ? { page } : {}),
         sourceRef: { path: cellLocator, ...(page ? { page } : {}) },
         extensions: { row: rowIndex, column,
@@ -176,17 +194,61 @@ function collectText(value: unknown): string[] {
   return [...(typeof record.t === 'string' ? [record.t] : []), ...Object.entries(record).filter(([key]) => key !== 't').flatMap(([, child]) => collectText(child))];
 }
 
+/**
+ * 同时在途的资产下载数。与 assets/localize.ts 的 convert 路径取同一个值：同一个后端、
+ * 同一批签名地址，没有理由两条路径压出不同的并发。
+ */
+const ASSET_FETCH_CONCURRENCY = 4;
+/** 单个资产的尝试次数（含首次）。 */
+const ASSET_FETCH_ATTEMPTS = 3;
+/** 值得重试的响应：另一端过载或限流，重来一次可能就成了。4xx 重试只是白等。 */
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+
 async function cloudAssets(ir: unknown, signal?: AbortSignal): Promise<CandidateAsset[]> {
   const images = object(ir)?.images;
   if (!Array.isArray(images)) return [];
-  const result: CandidateAsset[] = [];
-  for (const raw of images) {
-    const image = object(raw); const url = image && (image.accessURL ?? image.url);
-    const assetPath = image && (image.assetPath ?? image.path);
-    if (typeof url !== 'string' || typeof assetPath !== 'string') continue;
-    try { const response = await fetch(url, signal ? { signal } : {}); if (response.ok) result.push({ path: assetPath, data: new Uint8Array(await response.arrayBuffer()) }); } catch { signal?.throwIfAborted(); /* Missing assets are reported by candidate assessment. */ }
+  const requests = images.flatMap((raw) => {
+    const image = object(raw);
+    const url = image && (image.accessURL ?? image.url);
+    const path = image && (image.assetPath ?? image.path);
+    return typeof url === 'string' && typeof path === 'string' ? [{ url, path }] : [];
+  });
+  if (requests.length === 0) return [];
+  // 串行下载在真实文档上是几十到上百次往返（实测 PDF 96 张、PPTX 135 张）；并发上限沿用
+  // convert 路径的值，避免把后端的签名地址服务打爆。
+  const limit = pLimit(ASSET_FETCH_CONCURRENCY);
+  const fetched = await Promise.all(requests.map((request) => limit(() => fetchCloudAsset(request, signal))));
+  return fetched.filter((asset): asset is CandidateAsset => asset !== undefined);
+}
+
+/**
+ * 取一个资产；取不到返回 undefined。
+ *
+ * 解析阶段缺图不该让整份解析失败 —— 它由 candidate 评估报成 `cloud_asset_unavailable`，
+ * 调用方看得见。但「不失败」不等于「不重试」：原先一次网络抖动就永久丢一张图，而这条
+ * 路径拿的是有效期很短的签名地址，重来一次通常就成了。中断信号仍然逐层抛出。
+ */
+async function fetchCloudAsset(request: { url: string; path: string }, signal?: AbortSignal): Promise<CandidateAsset | undefined> {
+  for (let attempt = 0; attempt < ASSET_FETCH_ATTEMPTS; attempt += 1) {
+    signal?.throwIfAborted();
+    try {
+      const response = await fetch(request.url, signal ? { signal } : {});
+      if (response.ok) return { path: request.path, data: new Uint8Array(await response.arrayBuffer()) };
+      if (!RETRYABLE_STATUS.has(response.status)) return undefined;
+    } catch {
+      signal?.throwIfAborted();
+    }
+    if (attempt < ASSET_FETCH_ATTEMPTS - 1) await backoff(200 * 2 ** attempt, signal);
   }
-  return result;
+  return undefined;
+}
+
+function backoff(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    const onAbort = () => { clearTimeout(timer); reject(signal?.reason ?? new Error('aborted')); };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function findResult3(ir: unknown): ResultArtifact | undefined {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cloudResultToCandidate } from '../../src/ir/cloud-adapter.js';
 import { renderMarkdown } from '../../src/views/markdown.js';
 import type { ParseResult } from '../../src/cloud/parse-facade.js';
@@ -101,5 +101,72 @@ describe('cloud IR adapter', () => {
 
     expect(candidate.ir.document.nodes[0]!.issues).toEqual(['missing_media']);
     expect(candidate.ir.quality.checks.map((check) => check.code)).toContain('cloud_asset_unavailable');
+  });
+});
+
+describe('cloud asset retrieval', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  const withImages = (count: number) => ({
+    taskId: 'task', type: 'pptx.parse', irKey: 'ir/fixture', irSchemaVersion: 'pptx.v1',
+    ir: {
+      slides: [{ _ref: 'slide1', spTree: Array.from({ length: count }, (_, index) => ({
+        id: index + 1, name: `Picture ${index}`, type: 'Picture', assetPath: `assets/i${index}.png`,
+      })) }],
+      files: {},
+      images: Array.from({ length: count }, (_, index) => ({
+        assetPath: `assets/i${index}.png`, accessURL: `https://assets.test/i${index}.png`,
+      })),
+    },
+  } as ParseResult);
+
+  const png = () => ({ ok: true, status: 200, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer });
+
+  it('retries a transient failure instead of permanently losing the image', async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return calls === 1 ? { ok: false, status: 503 } : png();
+    }) as never;
+
+    const candidate = await cloudResultToCandidate(withImages(1), source);
+    expect(calls).toBe(2);
+    expect(candidate.ir.document.assets).toHaveLength(1);
+    expect(candidate.ir.quality.checks).toEqual([]);
+  });
+
+  it('gives up at once on a permanent status and reports the gap', async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => { calls += 1; return { ok: false, status: 404 }; }) as never;
+
+    const candidate = await cloudResultToCandidate(withImages(1), source);
+    // 4xx 重试只是白等；缺图本身仍要如实报给调用方，而不是让整份解析失败。
+    expect(calls).toBe(1);
+    expect(candidate.ir.document.assets).toEqual([]);
+    expect(candidate.ir.quality.checks.map((check) => check.code)).toEqual(['cloud_asset_unavailable']);
+  });
+
+  it('fetches in parallel under a bounded concurrency', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    globalThis.fetch = (async () => {
+      inFlight += 1; peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return png();
+    }) as never;
+
+    const candidate = await cloudResultToCandidate(withImages(12), source);
+    expect(candidate.ir.document.assets).toHaveLength(1); // 同内容去重后只剩一份
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it('propagates an abort instead of silently returning fewer assets', async () => {
+    const controller = new AbortController();
+    globalThis.fetch = (async () => { controller.abort(); throw new Error('aborted'); }) as never;
+
+    await expect(cloudResultToCandidate(withImages(2), source, controller.signal)).rejects.toThrow();
   });
 });
