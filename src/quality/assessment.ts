@@ -75,7 +75,7 @@ export function assessCandidate(candidate: ParseCandidate, probe?: DeckProbeRepo
 
 /** 解析器表示或报告嵌入对象的方式；命中任一种就说明它知道这些东西存在。 */
 const EMBEDDED_REPORTED = new Set(['embedded_object_unsupported', 'graphic_frame_partial', 'chart_partial', 'smartart_partial', 'media_unsupported']);
-const EMBEDDED_TYPES = new Set(['graphic_frame', 'chart', 'opaque']);
+const EMBEDDED_TYPES = new Set(['graphic_frame', 'chart', 'diagram', 'graphic', 'opaque']);
 /** 只在 OOXML 上判：probe 的嵌入对象事实是按 OOXML 部件数得出的，别的格式没有可比口径。 */
 const EMBEDDED_FORMATS = new Set(['pptx', 'docx']);
 
@@ -96,17 +96,20 @@ function exactValue(probe: DeckProbeReport | undefined, target: string): unknown
  */
 export function crossCheckEmbeddedObjects(candidate: ParseCandidate, probe?: DeckProbeReport): void {
   if (!probe || !EMBEDDED_FORMATS.has(candidate.ir.format)) return;
-  const parts = ['powerpoint.chart_part_count', 'powerpoint.smartart_data_part_count']
+  const partCount = ['powerpoint.chart_part_count', 'powerpoint.smartart_data_part_count']
     .map((target) => exactValue(probe, target))
-    .filter((value): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
-  const partCount = parts.reduce((sum, value) => sum + value, 0);
+    .filter((value): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0)
+    .reduce((sum, value) => sum + value, 0);
   if (partCount === 0 && exactValue(probe, 'security.has_embedded_files') !== true) return;
   const quality = candidate.ir.quality;
   if (quality.checks.some((check) => EMBEDDED_REPORTED.has(check.code))) return;
-  if (candidate.ir.document.nodes.some((node) => EMBEDDED_TYPES.has(node.type))) return;
+  const represented = candidate.ir.document.nodes.filter((node) => EMBEDDED_TYPES.has(node.type)).length;
+  // 数个数而不是「有没有」：一份文档里 1 张图表 + 1 个 SmartArt，产物只给出一个图表空壳，
+  // 布尔判据会就此收声，SmartArt 与嵌入对象的缺失就再没人提。部件数拿不到时退回布尔判据。
+  if (partCount > 0 ? represented >= partCount : represented > 0) return;
   quality.checks.push({ code: 'embedded_object_undetected', severity: 'warning',
-    message: `The source contains embedded objects${partCount ? ` (${partCount} chart/SmartArt parts)` : ''}, but this result neither represents nor reports them; their content cannot be confirmed present.`,
-    ...(partCount ? { detail: { parts: partCount } } : {}) });
+    message: `The source contains embedded objects${partCount ? ` (${partCount} chart/SmartArt parts, ${represented} represented)` : ''}, but this result neither represents nor reports them; their content cannot be confirmed present.`,
+    ...(partCount ? { detail: { parts: partCount, represented } } : {}) });
   quality.status = 'degraded';
   // 适配器把同一个 quality 对象同时挂在 candidate 与 ir 上；显式对齐，不依赖这个巧合。
   candidate.quality = quality;

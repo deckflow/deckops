@@ -87,8 +87,15 @@ function walkCloud(value: unknown, nodes: DeckIrNode[], hash: string, locator: s
   }
 }
 
-/** 遍历时不再下钻的键：要么已在节点上表达，要么由更专门的分支接管。 */
-const WALK_SKIP_KEYS = ['style', 'xfrm', 'txBody', 'text', 't', 'name', 'id', 'type'] as const;
+/**
+ * 遍历时不再下钻的键：要么已在节点上表达，要么由更专门的分支接管。
+ *
+ * `prstGeom` 是预设几何描述符，和 `style` / `xfrm` 一样描述的是形状怎么画，不是内容。
+ * 下钻进去会凭空造出节点：它自带 `type`（如 `flowChartMagneticDisk`），而建节点的判据是
+ * 子串命中 —— "flowchart…" 里就含着 "chart"。实测一份文档因此多出 18 个空节点，还把
+ * 「产物是否表示了图表」的判断带偏。
+ */
+const WALK_SKIP_KEYS = ['style', 'xfrm', 'txBody', 'text', 't', 'name', 'id', 'type', 'prstGeom'] as const;
 
 /**
  * 把云端表格结构展开成行列节点；认不出行列就返回 false，交回通用遍历。

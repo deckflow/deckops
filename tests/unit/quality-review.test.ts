@@ -132,6 +132,18 @@ describe('review: source vs result cross-check', () => {
     expect(subject.ir.quality.checks.map(c => c.code)).toEqual(['embedded_object_unsupported']);
   });
 
+  it('still reports when the result represents fewer parts than the source has', () => {
+    // 实测一份文档：源里 1 张图表 + 1 个 SmartArt，产物只给出一个图表空壳。
+    // 按「有没有」判会就此收声，SmartArt 与嵌入对象的缺失便再没人提。
+    const subject = candidate([node('n1', '', { type: 'chart' })]);
+    crossCheckEmbeddedObjects(subject, probe({
+      'powerpoint.chart_part_count': { status: 'resolved', confidence: 'exact', value: 1 },
+      'powerpoint.smartart_data_part_count': { status: 'resolved', confidence: 'exact', value: 1 },
+    }));
+    expect(subject.ir.quality.checks[0]?.detail).toEqual({ parts: 2, represented: 1 });
+    expect(subject.ir.quality.status).toBe('degraded');
+  });
+
   it('stays quiet when the result represents them as nodes', () => {
     const subject = candidate([node('n1', '', { type: 'graphic_frame' })]);
     crossCheckEmbeddedObjects(subject, embeddedProbe);
@@ -145,7 +157,7 @@ describe('review: source vs result cross-check', () => {
       'powerpoint.chart_part_count': { status: 'resolved', confidence: 'exact', value: 2 },
       'powerpoint.smartart_data_part_count': { status: 'resolved', confidence: 'exact', value: 3 },
     }));
-    expect(counted.ir.quality.checks[0]?.detail).toEqual({ parts: 5 });
+    expect(counted.ir.quality.checks[0]?.detail).toEqual({ parts: 5, represented: 0 });
 
     const blind = candidate([node('n1', 'body')]);
     crossCheckEmbeddedObjects(blind, undefined);
