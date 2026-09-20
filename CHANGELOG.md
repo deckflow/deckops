@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.2.0 — 2026-09-20 — Cloud IR fidelity and honest quality
+
+- Expand cloud tables into `table_row`/`table_cell` so Markdown renders them. The generic cloud
+  walker emitted flat shape children that the renderer dropped, so a cloud-parsed table produced
+  no Markdown at all.
+- Type cloud PPTX title placeholders as headings and text-bearing shapes as text, matching the
+  local parser. Cloud Markdown previously carried no heading structure whatsoever.
+- Stop reading a shape's preset geometry path as an asset pointer and stop descending into
+  `prstGeom`; the first raised spurious `cloud_asset_unavailable` checks for every freeform, the
+  second created empty phantom nodes whose type merely contained "chart".
+- Report `embedded_object_undetected` when preflight finds embedded objects that the result
+  neither represents nor reports, comparing counted chart/SmartArt parts against represented
+  nodes. **Behavior change**: such results now report `degraded` rather than `pass`, so
+  `--fail-on-degraded` rejects them; they were previously delivered as clean.
+- Fetch cloud parse assets concurrently with bounded retries, matching the convert path, instead
+  of one serial pass that lost an image on any transient error. Link parse nodes through an index
+  rather than a linear scan of every node built so far.
+
 ## 2.1.1 — 2026-09-09 — Lightweight quality and delivery fixes
 
 - Summarize missing/failed pages, body text, OCR/visual risks and unsupported controls; expose
