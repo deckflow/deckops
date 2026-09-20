@@ -8,6 +8,7 @@ tmp/
 
 # Conformance fixtures are real work files — bring your own (see its README).
 tests/test-data/*
+tests/local-case/*
 !tests/test-data/README.md
 tests/generated/
 
@@ -16,3 +17,6 @@ docs/
 
 # Generated document artifacts are not release source.
 output/
+
+# Agent 的本机配置：指向测试环境的 DECKFLOW_CONFIG_DIR，凭据本身不在这里。
+.claude/settings.local.json
