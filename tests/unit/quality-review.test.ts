@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { strToU8, zipSync } from 'fflate';
 import { makeIr, qualityOf } from '../../src/local/common.js';
-import { assessCandidate, improvesCandidate } from '../../src/quality/assessment.js';
+import { assessCandidate, crossCheckEmbeddedObjects, improvesCandidate } from '../../src/quality/assessment.js';
 import { evaluatePolicy } from '../../src/engine/policy.js';
 import { renderMarkdown } from '../../src/views/markdown.js';
 import { parseDocx } from '../../src/local/docx/parser.js';
@@ -106,5 +106,53 @@ describe('review: Markdown and DOCX fidelity', () => {
     const data = zipSync({ '[Content_Types].xml': strToU8('<Types/>'), 'word/document.xml': strToU8(xml) });
     const parse = (trackedChanges: 'final' | 'original') => renderMarkdown(parseDocx(data, source, DEFAULT_LOCAL_LIMITS, { trackedChanges }).ir).markdown;
     expect(parse('final')).toBe('~~strike~~plainadded\n'); expect(parse('original')).toBe('~~strike~~plaindeleted\n');
+  });
+});
+
+describe('review: source vs result cross-check', () => {
+  const probe = (results: Record<string, { status: string; confidence: string; value: unknown }>) =>
+    ({ results } as never);
+  const embeddedProbe = probe({ 'security.has_embedded_files': { status: 'resolved', confidence: 'exact', value: true } });
+
+  it('flags embedded objects the result neither represents nor reports', () => {
+    const subject = candidate([node('n1', 'body')]);
+    crossCheckEmbeddedObjects(subject, embeddedProbe);
+    expect(subject.ir.quality.checks.map(c => c.code)).toEqual(['embedded_object_undetected']);
+    // 没有这一条，产物会以 pass 交付一份悄悄少了嵌入对象的结果。
+    expect(subject.ir.quality.status).toBe('degraded');
+    expect(subject.quality.status).toBe('degraded');
+    expect(assessCandidate(subject, embeddedProbe).status).toBe('needs_attention');
+  });
+
+  it('stays quiet when the parser already reported them', () => {
+    const subject = candidate([node('n1', 'body')], [
+      { code: 'embedded_object_unsupported', severity: 'warning', message: 'unsupported' },
+    ]);
+    crossCheckEmbeddedObjects(subject, embeddedProbe);
+    expect(subject.ir.quality.checks.map(c => c.code)).toEqual(['embedded_object_unsupported']);
+  });
+
+  it('stays quiet when the result represents them as nodes', () => {
+    const subject = candidate([node('n1', '', { type: 'graphic_frame' })]);
+    crossCheckEmbeddedObjects(subject, embeddedProbe);
+    expect(subject.ir.quality.checks).toEqual([]);
+    expect(subject.ir.quality.status).toBe('pass');
+  });
+
+  it('counts chart and SmartArt parts and stays quiet without probe evidence', () => {
+    const counted = candidate([node('n1', 'body')]);
+    crossCheckEmbeddedObjects(counted, probe({
+      'powerpoint.chart_part_count': { status: 'resolved', confidence: 'exact', value: 2 },
+      'powerpoint.smartart_data_part_count': { status: 'resolved', confidence: 'exact', value: 3 },
+    }));
+    expect(counted.ir.quality.checks[0]?.detail).toEqual({ parts: 5 });
+
+    const blind = candidate([node('n1', 'body')]);
+    crossCheckEmbeddedObjects(blind, undefined);
+    crossCheckEmbeddedObjects(blind, probe({
+      'security.has_embedded_files': { status: 'resolved', confidence: 'exact', value: false },
+    }));
+    // probe 没看到嵌入对象就没有可比口径，不能凭空报降级。
+    expect(blind.ir.quality.checks).toEqual([]);
   });
 });

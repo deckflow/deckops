@@ -12,6 +12,7 @@ const REMEDIES: Record<string, string> = {
   source_object_loss: 'document_parse', local_parse_failed: 'document_parse', text_layer_suspect: 'document_parse',
   group_transform_partial: 'visual_layout', composite_figure_unavailable: 'visual_layout', unrepresentable_content: 'visual_layout',
   graphic_frame_partial: 'visual_layout', embedded_object_unsupported: 'embedded_content', media_unsupported: 'embedded_content',
+  embedded_object_undetected: 'embedded_content',
 };
 const VISUAL = new Set(['group_transform_partial', 'composite_figure_unavailable', 'media_unsupported', 'embedded_object_unsupported', 'graphic_frame_partial', 'unrepresentable_content']);
 const INFORMATIONAL = new Set(['macro_preserved', 'external_asset']);
@@ -71,6 +72,46 @@ export function assessCandidate(candidate: ParseCandidate, probe?: DeckProbeRepo
     ...(ir.producer.engine === 'local' && reasons.length ? { recommendation: { engine: 'cloud' as const, paid: true as const, uploadScope: 'entire_document' as const, reasonCodes: reasons,
       message: 'Consider cloud high-quality parsing (paid; uploads the entire document). This is a recommendation, not an upload. Recovery of content missing from the source is not guaranteed.' } } : {}) };
 }
+
+/** 解析器表示或报告嵌入对象的方式；命中任一种就说明它知道这些东西存在。 */
+const EMBEDDED_REPORTED = new Set(['embedded_object_unsupported', 'graphic_frame_partial', 'chart_partial', 'smartart_partial', 'media_unsupported']);
+const EMBEDDED_TYPES = new Set(['graphic_frame', 'chart', 'opaque']);
+/** 只在 OOXML 上判：probe 的嵌入对象事实是按 OOXML 部件数得出的，别的格式没有可比口径。 */
+const EMBEDDED_FORMATS = new Set(['pptx', 'docx']);
+
+function exactValue(probe: DeckProbeReport | undefined, target: string): unknown {
+  const evidence = probe?.results[target];
+  return evidence?.status === 'resolved' && evidence.confidence === 'exact' ? evidence.value : undefined;
+}
+
+/**
+ * 源里有嵌入对象，产物里却既没表示、也没报告 —— 把这件事显式记成降级。
+ *
+ * 这类缺失不会自己暴露：解析器没产出节点，也就没有任何 check，产物于是以 `pass` 交付。
+ * 实测同一份 99 页文档，本地报 147 条 `embedded_object_unsupported` 而判 degraded，云端
+ * 一条都没有却判 pass —— 两边差的不是质量，是「知不知道自己丢了东西」。
+ *
+ * 判的是证据不是损失：probe 看到了，产物没提到，仅此而已。所以文案说的是「无法确认」，
+ * 而不是断言内容已丢。按引擎分叉会让这条永远只盯着云端，本地哪天回退同样必须报。
+ */
+export function crossCheckEmbeddedObjects(candidate: ParseCandidate, probe?: DeckProbeReport): void {
+  if (!probe || !EMBEDDED_FORMATS.has(candidate.ir.format)) return;
+  const parts = ['powerpoint.chart_part_count', 'powerpoint.smartart_data_part_count']
+    .map((target) => exactValue(probe, target))
+    .filter((value): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
+  const partCount = parts.reduce((sum, value) => sum + value, 0);
+  if (partCount === 0 && exactValue(probe, 'security.has_embedded_files') !== true) return;
+  const quality = candidate.ir.quality;
+  if (quality.checks.some((check) => EMBEDDED_REPORTED.has(check.code))) return;
+  if (candidate.ir.document.nodes.some((node) => EMBEDDED_TYPES.has(node.type))) return;
+  quality.checks.push({ code: 'embedded_object_undetected', severity: 'warning',
+    message: `The source contains embedded objects${partCount ? ` (${partCount} chart/SmartArt parts)` : ''}, but this result neither represents nor reports them; their content cannot be confirmed present.`,
+    ...(partCount ? { detail: { parts: partCount } } : {}) });
+  quality.status = 'degraded';
+  // 适配器把同一个 quality 对象同时挂在 candidate 与 ir 上；显式对齐，不依赖这个巧合。
+  candidate.quality = quality;
+}
+
 export function textOnPage(ir: DeckIR, page: number): number { return bodyTextStats(ir).pages.get(page) ?? 0; }
 /** Check observed regressions and resolved defects, without a semantic model or provider score. */
 export function improvesCandidate(local: ParseCandidate, cloud: ParseCandidate, before: Assessment, after: Assessment): boolean {

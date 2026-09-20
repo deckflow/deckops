@@ -4,7 +4,7 @@ import { CloudEngine } from './cloud.js';
 import { LocalEngine } from './local.js';
 import type { EngineParseInput, EngineParseOptions } from './types.js';
 import type { CloudClient } from '../cloud/client.js';
-import { assessCandidate, improvesCandidate, type Assessment } from '../quality/assessment.js';
+import { assessCandidate, crossCheckEmbeddedObjects, improvesCandidate, type Assessment } from '../quality/assessment.js';
 import { evaluatePolicy, type RouteDecision } from './policy.js';
 import type { DeckProbeReport } from '../shared/preflight.js';
 
@@ -26,6 +26,8 @@ export async function routeParse(options: {
     options.signal.throwIfAborted();
     await options.onCandidate?.(candidate);
   }
+  // 源与产物的交叉核对要在评估之前做：新增的 check 才能一并进 assessment 的 issues。
+  if (candidate) crossCheckEmbeddedObjects(candidate, options.probe);
   let assessment = candidate ? assessCandidate(candidate, options.probe) : undefined;
   const decision = evaluatePolicy(options.input, options.parse.flags, options.parse.common, assessment, !support.supported, options.probe);
   if (decision.action !== 'keep_local' && options.previousSubmission && !options.cachedCloud && options.cached?.ir.producer.engine !== 'cloud') {
@@ -46,6 +48,7 @@ export async function routeParse(options: {
       if (!reusableCloud) options.onSubmission?.({ status: 'submission_unknown' });
       const cloud = reusableCloud ?? await new CloudEngine(client!).parse(options.input, { ...options.parse, onTask: task => { attempt.taskId = task.id; attempt.status = 'submitted'; options.onSubmission?.({ status: 'submitted', taskId: task.id }); options.onTask?.(task); } }, options.signal);
       options.signal.throwIfAborted();
+      crossCheckEmbeddedObjects(cloud, options.probe);
       const after = assessCandidate(cloud, options.probe, assessment?.summary?.sourcePages);
       await options.onCandidate?.(cloud);
       attempt.status = reusableCloud ? 'cache_hit' : 'completed';
