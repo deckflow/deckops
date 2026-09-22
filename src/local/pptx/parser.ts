@@ -1,6 +1,7 @@
 import { DeckOpsError } from '../../errors/index.js';
 import { stableId } from '../../ir/ids.js';
 import type { CandidateAsset, DeckIrNode, DeckIrRun, ParseCandidate, QualityCheck } from '../../ir/schema.js';
+import { orderSlideNodes } from '../../ir/slide-order.js';
 import { makeIr, mediaTypeForPath, qualityOf, type SourceIdentity } from '../common.js';
 import type { LocalLimits } from '../limits.js';
 import { OpcPackage, type Relationship } from '../opc/package.js';
@@ -16,7 +17,20 @@ interface Context {
   page: number;
   part: string;
   rels: Map<string, Relationship>;
+  /** 当前形状树坐标 → 幻灯片坐标（pt）。组合的子形状写在组合自己的子画布里，逐层复合。 */
+  transform: Transform;
 }
+
+interface Transform { scaleX: number; scaleY: number; translateX: number; translateY: number }
+
+const IDENTITY: Transform = { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 };
+
+/**
+ * 版式家具占位符 → 节点类型。页脚、日期、页码每页一份，是母版带下来的版式，不是这一页的内容：
+ * 实测一份 99 页讲义，页脚「2: Application Layer」与页码在 Markdown 里各占 92 行。文字仍留在
+ * IR 里，只是 Markdown 视图不渲染这几类节点。
+ */
+const FURNITURE_PLACEHOLDERS: Readonly<Record<string, string>> = { ftr: 'footer', dt: 'footer', hdr: 'header', sldNum: 'page_number' };
 
 export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: LocalLimits): ParseCandidate {
   const pkg = new OpcPackage(data, limits);
@@ -45,7 +59,7 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     }
     const page = index + 1;
     const before = nodes.length;
-    const ctx: Context = { pkg, source, nodes, assets, checks, order, page, part: rel.target, rels: pkg.relationships(rel.target) };
+    const ctx: Context = { pkg, source, nodes, assets, checks, order, page, part: rel.target, rels: pkg.relationships(rel.target), transform: IDENTITY };
     const slide = pkg.xml(rel.target);
     const tree = descendants(slide, 'spTree')[0];
     if (tree) parseShapeTree(tree, ctx, null);
@@ -63,13 +77,14 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     nodes.push({ id, type: 'opaque', parentId: null, children: [], order: order++, sourceRef: { part }, opaque: { type: 'vba_project', reason: 'VBA is never executed by the local parser.' } });
     checks.push({ code: 'macro_preserved', severity: 'warning', message: 'PPTX contains a VBA project. It was not executed and is preserved as an opaque part.', nodeIds: [id] });
   }
+  orderSlideNodes(nodes, pages);
   const opaque = nodes.filter((node) => node.opaque).length;
   const quality = qualityOf(checks, {
     pages: { parsed: pages.length, total: slideIds.length },
     objects: { parsed: nodes.length - opaque, opaque, total: nodes.length },
     textCharacters: nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0),
   });
-  const ir = makeIr({ format: 'pptx', source, producer: { name: 'deckparse-pptx', version: '1' },
+  const ir = makeIr({ format: 'pptx', source, producer: { name: 'deckparse-pptx', version: '2' },
     metadata: { ...readCoreProperties(pkg), slideSize: { width, height }, theme: readTheme(pkg, presentationRels) },
     pages, nodes, assets, quality });
   return { ir, quality, assets, warnings: quality.checks.map((check) => check.message) };
@@ -97,12 +112,15 @@ function parseShape(shape: XmlNode, ctx: Context, parentId: string | null): void
   }
   const text = runs.map((run) => run.text).join('');
   const placeholder = descendants(shape, 'ph')[0];
+  const placeholderType = placeholder?.attributes.type;
   const xfrm = descendants(shape, 'xfrm')[0];
+  const bbox = bboxOf(xfrm, ctx.transform);
   const deckNode: DeckIrNode = {
-    id, type: placeholder?.attributes.type === 'title' || placeholder?.attributes.type === 'ctrTitle' ? 'heading' : text ? 'text' : 'shape',
+    id, type: placeholderType === 'title' || placeholderType === 'ctrTitle' ? 'heading'
+      : (placeholderType && FURNITURE_PLACEHOLDERS[placeholderType]) || (text ? 'text' : 'shape'),
     parentId, children: [], order: ctx.order++, text, runs, page: ctx.page, zIndex: ctx.order,
     sourceRef: { part: ctx.part, page: ctx.page, path: `shape/${nativeId}` },
-    ...(bboxOf(xfrm) ? { bbox: bboxOf(xfrm) } : {}),
+    ...(bbox ? { bbox } : {}),
     extensions: { nativeId, name: native?.attributes.name, placeholder: placeholder ? { ...placeholder.attributes } : undefined,
       rawTransform: rawTransform(xfrm), geometry: descendants(shape, 'prstGeom')[0]?.attributes.prst },
   };
@@ -118,7 +136,7 @@ function parsePicture(pic: XmlNode, ctx: Context, parentId: string | null): void
   const rel = relId ? ctx.rels.get(relId) : undefined;
   const node: DeckIrNode = { id, type: 'image', parentId, children: [], order: ctx.order++, text: native?.attributes.descr ?? '',
     page: ctx.page, zIndex: ctx.order, sourceRef: { part: ctx.part, page: ctx.page, ...(relId ? { relationship: relId } : {}), path: `picture/${nativeId}` },
-    ...(bboxOf(descendants(pic, 'xfrm')[0]) ? { bbox: bboxOf(descendants(pic, 'xfrm')[0]) } : {}),
+    ...(bboxOf(descendants(pic, 'xfrm')[0], ctx.transform) ? { bbox: bboxOf(descendants(pic, 'xfrm')[0], ctx.transform) } : {}),
     extensions: { nativeId, name: native?.attributes.name, alt: native?.attributes.descr } };
   if (rel?.external) {
     node.extensions = { ...node.extensions, externalUrl: rel.target }; node.issues = ['external_asset'];
@@ -150,7 +168,7 @@ function parseGraphicFrame(frame: XmlNode, ctx: Context, parentId: string | null
   const visibleText = descendants(frame, 't').map(textContent).join(' ');
   ctx.nodes.push({ id, type: kind, parentId, children: [], order: ctx.order++, text: visibleText, page: ctx.page,
     sourceRef: { part: ctx.part, page: ctx.page, ...(relId ? { relationship: relId } : {}), path: `${kind}/${nativeId}` },
-    ...(bboxOf(descendants(frame, 'xfrm')[0]) ? { bbox: bboxOf(descendants(frame, 'xfrm')[0]) } : {}),
+    ...(bboxOf(descendants(frame, 'xfrm')[0], ctx.transform) ? { bbox: bboxOf(descendants(frame, 'xfrm')[0], ctx.transform) } : {}),
     opaque: { type: kind, reason: 'The object and visible text are preserved, but its full semantic model is not expanded.',
       data: { uri, target: rel?.target } }, extensions: { nativeId, name: native?.attributes.name } });
   attach(ctx, parentId, id);
@@ -161,7 +179,7 @@ function parseTable(table: XmlNode, frame: XmlNode, ctx: Context, parentId: stri
   const tableId = stableId(ctx.source.sha256, `${ctx.part}:table:${nativeId}`);
   const tableNode: DeckIrNode = { id: tableId, type: 'table', parentId, children: [], order: ctx.order++, page: ctx.page,
     sourceRef: { part: ctx.part, page: ctx.page, path: `table/${nativeId}` },
-    ...(bboxOf(descendants(frame, 'xfrm')[0]) ? { bbox: bboxOf(descendants(frame, 'xfrm')[0]) } : {}),
+    ...(bboxOf(descendants(frame, 'xfrm')[0], ctx.transform) ? { bbox: bboxOf(descendants(frame, 'xfrm')[0], ctx.transform) } : {}),
     extensions: { rows: children(table, 'tr').length, columns: children(first(table, 'tblGrid') ?? emptyNode(), 'gridCol').length } };
   ctx.nodes.push(tableNode); attach(ctx, parentId, tableId);
   for (const [rowIndex, row] of children(table, 'tr').entries()) {
@@ -183,11 +201,46 @@ function parseGroup(group: XmlNode, ctx: Context, parentId: string | null): void
   const native = descendants(first(group, 'nvGrpSpPr') ?? emptyNode(), 'cNvPr')[0];
   const nativeId = native?.attributes.id ?? String(ctx.order);
   const id = stableId(ctx.source.sha256, `${ctx.part}:group:${nativeId}`);
-  ctx.nodes.push({ id, type: 'group', parentId, children: [], order: ctx.order++, page: ctx.page,
-    sourceRef: { part: ctx.part, page: ctx.page, path: `group/${nativeId}` }, extensions: { rawTransform: rawTransform(descendants(group, 'xfrm')[0]) } });
+  const xfrm = first(first(group, 'grpSpPr') ?? emptyNode(), 'xfrm');
+  const bbox = bboxOf(xfrm, ctx.transform);
+  ctx.nodes.push({ id, type: 'group', parentId, children: [], order: ctx.order++, page: ctx.page, zIndex: ctx.order,
+    sourceRef: { part: ctx.part, page: ctx.page, path: `group/${nativeId}` }, ...(bbox ? { bbox } : {}),
+    extensions: { rawTransform: rawTransform(xfrm) } });
   attach(ctx, parentId, id);
-  ctx.checks.push({ code: 'group_transform_partial', severity: 'warning', message: `Slide ${ctx.page} contains a group whose child transforms remain in group-local coordinates.`, pages: [ctx.page], nodeIds: [id] });
-  parseShapeTree(group, ctx, id);
+  // 平移与缩放按子画布换算成幻灯片坐标；旋转与翻转没有换算，那样的组合里子形状的框只是近似。
+  const rotated = Number(xfrm?.attributes.rot ?? 0) !== 0 || xfrm?.attributes.flipH === '1' || xfrm?.attributes.flipV === '1';
+  if (rotated) {
+    ctx.checks.push({ code: 'group_transform_partial', severity: 'warning', message: `Slide ${ctx.page} contains a rotated or flipped group; its children's positions are approximate.`, pages: [ctx.page], nodeIds: [id] });
+  }
+  const parentTransform = ctx.transform;
+  ctx.transform = childTransform(xfrm, parentTransform);
+  try { parseShapeTree(group, ctx, id); } finally { ctx.transform = parentTransform; }
+}
+
+/**
+ * 组合的子画布：子形状的坐标写在 `chOff`/`chExt` 定义的空间里，按 `off`/`ext` 映射回组合外框。
+ * 原先直接用子形状自己的 `xfrm`，框落在另一套坐标里，既不能按位置排序，也让每个组合都报
+ * `group_transform_partial`（实测一份 99 页讲义 339 个组合，整份产物因此判成 degraded）。
+ */
+function childTransform(xfrm: XmlNode | undefined, parent: Transform): Transform {
+  if (!xfrm) return parent;
+  const off = first(xfrm, 'off'); const ext = first(xfrm, 'ext');
+  const chOff = first(xfrm, 'chOff'); const chExt = first(xfrm, 'chExt');
+  if (!off || !ext || !chOff || !chExt) return parent;
+  const scale = (outer: string | undefined, inner: string | undefined): number => {
+    const extent = Number(inner ?? 0);
+    return extent > 0 ? Number(outer ?? 0) / extent : 1;
+  };
+  const scaleX = scale(ext.attributes.cx, chExt.attributes.cx);
+  const scaleY = scale(ext.attributes.cy, chExt.attributes.cy);
+  const offsetX = emuToPt(Number(off.attributes.x ?? 0)) - emuToPt(Number(chOff.attributes.x ?? 0)) * scaleX;
+  const offsetY = emuToPt(Number(off.attributes.y ?? 0)) - emuToPt(Number(chOff.attributes.y ?? 0)) * scaleY;
+  return {
+    scaleX: parent.scaleX * scaleX,
+    scaleY: parent.scaleY * scaleY,
+    translateX: parent.translateX + parent.scaleX * offsetX,
+    translateY: parent.translateY + parent.scaleY * offsetY,
+  };
 }
 
 function parseNotes(ctx: Context): void {
@@ -237,12 +290,18 @@ function textRuns(paragraph: XmlNode, rels: Map<string, Relationship>): DeckIrRu
   return result;
 }
 
-function bboxOf(xfrm?: XmlNode): [number, number, number, number] | undefined {
+function bboxOf(xfrm: XmlNode | undefined, transform: Transform): [number, number, number, number] | undefined {
   if (!xfrm) return undefined;
   const off = first(xfrm, 'off'); const ext = first(xfrm, 'ext');
   if (!off || !ext) return undefined;
   const x = emuToPt(Number(off.attributes.x ?? 0)); const y = emuToPt(Number(off.attributes.y ?? 0));
-  return [x, y, x + emuToPt(Number(ext.attributes.cx ?? 0)), y + emuToPt(Number(ext.attributes.cy ?? 0))];
+  const round = (value: number): number => Math.round(value * 1000) / 1000;
+  return [
+    round(transform.translateX + transform.scaleX * x),
+    round(transform.translateY + transform.scaleY * y),
+    round(transform.translateX + transform.scaleX * (x + emuToPt(Number(ext.attributes.cx ?? 0)))),
+    round(transform.translateY + transform.scaleY * (y + emuToPt(Number(ext.attributes.cy ?? 0)))),
+  ];
 }
 
 function rawTransform(xfrm?: XmlNode): Record<string, unknown> | undefined {

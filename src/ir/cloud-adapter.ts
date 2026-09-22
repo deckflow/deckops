@@ -3,7 +3,8 @@ import type { ParseResult } from '../cloud/parse-facade.js';
 import type { ResultArtifact } from 'pdf-lite-parse';
 import { stableId } from './ids.js';
 import { result3ToDeckIr } from './result3-adapter.js';
-import type { CandidateAsset, DeckIrNode, DeckIrPage, DocumentFormat, ParseCandidate, QualityCheck } from './schema.js';
+import type { CandidateAsset, DeckIrNode, DeckIrPage, DeckIrRun, DocumentFormat, ParseCandidate, QualityCheck } from './schema.js';
+import { orderSlideNodes } from './slide-order.js';
 import { makeIr, qualityOf, type SourceIdentity } from '../local/common.js';
 import type { ParseTaskType } from '../types.js';
 
@@ -12,7 +13,7 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   const assets = await cloudAssets(parsed.ir, signal);
   if (result3) {
     const candidate = result3ToDeckIr({ document: result3, source, assets,
-      producer: { engine: 'cloud', name: 'deckflow-cloud', version: '1' } });
+      producer: { engine: 'cloud', name: 'deckflow-cloud', version: '2' } });
     candidate.remote = { taskId: parsed.taskId, irKey: parsed.irKey };
     return candidate;
   }
@@ -22,15 +23,25 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   const pages: DeckIrPage[] = [];
   const raw = parsed.ir as Record<string, unknown>;
   const pageItems = format === 'pptx' || format === 'keynote' ? array(raw.slides) : [];
+  // pptx 的坐标是 EMU，本地解析器给的是 pt；同一份文件换引擎，框的单位不能跟着变。
+  const pageTransform = format === 'pptx' ? EMU_TO_PT : IDENTITY;
+  const pageSize = (value: unknown): number | undefined => {
+    const size = number(value);
+    return size === undefined ? undefined : round(size * pageTransform.scaleX);
+  };
   if (pageItems.length) {
     pageItems.forEach((item, index) => {
       const before = nodes.length;
-      walkCloud(item, sink, source.sha256, `pages/${index}`, index + 1, null);
+      walkCloud(item, sink, source.sha256, `pages/${index}`, index + 1, null, pageTransform);
       pages.push({ id: stableId(source.sha256, `cloud:page:${index}`, 'p'), index: index + 1,
-        ...(number(raw.width ?? object(raw.slideSize)?.cx) ? { width: number(raw.width ?? object(raw.slideSize)?.cx) } : {}),
-        ...(number(raw.height ?? object(raw.slideSize)?.cy) ? { height: number(raw.height ?? object(raw.slideSize)?.cy) } : {}),
+        ...(pageSize(raw.width ?? object(raw.slideSize)?.cx) ? { width: pageSize(raw.width ?? object(raw.slideSize)?.cx) } : {}),
+        ...(pageSize(raw.height ?? object(raw.slideSize)?.cy) ? { height: pageSize(raw.height ?? object(raw.slideSize)?.cy) } : {}),
         nodeIds: nodes.slice(before).map((node) => node.id), sourceRef: { page: index + 1, path: `slides/${index}` } });
     });
+    if (format === 'pptx') {
+      for (const node of nodes) node.zIndex = node.order;
+      orderSlideNodes(nodes, pages);
+    }
   } else if (Array.isArray(raw.content)) {
     raw.content.forEach((item, index) => walkCloud(item, sink, source.sha256, `content/${index}`, undefined, null));
   } else {
@@ -40,7 +51,7 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   if (nodes.length === 0) checks.push({ code: 'cloud_schema_unmapped', severity: 'error', message: `Cloud schema ${parsed.irSchemaVersion} did not contain mappable document nodes.` });
   let quality = qualityOf(checks, { ...(pages.length ? { pages: { parsed: pages.length, total: pages.length } } : {}),
     objects: { parsed: nodes.length, opaque: 0 }, textCharacters: nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0) });
-  const ir = makeIr({ format, source, producer: { engine: 'cloud', name: 'deckflow-cloud', version: '1' },
+  const ir = makeIr({ format, source, producer: { engine: 'cloud', name: 'deckflow-cloud', version: '2' },
     metadata: { cloudSchemaVersion: parsed.irSchemaVersion }, pages, nodes, assets, quality });
   const availableAssets = new Set(ir.document.assets.map((asset) => asset.path));
   for (const node of ir.document.nodes) {
@@ -70,27 +81,69 @@ function push(sink: CloudNodeSink, node: DeckIrNode): void {
   sink.byId.set(node.id, node);
 }
 
-function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: string, page?: number, parentId: string | null = null): void {
+/** 形状树坐标 → 页面坐标：先缩放再平移。组合的子形状写在组合自己的子画布里，逐层复合。 */
+interface Transform { scaleX: number; scaleY: number; translateX: number; translateY: number }
+
+const IDENTITY: Transform = { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 };
+const EMU_PER_PT = 12700;
+const EMU_TO_PT: Transform = { scaleX: 1 / EMU_PER_PT, scaleY: 1 / EMU_PER_PT, translateX: 0, translateY: 0 };
+
+/**
+ * 组合的子画布（`chX`/`chY`/`chCX`/`chCY`）映射回组合外框（`x`/`y`/`cx`/`cy`）。原先直接用
+ * 子形状自己的 xfrm，组合里的框与页面上的框落在两套坐标里（实测同一页出现
+ * `[3268, 2846, …]` 与 `[952500, 1138238, …]`），按位置排序无从谈起。
+ */
+function groupTransform(xfrm: Record<string, unknown> | undefined, parent: Transform): Transform {
+  const x = number(xfrm?.x); const y = number(xfrm?.y); const cx = number(xfrm?.cx); const cy = number(xfrm?.cy);
+  const chX = number(xfrm?.chX) ?? 0; const chY = number(xfrm?.chY) ?? 0;
+  const chCX = number(xfrm?.chCX); const chCY = number(xfrm?.chCY);
+  if (x === undefined || y === undefined || cx === undefined || cy === undefined || !chCX || !chCY) return parent;
+  const scaleX = cx / chCX; const scaleY = cy / chCY;
+  return {
+    scaleX: parent.scaleX * scaleX,
+    scaleY: parent.scaleY * scaleY,
+    translateX: parent.translateX + parent.scaleX * (x - chX * scaleX),
+    translateY: parent.translateY + parent.scaleY * (y - chY * scaleY),
+  };
+}
+
+function transformedBbox(xfrm: Record<string, unknown> | undefined, transform: Transform): [number, number, number, number] | undefined {
+  const x = number(xfrm?.x); const y = number(xfrm?.y); const cx = number(xfrm?.cx); const cy = number(xfrm?.cy);
+  if (x === undefined || y === undefined || cx === undefined || cy === undefined) return undefined;
+  return [
+    round(transform.translateX + transform.scaleX * x),
+    round(transform.translateY + transform.scaleY * y),
+    round(transform.translateX + transform.scaleX * (x + cx)),
+    round(transform.translateY + transform.scaleY * (y + cy)),
+  ];
+}
+
+function round(value: number): number { return Math.round(value * 1000) / 1000; }
+
+function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: string, page?: number, parentId: string | null = null, transform: Transform = IDENTITY): void {
   if (!value || typeof value !== 'object') return;
-  if (Array.isArray(value)) { value.forEach((item, index) => walkCloud(item, sink, hash, `${locator}/${index}`, page, parentId)); return; }
+  if (Array.isArray(value)) { value.forEach((item, index) => walkCloud(item, sink, hash, `${locator}/${index}`, page, parentId, transform)); return; }
   const record = value as Record<string, unknown>;
   const text = cloudText(record);
   const kind = cloudKind(record, text);
   let nextParent = parentId;
   const skipKeys = new Set<string>(WALK_SKIP_KEYS);
-  if (text || ['shape', 'picture', 'image', 'table', 'group', 'chart'].some((token) => kind.includes(token))) {
+  const xfrm = object(record.xfrm);
+  if (text || ['shape', 'picture', 'image', 'table', 'group', 'chart'].some((token) => kind.includes(token)) || FURNITURE_KINDS.has(kind)) {
     const id = stableId(hash, `cloud:${locator}`);
-    const xfrm = object(record.xfrm);
+    const bbox = transformedBbox(xfrm, transform);
+    const runs = text ? cloudRuns(record, text) : undefined;
     // 只认解析器明确给出的资产指针。`path` 曾经也在这条兜底链上，但在 pptx 里它是自选
     // 图形的几何路径（`"M 0 0 L 10 10 Z"`），任何 Freeform 都会因此被判成「指向不存在的
     // 资产」，凭空产出一条 cloud_asset_unavailable 并把 quality 顶成 degraded。
     const assetPath = string(record.assetPath ?? record.suggestedPath);
     const externalUrl = string(record.accessURL ?? record.url);
+    const placeholder = object(record.ph);
     const node: DeckIrNode = { id, type: kind, parentId, children: [], order: sink.nodes.length, ...(text ? { text } : {}),
-      ...(page ? { page } : {}), sourceRef: { path: locator, ...(page ? { page } : {}) },
-      ...(xfrm && [xfrm.x, xfrm.y, xfrm.cx, xfrm.cy].every((item) => typeof item === 'number') ?
-        { bbox: [xfrm.x as number, xfrm.y as number, (xfrm.x as number) + (xfrm.cx as number), (xfrm.y as number) + (xfrm.cy as number)] } : {}),
-      extensions: { cloud: { id: record.id, name: record.name, style: record.style }, ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}) } };
+      ...(runs ? { runs } : {}), ...(page ? { page } : {}), sourceRef: { path: locator, ...(page ? { page } : {}) },
+      ...(bbox ? { bbox } : {}),
+      extensions: { cloud: { id: record.id, name: record.name, style: record.style }, ...(placeholder ? { placeholder } : {}),
+        ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}) } };
     push(sink, node); if (parentId) sink.byId.get(parentId)?.children.push(id); nextParent = id;
     // 表格必须按 table → table_row → table_cell 发，和 local/pptx、local/docx、result3 三个
     // 适配器一致：Markdown 渲染器只认这三种类型，让通用遍历把单元格摊成一串 shape 子节点，
@@ -99,9 +152,10 @@ function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: s
       skipKeys.add('table');
     }
   }
+  const childTransform = kind === 'group' ? groupTransform(xfrm, transform) : transform;
   for (const [key, child] of Object.entries(record)) {
     if (skipKeys.has(key)) continue;
-    if (child && typeof child === 'object') walkCloud(child, sink, hash, `${locator}/${key}`, page, nextParent);
+    if (child && typeof child === 'object') walkCloud(child, sink, hash, `${locator}/${key}`, page, nextParent, key === 'children' ? childTransform : transform);
   }
 }
 
@@ -148,8 +202,9 @@ function emitCloudTable(
       const cellLocator = `${rowLocator}/cell/${column}`;
       const cellId = stableId(hash, `cloud:${cellLocator}`);
       const text = cloudText(cell);
+      const runs = text ? cloudRuns(cell, text) : undefined;
       push(sink, { id: cellId, type: 'table_cell', parentId: rowId, children: [], order: sink.nodes.length,
-        ...(text ? { text } : {}), ...(page ? { page } : {}),
+        ...(text ? { text } : {}), ...(runs ? { runs } : {}), ...(page ? { page } : {}),
         sourceRef: { path: cellLocator, ...(page ? { page } : {}) },
         extensions: { row: rowIndex, column,
           gridSpan: number(cell.colSpan ?? cell.gridSpan) ?? 1, rowSpan: number(cell.rowSpan) ?? 1,
@@ -175,8 +230,47 @@ function cloudKind(record: Record<string, unknown>, text: string): string {
   const placeholder = string(object(record.ph)?.type);
   const declared = string(record.type)?.toLowerCase();
   if (text && (placeholder === 'title' || placeholder === 'ctrTitle')) return 'heading';
+  if (placeholder && FURNITURE_PLACEHOLDERS[placeholder]) return FURNITURE_PLACEHOLDERS[placeholder]!;
   if (text && declared === 'shape') return 'text';
   return declared ?? (record.txBody ? 'shape' : record.table ? 'table' : text ? 'text' : 'object');
+}
+
+/**
+ * 版式家具占位符 → 节点类型，与 local/pptx/parser.ts 同一张表。页脚、日期、页码每页一份，
+ * 实测一份 99 页讲义的页脚在 Markdown 里占了 92 行；文字留在 IR，Markdown 视图不渲染。
+ */
+const FURNITURE_PLACEHOLDERS: Readonly<Record<string, string>> = { ftr: 'footer', dt: 'footer', hdr: 'header', sldNum: 'page_number' };
+const FURNITURE_KINDS: ReadonlySet<string> = new Set(Object.values(FURNITURE_PLACEHOLDERS));
+
+/**
+ * 文字的格式（粗体、斜体、下划线、删除线）。云端 IR 的 `txBody` 里每个文本运行带着样式，
+ * 原先只取纯文本，本地产物有的强调云端一处都没有（实测同一份讲义本地 234 个带格式的运行）。
+ *
+ * 段落之间与 `text` 一样用换行连接、跳过空段落；拼出来与 `text` 不一字不差就不给 runs——
+ * runs 是 text 的另一种切分，两者不一致时读方无从判断该信哪个。
+ */
+function cloudRuns(record: Record<string, unknown>, text: string): DeckIrRun[] | undefined {
+  const paragraphs = array(object(record.txBody)?.children)
+    .map((paragraph) => array(object(paragraph)?.children).flatMap((run) => {
+      const parsed = object(run);
+      return parsed && typeof parsed.t === 'string' ? [parsed] : [];
+    }))
+    .filter((runs) => runs.length > 0);
+  if (paragraphs.length === 0) return undefined;
+  const runs: DeckIrRun[] = [];
+  paragraphs.forEach((paragraph, index) => {
+    if (index > 0) runs.push({ text: '\n' });
+    for (const run of paragraph) {
+      const style = object(run.style);
+      const underline = string(style?.u);
+      const strike = string(style?.strike);
+      runs.push({ text: run.t as string,
+        ...(style?.b === true ? { bold: true } : {}), ...(style?.i === true ? { italic: true } : {}),
+        ...(underline && underline !== 'none' ? { underline: true } : {}),
+        ...(strike && strike !== 'noStrike' ? { strike: true } : {}) });
+    }
+  });
+  return runs.map((run) => run.text).join('') === text ? runs : undefined;
 }
 
 function cloudText(record: Record<string, unknown>): string {

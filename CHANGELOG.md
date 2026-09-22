@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — PPTX slide layout
+
+- Resolve group transforms in both PPTX engines: group children now carry slide coordinates
+  (the child canvas `chOff`/`chExt` is mapped onto the group frame). Only rotated or flipped groups
+  still report `group_transform_partial`; a 99-slide lecture deck drops from 339 such warnings to 38.
+- Read slides in layout order instead of z-order: title first, then body/content placeholders, then
+  other shapes top-to-bottom and left-to-right (rows judged against the taller shape), with furniture
+  and position-less nodes last. Groups are ordered as units and their children in layout order.
+  z-order stays available in `zIndex`. **Behavior change**: PPTX node `order` and Markdown order change.
+- Type footer, date and slide-number placeholders as `footer` / `page_number`. Their text stays in the
+  IR; Markdown no longer renders them, and no longer renders `page_number` nodes from any format.
+  **Behavior change**: the example deck loses 92 repeated footer lines and 92 slide numbers.
+- Cloud PPTX: carry bold, italic, underline and strike from the cloud text runs (runs are attached only
+  when they reproduce the node text exactly), and report bounding boxes and slide sizes in points like
+  the local parser instead of EMU. **Behavior change** for cloud bbox units.
+- Bump the local PPTX parser to `deckparse-pptx` 2, the cloud adapter to `deckflow-cloud` 2 and the
+  Markdown renderer to 1.2.0, so cached artifacts produced by the previous versions are not reused.
+
 ## 2.2.0 — 2026-09-20 — Cloud IR fidelity and honest quality
 
 - Expand cloud tables into `table_row`/`table_cell` so Markdown renders them. The generic cloud

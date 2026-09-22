@@ -214,14 +214,14 @@ function defaultDirFor(input: Exclude<ResolvedInput, { kind: 'artifact' }>): str
 }
 
 function expectedParser(input: Exclude<ResolvedInput, { kind: 'artifact' }>, engine: NonNullable<CommonFlags['engine']>): { name: string; major: number; minor?: number } | undefined {
-  if (engine === 'cloud') return { name: 'deckflow-cloud', major: 1 };
+  if (engine === 'cloud') return { name: 'deckflow-cloud', major: 2 };
   if (engine === 'auto' || input.kind === 'link') return undefined;
   if (input.taskType === 'pdf.pdfParse') {
     const [major, minor] = PDF_PARSER_VERSION.split('.').map(Number);
     // Pre-1.0 minor releases can change parsing semantics (e.g. embedded image defaults).
     return { name: 'pdf-lite-parse', major: major!, ...(major === 0 ? { minor: minor! } : {}) };
   }
-  if (input.taskType === 'pptx.parse') return { name: 'deckparse-pptx', major: 1 };
+  if (input.taskType === 'pptx.parse') return { name: 'deckparse-pptx', major: 2 };
   if (input.taskType === 'docx.parseTextAndImage') return { name: 'deckparse-docx', major: 2 };
   return undefined;
 }

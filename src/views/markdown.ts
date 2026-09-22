@@ -1,7 +1,7 @@
 import type { DeckIR, DeckIrNode, DeckIrRun } from '../ir/schema.js';
 import { cleanControlCharacters, countControlCharacters } from '../shared/text-quality.js';
 
-export const MARKDOWN_RENDERER_VERSION = '1.1.0';
+export const MARKDOWN_RENDERER_VERSION = '1.2.0';
 
 export interface RenderedMarkdown {
   markdown: string;
@@ -34,7 +34,8 @@ function renderNode(node: DeckIrNode, byId: Map<string, DeckIrNode>, options: { 
   else if (node.type === 'formula') own = node.extensions?.formula && typeof node.extensions.formula === 'object' && 'latex' in node.extensions.formula
     ? `$$\n${String((node.extensions.formula as { latex?: unknown }).latex ?? node.text ?? '')}\n$$` : text;
   else if (node.type === 'table') own = renderTable(node, byId);
-  else if (!['table_row', 'table_cell', 'group', 'section', 'article', 'main', 'header', 'footer', 'nav', 'aside', 'list'].includes(node.type)) own = text;
+  // 页眉、页脚、页码是版式家具，文字留在 IR 里，不进阅读视图（pdf-parse 的 Markdown 同样只以注释保留）。
+  else if (!['table_row', 'table_cell', 'group', 'section', 'article', 'main', 'header', 'footer', 'page_number', 'nav', 'aside', 'list'].includes(node.type)) own = text;
   const childBody = node.type === 'table' ? '' : children.map((child) => renderNode(child, byId, options)).filter(Boolean).join('\n\n');
   return `${anchor}${[own, childBody].filter(Boolean).join('\n\n')}`.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
 }

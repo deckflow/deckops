@@ -104,6 +104,58 @@ describe('cloud IR adapter', () => {
   });
 });
 
+describe('cloud IR adapter: pptx slide layout', () => {
+  const EMU = 12700;
+  const box = (x: number, y: number, cx: number, cy: number) => ({ x: x * EMU, y: y * EMU, cx: cx * EMU, cy: cy * EMU });
+  const textShape = (id: number, name: string, xfrm: Record<string, number>, paragraphs: Array<Array<Record<string, unknown>>>, extra: Record<string, unknown> = {}) => ({
+    id, name, type: 'Shape', xfrm,
+    txBody: { children: paragraphs.map((runs) => ({ children: runs })) },
+    text: paragraphs.map((runs) => runs.map((run) => run.t).join('')).filter(Boolean).join('\n'),
+    ...extra,
+  });
+
+  it('keeps bold and italic from the cloud text runs', async () => {
+    const candidate = await parse([
+      textShape(1, 'Body', box(50, 100, 300, 100), [[{ t: 'server: ' }, { t: 'always-on', style: { b: true } }, { t: ' host' }], [{ t: 'note', style: { i: true } }]]),
+    ]);
+    const [node] = candidate.ir.document.nodes;
+    expect(node!.runs?.map((run) => run.text).join('')).toBe(node!.text);
+    expect(renderMarkdown(candidate.ir).markdown).toContain('server: **always-on** host\n*note*');
+  });
+
+  it('drops runs that would not reproduce the node text', async () => {
+    const candidate = await parse([
+      { ...textShape(1, 'Body', box(0, 0, 10, 10), [[{ t: 'abc', style: { b: true } }]]), text: 'something else' },
+    ]);
+    expect(candidate.ir.document.nodes[0]!.runs).toBeUndefined();
+  });
+
+  it('maps footer and slide-number placeholders to furniture that Markdown does not render', async () => {
+    const candidate = await parse([
+      textShape(1, 'Footer Placeholder 2', box(20, 500, 300, 20), [[{ t: '2: Application Layer' }]], { ph: { type: 'ftr', idx: 11 } }),
+      textShape(2, 'Slide Number Placeholder 3', box(600, 500, 100, 20), [[{ t: '7', field: 'slidenum' }]], { ph: { type: 'sldNum', idx: 12 } }),
+      textShape(3, 'Body', box(50, 100, 300, 100), [[{ t: 'content' }]]),
+    ]);
+    expect(candidate.ir.document.nodes.map((node) => node.type)).toEqual(['footer', 'page_number', 'text']);
+    expect(renderMarkdown(candidate.ir).markdown).toBe('content\n');
+  });
+
+  it('places group children on the slide in points and reads top-to-bottom, left-to-right', async () => {
+    const candidate = await parse([
+      textShape(4, 'Right', box(400, 100, 250, 150), [[{ t: 'right column' }]]),
+      textShape(5, 'Left', box(50, 100, 250, 150), [[{ t: 'left column' }]]),
+      { id: 6, name: 'Group 6', type: 'Group',
+        xfrm: { ...box(100, 300, 200, 100), chX: 0, chY: 0, chCX: 400 * EMU, chCY: 200 * EMU },
+        children: [textShape(7, 'Label', box(200, 100, 100, 50), [[{ t: 'group label' }]])] },
+      textShape(8, 'Title 1', box(50, 20, 600, 60), [[{ t: 'Slide title' }]], { ph: { type: 'title' } }),
+    ]);
+    const label = candidate.ir.document.nodes.find((node) => node.text === 'group label')!;
+    // 组合外框 (100, 300, 200×100)，子画布 400×200：缩放 0.5。与本地解析器给出同一个框。
+    expect(label.bbox).toEqual([200, 350, 250, 375]);
+    expect(renderMarkdown(candidate.ir).markdown).toBe('## Slide title\n\nleft column\n\nright column\n\ngroup label\n');
+  });
+});
+
 describe('cloud asset retrieval', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => { globalThis.fetch = realFetch; });
