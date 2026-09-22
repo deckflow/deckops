@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — PPTX slide layout
+## 2.3.0 — 2026-09-22 — PPTX slide layout
 
 - Resolve group transforms in both PPTX engines: group children now carry slide coordinates
   (the child canvas `chOff`/`chExt` is mapped onto the group frame). Only rotated or flipped groups

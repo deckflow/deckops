@@ -36,7 +36,7 @@ view configuration. Regenerating another configuration replaces `views/markdown/
 finished delivery elsewhere when several variants must be retained.
 
 On a cache hit, `outputs[].bytes` can be zero even when the existing file is non-empty. Check
-the file itself. In 2.2.0, a cached artifact view can also bypass materialization of a new
+the file itself. In 2.3.0, a cached artifact view can also bypass materialization of a new
 portable `-o` destination; use artifact conversion with `--force` and verify the target.
 
 The public v2 `deckir.v1` can be rendered locally after the remote reference expires. A cloud
@@ -62,7 +62,7 @@ the source changes or parser behavior changes.
 ## Preparing traceable material for retrieval
 
 DeckOps does not create embeddings, a vector index, a retrieval service, or `chunks.jsonl` in
-2.2.0. If the task needs downstream chunks, derive them from the artifact and retain this
+2.3.0. If the task needs downstream chunks, derive them from the artifact and retain this
 minimum evidence:
 
 | Evidence | Source |

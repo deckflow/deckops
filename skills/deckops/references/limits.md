@@ -42,7 +42,7 @@ if the limitation is reported.
 
 `--preflight strict`, `--fail-on-degraded`, and `convert --strict` cover different layers:
 pre-parse container inspection, parse/IR quality, and cloud Markdown rendering respectively.
-Local Markdown conversion rejects `--strict` in 2.2.0.
+Local Markdown conversion rejects `--strict` in 2.3.0.
 
 ## Local resource limits
 
@@ -65,7 +65,7 @@ CLI overrides are:
 Raise only the limit identified by the failure and only enough for a known input. Overrides
 participate in artifact cache identity. A larger limit does not improve semantic fidelity.
 
-## Known 2.2.0 behavior
+## Known 2.3.0 behavior
 
 - Content and envelopes have one stdout owner, including `convert -o - --json`.
 - An explicitly requested portable output is materialized even if an artifact view exists.
