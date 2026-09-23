@@ -47,6 +47,11 @@ export interface ParseOptions {
   signal?: (AbortSignal) | undefined;
   /** Invoked immediately after task creation, before waiting. */
   onTask?: ((task: DeckTask) => void) | undefined;
+  /**
+   * Invoked right before the task-creation request is sent. Earlier failures created no task;
+   * a later failure without a response leaves it unknown whether the task exists.
+   */
+  onSubmit?: (() => void) | undefined;
   /** Upload progress and file options. */
   upload?: (TaskUploadOptions) | undefined;
   /** 空间 id */
@@ -109,6 +114,7 @@ interface ParseDeps {
     params?: (Record<string, unknown>) | undefined;
     signal?: (AbortSignal) | undefined;
     upload?: (TaskUploadOptions) | undefined;
+    onDispatch?: (() => void) | undefined;
   }): Promise<DeckTask>;
   waitTask(taskId: string, options?: WaitForTaskOptions): Promise<DeckTask>;
   downTask(taskId: string, options?: TaskDownloadOptions): Promise<unknown>;
@@ -209,6 +215,7 @@ export const createParse = (deps: ParseDeps) => {
     if (isLinkSource(source)) {
       const task = await deps.createTask({
         signal,
+        ...(options.onSubmit ? { onDispatch: options.onSubmit } : {}),
         type: 'html.getByURL',
         spaceId: options.spaceId,
         params: {
@@ -234,6 +241,7 @@ export const createParse = (deps: ParseDeps) => {
 
     const task = await deps.createTask({
       signal,
+      ...(options.onSubmit ? { onDispatch: options.onSubmit } : {}),
       upload: {
         ...options.upload,
         ...(isFileIdSource(normalized) || !normalized.name ? {} : { name: normalized.name }),

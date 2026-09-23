@@ -59,6 +59,29 @@ describe('deterministic upgrade policy', () => {
     expect(factory).not.toHaveBeenCalled();
     await expect(routeParse({ input, parse: { flags: {}, common: {} }, cloud: factory, signal: AbortSignal.abort() })).rejects.toBeDefined();
   });
+  it('records an unknown submission only once the task request is dispatched', async () => {
+    const states: string[] = [];
+    const opts = { input, parse: { flags: {}, common: { engine: 'cloud' as const } }, cloud: async () => ({} as never), signal: AbortSignal.timeout(1000),
+      onSubmission: (state: { status: string }) => { states.push(state.status); } };
+    // 取空间、上传这些步骤失败：云端没有任务，不能留下「提交未决」挡住下一次。
+    vi.spyOn(CloudEngine.prototype, 'parse').mockRejectedValueOnce(new Error('timeout of 30000ms exceeded'));
+    await expect(routeParse(opts)).rejects.toThrow('timeout');
+    expect(states).toEqual([]);
+    // 请求已经发出、没等到响应：云端可能建了任务。
+    vi.spyOn(CloudEngine.prototype, 'parse').mockImplementationOnce(async (_input, options) => { options.onSubmit?.(); throw new Error('socket hang up'); });
+    await expect(routeParse(opts)).rejects.toThrow('socket hang up');
+    expect(states).toEqual(['submission_unknown']);
+  });
+  it('blocks a resubmission over an unresolved one unless --force, and then warns about billing', async () => {
+    const cloud = vi.spyOn(CloudEngine.prototype, 'parse').mockResolvedValue(candidate('cloud'));
+    const opts = (force: boolean) => ({ input, parse: { flags: {}, common: { engine: 'cloud' as const, ...(force ? { force } : {}) } }, cloud: async () => ({} as never),
+      signal: AbortSignal.timeout(1000), previousSubmission: { status: 'submission_unknown' } });
+    await expect(routeParse(opts(false))).rejects.toMatchObject({ hint: expect.stringContaining('--force') });
+    expect(cloud).not.toHaveBeenCalled();
+    const forced = await routeParse(opts(true));
+    expect(cloud).toHaveBeenCalledTimes(1);
+    expect(forced.warnings?.join('\n')).toMatch(/--force over an unresolved cloud submission.*billed separately/);
+  });
   it('detects a sparse raster page even when another PDF page has plentiful text', () => {
     const page = (index: number, ratio: number) => ({ index, width: 100, height: 100, status: 'ok', sourceObjectCoverage: 1, probe: { imageAreaRatio: ratio } });
     const document = { elements: [{ id: 'e1', type: 'paragraph', parentId: null, children: [], order: 0, page: 1, text: 'healthy '.repeat(200), sourceObjectIds: [], bbox: [0, 0, 1, 1] }], pages: [page(1, 0), page(2, 1), page(3, 0)], warnings: [], source: { encrypted: false }, docInfo: {}, outline: null };

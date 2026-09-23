@@ -129,6 +129,24 @@ function formatAPIErrorMessage(status: number | undefined, message: string, requ
   return requestId ? `${base} [X-RequestId: ${requestId}]` : base;
 }
 
+/**
+ * 请求没有拿到任何响应（连不上、超时、DNS 失败）。原先报 `API Error (unknown): timeout of 30000ms
+ * exceeded`，看不出连的是哪台机器、卡在哪个请求上——实测本机代理把测试环境域名解析到一个连不上
+ * 的地址，这条信息里一个线索都没有。只给出地址与路径，查询串不带出来。
+ */
+function unreachableMessage(error: AxiosError): string {
+  const method = (error.config?.method ?? 'request').toUpperCase();
+  let target = error.config?.url ?? '';
+  try {
+    const url = new URL(target, error.config?.baseURL);
+    target = `${url.origin}${url.pathname}`;
+  } catch {
+    target = target.split('?')[0] ?? target;
+  }
+  const reason = error.code && !error.message.includes(error.code) ? `${error.code}: ${error.message}` : error.message || error.code || 'no response';
+  return `Cannot reach the DeckFlow API (${method} ${target}): ${reason}`;
+}
+
 export const RETRY_DELAYS_MS = [5000, 10000, 20000] as const;
 
 let retryDelaysMs: readonly number[] = RETRY_DELAYS_MS;
@@ -176,6 +194,7 @@ export class APIError extends Error {
   }
 
   static fromAxiosError(error: AxiosError): APIError {
+    if (!error.response) return new APIError(unreachableMessage(error));
     const status = error.response?.status;
     const data = error.response?.data;
     const requestId =

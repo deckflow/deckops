@@ -71,8 +71,16 @@ export class TasksApi {
       payload.name = params.name;
     }
 
+    await this.beforeDispatch(params);
     const res = await this.http.post<DeckTask<T>>('/tools/tasks', payload, { signal: params.signal });
     return res.data;
+  }
+
+  /** 身份标识在请求拦截器里取；先取到它，`onDispatch` 之后的失败才只可能出在请求本身。 */
+  private async beforeDispatch(params: CreateTaskParams): Promise<void> {
+    await this.http.getAuthUuid();
+    throwIfAborted(params.signal);
+    params.onDispatch?.();
   }
 
   private async createWithInlineFiles<T extends DeckTaskType>(
@@ -102,6 +110,7 @@ export class TasksApi {
       form.append('files', blob, file.name);
     }
 
+    await this.beforeDispatch(params);
     const res = await this.http.post<DeckTask<T>>('/tools/tasks', form, { signal: params.signal });
     params.upload?.onProgress?.(1);
     return res.data;

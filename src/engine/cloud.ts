@@ -14,6 +14,7 @@ export class CloudEngine implements ParseEngine {
     if (!this.supports(input, options).supported) throw DeckOpsError.unsupported('Cloud parser cannot preserve the requested parameters.');
     const parsed = await this.client.parse(sourceFor(input.input), {
       signal,
+      ...(options.onSubmit ? { onSubmit: options.onSubmit } : {}),
       ...(options.onTask ? { onTask: options.onTask } : {}),
       ...cloudParams(options.flags, input.input.kind === 'link'),
       ...(options.common.spaceId ? { spaceId: options.common.spaceId } : {}),

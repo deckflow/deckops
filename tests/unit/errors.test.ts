@@ -19,6 +19,13 @@ describe('error translation', () => {
     }
   });
 
+  it('points a request that got no response at the network', () => {
+    const translated = translate(new APIError('Cannot reach the DeckFlow API (GET https://example.test/v1/user): timeout of 30000ms exceeded'));
+    expect(translated.code).toBe('backend_error');
+    expect(translated.hint).toContain('network or proxy');
+    expect(translate(new APIError('x', 500)).hint).toBeUndefined();
+  });
+
   it('falls back to HTTP status when the body carries no code', () => {
     expect(translate(new APIError('x', 401)).code).toBe('auth_error');
     expect(translate(new APIError('x', 410)).code).toBe('ir_expired');

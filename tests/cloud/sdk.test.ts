@@ -938,6 +938,25 @@ describe('Node cloud transport', () => {
   });
 
 
+  it('reports dispatch only when the task request itself is about to leave', async () => {
+    setRetryDelaysForTests([0, 0, 0]);
+    const deck = createDeck({ root: 'http://localhost:3000/api', authUuid: TEST_AUTH_UUID });
+    const onDispatch = vi.fn();
+
+    // 取默认空间就连不上：没有发出建任务的请求，也就不会有云端任务。
+    mock.onGet('http://localhost:3000/api/user').networkError();
+    const lookup = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'], onDispatch }).catch((error: unknown) => error);
+    expect(onDispatch).not.toHaveBeenCalled();
+    expect(lookup).toBeInstanceOf(APIError);
+    expect((lookup as APIError).message).toBe('Cannot reach the DeckFlow API (GET http://localhost:3000/api/user): Network Error');
+
+    mock.onGet('http://localhost:3000/api/user').reply(200, { id: 'guest-space' });
+    mock.onPost('http://localhost:3000/api/tools/tasks').timeout();
+    const create = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'], onDispatch }).catch((error: unknown) => error);
+    expect(onDispatch).toHaveBeenCalledTimes(1);
+    expect((create as APIError).message).toMatch(/^Cannot reach the DeckFlow API \(POST http:\/\/localhost:3000\/api\/tools\/tasks\): ECONNABORTED: timeout/);
+  });
+
   it('uploads files in guest mode using spaceId resolved from /user', async () => {
     const deck = createDeck({
       root: 'http://localhost:3000/api',

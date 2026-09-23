@@ -71,7 +71,12 @@ export function translateError(
             : 'backend_error');
     const hints = context === 'node' ? NODE_HINTS : BROWSER_HINTS;
     const notFoundHint = context === 'node' ? NODE_NOT_FOUND_HINT : BROWSER_NOT_FOUND_HINT;
-    const hint = hints[code] ?? (code === 'backend_error' && error.statusCode === 404 ? notFoundHint : undefined);
+    // 没有状态码也没有响应体：请求根本没到服务端（连不上、超时），多半是网络或代理。
+    const unreachable = error.statusCode === undefined && error.responseData === undefined;
+    const unreachableHint = context === 'node'
+      ? 'The request got no response. Check the network or proxy for that host; `deckops config list` shows the API root in use.'
+      : 'The request got no response. Check the network connection and retry.';
+    const hint = hints[code] ?? (code === 'backend_error' && error.statusCode === 404 ? notFoundHint : unreachable ? unreachableHint : undefined);
     return new DeckOpsError(code, error.message, { ...(hint ? { hint } : {}), ...task, cause: error });
   }
 

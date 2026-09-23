@@ -102,6 +102,12 @@ export interface CreateTaskParams<T extends DeckTaskType = DeckTaskType> {
   params?: (Record<string, unknown>) | undefined;
   /** Default upload options applied to files. Per-file options override these values. */
   upload?: (TaskUploadOptions) | undefined;
+  /**
+   * Invoked once, right before the task-creation request is sent. A failure before this point
+   * (space lookup, file preparation, uploads) left no task behind; after it, a failure without a
+   * response cannot tell whether the cloud created the task.
+   */
+  onDispatch?: (() => void) | undefined;
 }
 
 export interface WaitForTaskOptions {
