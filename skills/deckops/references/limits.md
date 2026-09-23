@@ -42,7 +42,7 @@ if the limitation is reported.
 
 `--preflight strict`, `--fail-on-degraded`, and `convert --strict` cover different layers:
 pre-parse container inspection, parse/IR quality, and cloud Markdown rendering respectively.
-Local Markdown conversion rejects `--strict` in 2.3.0.
+Local Markdown conversion rejects `--strict` in 2.4.0.
 
 ## Local resource limits
 
@@ -65,13 +65,13 @@ CLI overrides are:
 Raise only the limit identified by the failure and only enough for a known input. Overrides
 participate in artifact cache identity. A larger limit does not improve semantic fidelity.
 
-## Known 2.3.0 behavior
+## Known 2.4.0 behavior
 
 - Content and envelopes have one stdout owner, including `convert -o - --json`.
 - An explicitly requested portable output is materialized even if an artifact view exists.
 - `capabilities --json` exposes supported versus unverified remedies. Unverified OCR/table/SmartArt repair does not authorize or trigger automatic uploads.
 - Node preflight has a 2500 ms host deadline and a 16 MiB input cap; timeouts retain unknown evidence.
-- `upgrade.json` preserves submitted/uncertain task state. Do not remove it to silently repeat a potentially paid request.
+- `upgrade.json` preserves submitted/uncertain task state; a submission counts as uncertain only once its task-creation request was sent. Do not remove it to silently repeat a potentially paid request. `--force` resubmits over it with a warning that the earlier task may be billed separately; use it only when the user accepts that cost.
 - Local one-shot `--split-pages` does not materialize separate portable page files. Parse first,
   then use artifact conversion with `--split-pages`.
 - Unknown Commander options can fail with exit 2 and stderr only.
