@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased — PPTX lists and clean emphasis
+
+- Read PPTX list structure in both engines: each paragraph's outline level and bullet are resolved
+  through the OOXML inheritance chain (paragraph → shape list style → layout placeholder → master
+  placeholder → master title/body/other style → presentation default) and recorded on text nodes as
+  `extensions.paragraphs` (`start`/`end` offsets into `text`, `level`, `list: 'bullet' | 'number'`).
+  Markdown renders them as nested `-` / `1.` lists; lead lines that switch bullets off stay plain.
+  **Behavior change**: CommonMark list items go from 25 to 483 on the example lecture deck and from 8
+  to 194 on a Chinese business deck. The cloud path reads the same chain from the presentation JSON;
+  it needs a backend on `@deckflow/presentation` ≥ 0.3.7 to see `<a:buNone/>` (older backends render
+  lead lines as list items).
+- Emphasis Markdown that parses: adjacent runs with the same formatting are merged before marking
+  (`**50****% ****的**** **` becomes `**50% 的** `), whitespace and edge punctuation that would stop
+  a marker from closing move outside it, whitespace-only runs get no markers, and italic nests inside
+  bold. The example decks go from 90 and 188 stray `**` in CommonMark output to 0.
+- Headings: an empty title placeholder is no longer a heading (no more bare `##`), and a multi-paragraph
+  title renders on one heading line instead of spilling its second line into body text.
+- Cloud submission journal: `submission_unknown` is recorded only when the task-creation request is
+  about to be sent. A failure while resolving the space or uploading no longer blocks every later
+  parse. `--force` now resubmits over an unresolved submission, with a warning that the earlier task,
+  if it was created, may be billed separately.
+- Errors for requests that got no response name the host and request
+  (`Cannot reach the DeckFlow API (GET https://…/v1/user): timeout of 30000ms exceeded`) and hint at
+  the network or proxy, instead of `API Error (unknown): …`.
+- Bump the local PPTX parser to `deckparse-pptx` 3, the cloud adapter to `deckflow-cloud` 3 for PPTX
+  only (cloud PDF/DOCX artifacts stay reusable, so they are not re-billed) and the Markdown renderer to
+  1.3.0.
+
 ## 2.3.0 — 2026-09-22 — PPTX slide layout
 
 - Resolve group transforms in both PPTX engines: group children now carry slide coordinates

@@ -222,3 +222,89 @@ describe('cloud asset retrieval', () => {
     await expect(cloudResultToCandidate(withImages(2), source, controller.signal)).rejects.toThrow();
   });
 });
+
+describe('cloud IR adapter: pptx lists', () => {
+  const EMU = 12700;
+  const box = (x: number, y: number, cx: number, cy: number) => ({ x: x * EMU, y: y * EMU, cx: cx * EMU, cy: cy * EMU });
+  const shape = (name: string, xfrm: Record<string, number>, paragraphs: Array<[string, Record<string, unknown>?]>, extra: Record<string, unknown> = {}) => ({
+    name, type: 'Shape', xfrm,
+    txBody: { children: paragraphs.map(([t, style]) => ({ ...(style ? { style } : {}), children: [{ t }] })) },
+    text: paragraphs.map(([t]) => t).join('\n'),
+    ...extra,
+  });
+  const placeholder = (type: string, idx?: number) => ({ type: 'Shape', ph: { type, ...(idx === undefined ? {} : { idx }) }, txBody: { children: [] } });
+  // 与 tests/unit/pptx-parser.test.ts 的 pptxWithMaster 同一份演示文稿：项目符号来自母版 bodyStyle。
+  const deck = (spTree: unknown[]) => cloudResultToCandidate({
+    taskId: 'task', type: 'pptx.parse', irKey: 'ir/fixture', irSchemaVersion: 'pptx.v1',
+    ir: {
+      slides: [{ _ref: 'slide1', _layoutRef: 'layout1', _masterRef: 'master1', spTree }],
+      slideMasters: [{
+        _ref: 'master1', spTree: [placeholder('title'), placeholder('body', 1)],
+        slideLayouts: [{ _ref: 'layout1', _masterRef: 'master1', spTree: [placeholder('title'), placeholder('body', 1)] }],
+        titleStyle: { lvl1pPr: { buNone: true } },
+        bodyStyle: { lvl1pPr: { buChar: '•' }, lvl2pPr: { buChar: '–' }, lvl3pPr: { buChar: '»' } },
+        otherStyle: { lvl1pPr: {} },
+      }],
+      defaultTextStyle: { lvl1pPr: { buFont: { typeface: 'Arial' } } },
+      files: {}, images: [],
+    },
+  } as ParseResult, source);
+
+  it('nests bullets inherited from the master exactly as the local parser does', async () => {
+    const candidate = await deck([
+      shape('Title 1', box(50, 20, 600, 60), [['Client-server architecture']], { ph: { type: 'title' } }),
+      shape('Content Placeholder 2', box(50, 100, 600, 300), [
+        ['server:', { buFont: { typeface: 'ZapfDingbats' }, buNone: true }],
+        ['always-on host', { lvl: 1 }],
+        ['permanent IP address', { lvl: 1 }],
+        ['clients:', { buNone: true }],
+        ['communicate with server', { lvl: 1 }],
+      ], { ph: { type: 'body', idx: 2 } }),
+    ]);
+    expect(renderMarkdown(candidate.ir).markdown).toBe([
+      '## Client-server architecture', '',
+      'server:', '',
+      '- always-on host', '- permanent IP address', '',
+      'clients:', '',
+      '- communicate with server', '',
+    ].join('\n'));
+    expect(candidate.ir.producer.version).toBe('3');
+  });
+
+  it('numbers auto-numbered paragraphs and leaves plain text boxes alone', async () => {
+    const candidate = await deck([
+      shape('TextBox 1', box(50, 100, 600, 200), [
+        ['first', { buAutoNum: 'arabicPeriod' }], ['second', { buAutoNum: 'arabicPeriod' }],
+        ['detail', { lvl: 1, buChar: '•' }], ['third', { buAutoNum: 'arabicPeriod' }],
+      ]),
+      shape('TextBox 2', box(50, 400, 600, 100), [['caption line one'], ['caption line two']]),
+    ]);
+    expect(renderMarkdown(candidate.ir).markdown).toBe('1. first\n2. second\n   - detail\n3. third\n\ncaption line one\ncaption line two\n');
+    expect(candidate.ir.document.nodes.find((node) => node.text?.startsWith('caption'))!.extensions?.paragraphs).toBeUndefined();
+  });
+});
+
+describe('Markdown emphasis from text runs', () => {
+  const EMU = 12700;
+  const render = async (runs: Array<Record<string, unknown>>) => {
+    const text = runs.map((run) => run.t).join('');
+    const candidate = await parse([{ type: 'Shape', xfrm: { x: 0, y: 0, cx: EMU, cy: EMU }, txBody: { children: [{ children: runs }] }, text }]);
+    return renderMarkdown(candidate.ir).markdown.trimEnd();
+  };
+
+  it('merges a phrase PowerPoint split into several bold runs', async () => {
+    // 实测：「50% 的」被切成四个粗体运行，原先输出 **50****% ****的**** **。
+    expect(await render([{ t: '50', style: { b: true } }, { t: '% ', style: { b: true } }, { t: '的', style: { b: true } }, { t: ' ', style: { b: true } }, { t: '市场' }]))
+      .toBe('**50% 的** 市场');
+  });
+
+  it('keeps whitespace and edge punctuation outside the markers so they still parse', async () => {
+    expect(await render([{ t: '中文' }, { t: '粗体：', style: { b: true } }, { t: '正文' }])).toBe('中文**粗体**：正文');
+    expect(await render([{ t: 'a' }, { t: '   ', style: { b: true } }, { t: 'b' }])).toBe('a   b');
+    expect(await render([{ t: 'see ' }, { t: ' this ', style: { i: true } }, { t: 'now' }])).toBe('see  *this* now');
+  });
+
+  it('nests italic inside bold instead of butting the markers together', async () => {
+    expect(await render([{ t: 'abc', style: { b: true } }, { t: 'def', style: { b: true, i: true } }])).toBe('**abc*def***');
+  });
+});

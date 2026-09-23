@@ -2,6 +2,10 @@ import pLimit from 'p-limit';
 import type { ParseResult } from '../cloud/parse-facade.js';
 import type { ResultArtifact } from 'pdf-lite-parse';
 import { stableId } from './ids.js';
+import {
+  bulletDeclaration, levelStyleKey, listParagraphs, masterTextStyleKey, matchLayoutPlaceholder, placeholderKind, resolveList,
+  type BulletDeclaration, type PlaceholderKey, type TextParagraph,
+} from './pptx-lists.js';
 import { result3ToDeckIr } from './result3-adapter.js';
 import type { CandidateAsset, DeckIrNode, DeckIrPage, DeckIrRun, DocumentFormat, ParseCandidate, QualityCheck } from './schema.js';
 import { orderSlideNodes } from './slide-order.js';
@@ -13,7 +17,7 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   const assets = await cloudAssets(parsed.ir, signal);
   if (result3) {
     const candidate = result3ToDeckIr({ document: result3, source, assets,
-      producer: { engine: 'cloud', name: 'deckflow-cloud', version: '2' } });
+      producer: { engine: 'cloud', name: 'deckflow-cloud', version: cloudProducerVersion('pdf') } });
     candidate.remote = { taskId: parsed.taskId, irKey: parsed.irKey };
     return candidate;
   }
@@ -32,7 +36,8 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   if (pageItems.length) {
     pageItems.forEach((item, index) => {
       const before = nodes.length;
-      walkCloud(item, sink, source.sha256, `pages/${index}`, index + 1, null, pageTransform);
+      const styles = format === 'pptx' ? slideTextStyles(raw, object(item)) : undefined;
+      walkCloud(item, sink, source.sha256, `pages/${index}`, index + 1, null, pageTransform, styles);
       pages.push({ id: stableId(source.sha256, `cloud:page:${index}`, 'p'), index: index + 1,
         ...(pageSize(raw.width ?? object(raw.slideSize)?.cx) ? { width: pageSize(raw.width ?? object(raw.slideSize)?.cx) } : {}),
         ...(pageSize(raw.height ?? object(raw.slideSize)?.cy) ? { height: pageSize(raw.height ?? object(raw.slideSize)?.cy) } : {}),
@@ -51,7 +56,7 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   if (nodes.length === 0) checks.push({ code: 'cloud_schema_unmapped', severity: 'error', message: `Cloud schema ${parsed.irSchemaVersion} did not contain mappable document nodes.` });
   let quality = qualityOf(checks, { ...(pages.length ? { pages: { parsed: pages.length, total: pages.length } } : {}),
     objects: { parsed: nodes.length, opaque: 0 }, textCharacters: nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0) });
-  const ir = makeIr({ format, source, producer: { engine: 'cloud', name: 'deckflow-cloud', version: '2' },
+  const ir = makeIr({ format, source, producer: { engine: 'cloud', name: 'deckflow-cloud', version: cloudProducerVersion(format) },
     metadata: { cloudSchemaVersion: parsed.irSchemaVersion }, pages, nodes, assets, quality });
   const availableAssets = new Set(ir.document.assets.map((asset) => asset.path));
   for (const node of ir.document.nodes) {
@@ -63,6 +68,14 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   }
   quality = qualityOf(checks, quality.coverage); ir.quality = quality;
   return { ir, quality, assets, remote: { taskId: parsed.taskId, irKey: parsed.irKey }, warnings: quality.checks.map((check) => check.message) };
+}
+
+/**
+ * 云端适配器的产物版本，按格式分开：parse-op 按主版本判断缓存能不能复用，缓存失效就要重新提交
+ * 云端任务（计费）。只有产物真变了的格式才升版本——3 是 pptx 的列表结构，其余格式仍是 2。
+ */
+export function cloudProducerVersion(format: string | undefined): string {
+  return format === 'pptx' ? '3' : '2';
 }
 
 /**
@@ -120,9 +133,9 @@ function transformedBbox(xfrm: Record<string, unknown> | undefined, transform: T
 
 function round(value: number): number { return Math.round(value * 1000) / 1000; }
 
-function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: string, page?: number, parentId: string | null = null, transform: Transform = IDENTITY): void {
+function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: string, page?: number, parentId: string | null = null, transform: Transform = IDENTITY, styles?: SlideTextStyles): void {
   if (!value || typeof value !== 'object') return;
-  if (Array.isArray(value)) { value.forEach((item, index) => walkCloud(item, sink, hash, `${locator}/${index}`, page, parentId, transform)); return; }
+  if (Array.isArray(value)) { value.forEach((item, index) => walkCloud(item, sink, hash, `${locator}/${index}`, page, parentId, transform, styles)); return; }
   const record = value as Record<string, unknown>;
   const text = cloudText(record);
   const kind = cloudKind(record, text);
@@ -139,11 +152,13 @@ function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: s
     const assetPath = string(record.assetPath ?? record.suggestedPath);
     const externalUrl = string(record.accessURL ?? record.url);
     const placeholder = object(record.ph);
+    // 段落范围按 runs 切，runs 与 text 对不上时一并不给。
+    const paragraphs = kind === 'text' && runs && styles ? cloudListParagraphs(record, styles) : undefined;
     const node: DeckIrNode = { id, type: kind, parentId, children: [], order: sink.nodes.length, ...(text ? { text } : {}),
       ...(runs ? { runs } : {}), ...(page ? { page } : {}), sourceRef: { path: locator, ...(page ? { page } : {}) },
       ...(bbox ? { bbox } : {}),
       extensions: { cloud: { id: record.id, name: record.name, style: record.style }, ...(placeholder ? { placeholder } : {}),
-        ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}) } };
+        ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}), ...(paragraphs ? { paragraphs } : {}) } };
     push(sink, node); if (parentId) sink.byId.get(parentId)?.children.push(id); nextParent = id;
     // 表格必须按 table → table_row → table_cell 发，和 local/pptx、local/docx、result3 三个
     // 适配器一致：Markdown 渲染器只认这三种类型，让通用遍历把单元格摊成一串 shape 子节点，
@@ -155,7 +170,7 @@ function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: s
   const childTransform = kind === 'group' ? groupTransform(xfrm, transform) : transform;
   for (const [key, child] of Object.entries(record)) {
     if (skipKeys.has(key)) continue;
-    if (child && typeof child === 'object') walkCloud(child, sink, hash, `${locator}/${key}`, page, nextParent, key === 'children' ? childTransform : transform);
+    if (child && typeof child === 'object') walkCloud(child, sink, hash, `${locator}/${key}`, page, nextParent, key === 'children' ? childTransform : transform, styles);
   }
 }
 
@@ -250,17 +265,12 @@ const FURNITURE_KINDS: ReadonlySet<string> = new Set(Object.values(FURNITURE_PLA
  * runs 是 text 的另一种切分，两者不一致时读方无从判断该信哪个。
  */
 function cloudRuns(record: Record<string, unknown>, text: string): DeckIrRun[] | undefined {
-  const paragraphs = array(object(record.txBody)?.children)
-    .map((paragraph) => array(object(paragraph)?.children).flatMap((run) => {
-      const parsed = object(run);
-      return parsed && typeof parsed.t === 'string' ? [parsed] : [];
-    }))
-    .filter((runs) => runs.length > 0);
+  const paragraphs = cloudParagraphs(record);
   if (paragraphs.length === 0) return undefined;
   const runs: DeckIrRun[] = [];
   paragraphs.forEach((paragraph, index) => {
     if (index > 0) runs.push({ text: '\n' });
-    for (const run of paragraph) {
+    for (const run of paragraph.runs) {
       const style = object(run.style);
       const underline = string(style?.u);
       const strike = string(style?.strike);
@@ -271,6 +281,89 @@ function cloudRuns(record: Record<string, unknown>, text: string): DeckIrRun[] |
     }
   });
   return runs.map((run) => run.text).join('') === text ? runs : undefined;
+}
+
+/** 有文本运行的段落，与 `text`、`cloudRuns` 同一种切法：跳过空段落。 */
+function cloudParagraphs(record: Record<string, unknown>): Array<{ style: Record<string, unknown> | undefined; runs: Array<Record<string, unknown>> }> {
+  return array(object(record.txBody)?.children).flatMap((raw) => {
+    const paragraph = object(raw);
+    const runs = array(paragraph?.children).flatMap((run) => {
+      const parsed = object(run);
+      return parsed && typeof parsed.t === 'string' ? [parsed] : [];
+    });
+    return runs.length > 0 ? [{ style: object(paragraph?.style), runs }] : [];
+  });
+}
+
+/** 一页幻灯片的项目符号继承来源，与 local/pptx/parser.ts 同一条链。 */
+interface SlideTextStyles {
+  layoutPlaceholders: Array<{ key: PlaceholderKey; value: Record<string, unknown> }>;
+  masterPlaceholders: Array<{ key: PlaceholderKey; value: Record<string, unknown> }>;
+  master: Record<string, unknown> | undefined;
+  defaultTextStyle: Record<string, unknown> | undefined;
+}
+
+function slideTextStyles(raw: Record<string, unknown>, slide: Record<string, unknown> | undefined): SlideTextStyles {
+  const masters = array(raw.slideMasters).flatMap((item) => object(item) ? [object(item)!] : []);
+  const master = masters.find((item) => item._ref === slide?._masterRef);
+  const layout = masters.flatMap((item) => array(item.slideLayouts)).map(object).find((item) => item?._ref === slide?._layoutRef);
+  return {
+    layoutPlaceholders: placeholdersOf(layout?.spTree),
+    masterPlaceholders: placeholdersOf(master?.spTree),
+    master,
+    defaultTextStyle: object(raw.defaultTextStyle),
+  };
+}
+
+function placeholdersOf(tree: unknown): Array<{ key: PlaceholderKey; value: Record<string, unknown> }> {
+  return array(tree).flatMap((item) => {
+    const shape = object(item);
+    if (!shape) return [];
+    const placeholder = object(shape.ph);
+    return [...(placeholder ? [{ key: cloudPlaceholderKey(placeholder), value: shape }] : []), ...placeholdersOf(shape.children)];
+  });
+}
+
+function cloudPlaceholderKey(placeholder: Record<string, unknown>): PlaceholderKey {
+  const idx = placeholder.idx;
+  return { type: string(placeholder.type), idx: typeof idx === 'number' || typeof idx === 'string' ? String(idx) : undefined };
+}
+
+function cloudListParagraphs(record: Record<string, unknown>, styles: SlideTextStyles): TextParagraph[] | undefined {
+  const placeholder = object(record.ph);
+  const key = placeholder ? cloudPlaceholderKey(placeholder) : undefined;
+  let length = 0;
+  return listParagraphs(cloudParagraphs(record).map((paragraph, index): TextParagraph => {
+    if (index > 0) length += 1;
+    const start = length;
+    length += paragraph.runs.reduce((sum, run) => sum + (run.t as string).length, 0);
+    const level = Math.min(Math.max(number(paragraph.style?.lvl) ?? 0, 0), 8);
+    const list = resolveList(cloudBulletChain(paragraph.style, level, record, key, styles));
+    return { start, end: length, level, ...(list ? { list } : {}) };
+  }));
+}
+
+/** 段落 → 形状 lstStyle → 版式占位符 → 母版占位符 → 母版文字样式 → 默认文字样式。 */
+function* cloudBulletChain(style: Record<string, unknown> | undefined, level: number, record: Record<string, unknown>, placeholder: PlaceholderKey | undefined, styles: SlideTextStyles): Generator<BulletDeclaration> {
+  const levelKey = levelStyleKey(level);
+  const levelOf = (list: unknown): Record<string, unknown> | undefined => object(object(list)?.[levelKey]);
+  yield cloudDeclaredBullet(style);
+  yield cloudDeclaredBullet(levelOf(object(record.txBody)?.lstStyle));
+  if (placeholder) {
+    const layout = matchLayoutPlaceholder(placeholder, styles.layoutPlaceholders);
+    yield cloudDeclaredBullet(levelOf(object(layout?.txBody)?.lstStyle));
+    const layoutType = (layout ? string(object(layout.ph)?.type) : undefined) ?? placeholder.type;
+    const master = styles.masterPlaceholders.find((item) => placeholderKind(item.key.type) === placeholderKind(layoutType))?.value;
+    yield cloudDeclaredBullet(levelOf(object(master?.txBody)?.lstStyle));
+  }
+  yield cloudDeclaredBullet(levelOf(styles.master?.[masterTextStyleKey(placeholder)]));
+  yield cloudDeclaredBullet(levelOf(styles.defaultTextStyle));
+}
+
+/** 云端 IR 不带图片项目符号（`buBlip`）：presentation 没有读出这个元素，那一层按「没说」处理。 */
+function cloudDeclaredBullet(style: Record<string, unknown> | undefined): BulletDeclaration {
+  if (!style) return undefined;
+  return bulletDeclaration({ none: style.buNone === true, autoNumber: Boolean(string(style.buAutoNum)), character: Boolean(string(style.buChar)) });
 }
 
 function cloudText(record: Record<string, unknown>): string {

@@ -79,3 +79,91 @@ describe('local pptx parser: slide layout', () => {
     expect(rotated.ir.quality.checks.map((check) => check.code)).toContain('group_transform_partial');
   });
 });
+
+/** 带版式与母版的演示文稿：母版 bodyStyle 给出两级项目符号，正文占位符的段落只写 lvl。 */
+function pptxWithMaster(shapes: string): Uint8Array {
+  const rels = (target: string, type: string) =>
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}" Target="${target}"/></Relationships>`;
+  const placeholder = (type: string, idx?: number) =>
+    `<p:sp><p:nvSpPr><p:cNvPr id="${(idx ?? 0) + 2}" name="${type}"/><p:cNvSpPr/><p:nvPr><p:ph type="${type}"${idx === undefined ? '' : ` idx="${idx}"`}/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>`;
+  const tree = (content: string) => `<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${content}</p:spTree></p:cSld>`;
+  return zipSync({
+    '[Content_Types].xml': strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'),
+    'ppt/presentation.xml': strToU8(`<p:presentation ${NS}><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst><p:sldSz cx="${720 * EMU}" cy="${540 * EMU}"/>`
+      + `<p:defaultTextStyle><a:lvl1pPr><a:buFont typeface="Arial"/></a:lvl1pPr></p:defaultTextStyle></p:presentation>`),
+    'ppt/_rels/presentation.xml.rels': strToU8(rels('slides/slide1.xml', 'slide')),
+    'ppt/slides/slide1.xml': strToU8(`<p:sld ${NS}>${tree(shapes)}</p:sld>`),
+    'ppt/slides/_rels/slide1.xml.rels': strToU8(rels('../slideLayouts/slideLayout1.xml', 'slideLayout')),
+    'ppt/slideLayouts/slideLayout1.xml': strToU8(`<p:sldLayout ${NS}>${tree(placeholder('title') + placeholder('body', 1))}</p:sldLayout>`),
+    'ppt/slideLayouts/_rels/slideLayout1.xml.rels': strToU8(rels('../slideMasters/slideMaster1.xml', 'slideMaster')),
+    'ppt/slideMasters/slideMaster1.xml': strToU8(`<p:sldMaster ${NS}>${tree(placeholder('title') + placeholder('body', 1))}<p:txStyles>`
+      + `<p:titleStyle><a:lvl1pPr><a:buNone/></a:lvl1pPr></p:titleStyle>`
+      + `<p:bodyStyle><a:lvl1pPr><a:buChar char="•"/></a:lvl1pPr><a:lvl2pPr><a:buChar char="–"/></a:lvl2pPr><a:lvl3pPr><a:buChar char="»"/></a:lvl3pPr></p:bodyStyle>`
+      + `<p:otherStyle><a:lvl1pPr/></p:otherStyle></p:txStyles></p:sldMaster>`),
+  });
+}
+
+const paragraph = (text: string, pPr = '') => `<a:p>${pPr}<a:r><a:t>${text}</a:t></a:r></a:p>`;
+
+describe('local pptx parser: lists', () => {
+  it('nests bullets inherited from the master under lead lines that switch them off', () => {
+    // 实测讲义「Client-server architecture」：引导行写 <a:buNone/>，要点只写 lvl="1"，项目符号来自母版。
+    const candidate = parsePptx(pptxWithMaster([
+      textShape(2, 'Title 1', [50, 20, 600, 60], run('Client-server architecture'), '<p:ph type="title"/>'),
+      textShape(3, 'Content Placeholder 2', [50, 100, 600, 300], [
+        paragraph('server:', '<a:pPr><a:buFont typeface="ZapfDingbats"/><a:buNone/></a:pPr>'),
+        paragraph('always-on host', '<a:pPr lvl="1"/>'),
+        paragraph('permanent IP address', '<a:pPr lvl="1"/>'),
+        paragraph('clients:', '<a:pPr><a:buNone/></a:pPr>'),
+        paragraph('communicate with server', '<a:pPr lvl="1"/>'),
+      ].join(''), '<p:ph type="body" idx="1"/>'),
+    ].join('')), source, DEFAULT_LOCAL_LIMITS);
+    expect(renderMarkdown(candidate.ir).markdown).toBe([
+      '## Client-server architecture', '',
+      'server:', '',
+      '- always-on host', '- permanent IP address', '',
+      'clients:', '',
+      '- communicate with server', '',
+    ].join('\n'));
+    const body = candidate.ir.document.nodes.find((node) => node.extensions?.name === 'Content Placeholder 2')!;
+    expect(body.extensions?.paragraphs).toEqual([
+      { start: 0, end: 7, level: 0 },
+      { start: 8, end: 22, level: 1, list: 'bullet' },
+      { start: 23, end: 43, level: 1, list: 'bullet' },
+      { start: 44, end: 52, level: 0 },
+      { start: 53, end: 76, level: 1, list: 'bullet' },
+    ]);
+  });
+
+  it('numbers auto-numbered paragraphs and indents a sub-list under the item it follows', () => {
+    const candidate = parsePptx(pptxWithMaster(textShape(2, 'TextBox 1', [50, 100, 600, 300], [
+      paragraph('first', '<a:pPr><a:buAutoNum type="arabicPeriod"/></a:pPr>'),
+      paragraph('second', '<a:pPr><a:buAutoNum type="arabicPeriod"/></a:pPr>'),
+      paragraph('detail', '<a:pPr lvl="1"><a:buChar char="•"/></a:pPr>'),
+      paragraph('third', '<a:pPr><a:buAutoNum type="arabicPeriod"/></a:pPr>'),
+    ].join(''))), source, DEFAULT_LOCAL_LIMITS);
+    expect(renderMarkdown(candidate.ir).markdown).toBe('1. first\n2. second\n   - detail\n3. third\n');
+  });
+
+  it('indents a skipped outline level only one step, and leaves plain text boxes alone', () => {
+    const candidate = parsePptx(pptxWithMaster([
+      textShape(2, 'Content Placeholder 1', [50, 100, 600, 200], [
+        paragraph('top'), paragraph('deep', '<a:pPr lvl="2"/>'),
+      ].join(''), '<p:ph idx="1"/>'),
+      // 不是占位符的文本框走 otherStyle，母版的正文项目符号与它无关。
+      textShape(3, 'TextBox 2', [50, 400, 600, 100], paragraph('caption line one') + paragraph('caption line two')),
+    ].join('')), source, DEFAULT_LOCAL_LIMITS);
+    expect(renderMarkdown(candidate.ir).markdown).toBe('- top\n  - deep\n\ncaption line one\ncaption line two\n');
+    const box = candidate.ir.document.nodes.find((node) => node.extensions?.name === 'TextBox 2')!;
+    expect(box.extensions?.paragraphs).toBeUndefined();
+  });
+
+  it('does not turn an empty title placeholder into an empty heading', () => {
+    const candidate = parsePptx(pptxWithMaster([
+      textShape(2, 'Title 1', [50, 20, 600, 60], '<a:p><a:endParaRPr lang="en-US"/></a:p>', '<p:ph type="title"/>'),
+      textShape(3, 'TextBox 2', [50, 100, 600, 100], run('body')),
+    ].join('')), source, DEFAULT_LOCAL_LIMITS);
+    expect(candidate.ir.document.nodes.map((node) => node.type)).toEqual(['shape', 'text']);
+    expect(renderMarkdown(candidate.ir).markdown).toBe('body\n');
+  });
+});

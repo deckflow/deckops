@@ -1,6 +1,10 @@
 import { DeckOpsError } from '../../errors/index.js';
 import { stableId } from '../../ir/ids.js';
 import type { CandidateAsset, DeckIrNode, DeckIrRun, ParseCandidate, QualityCheck } from '../../ir/schema.js';
+import {
+  bulletDeclaration, levelStyleKey, listParagraphs, masterTextStyleKey, matchLayoutPlaceholder, placeholderKind, resolveList,
+  type BulletDeclaration, type PlaceholderKey, type TextParagraph,
+} from '../../ir/pptx-lists.js';
 import { orderSlideNodes } from '../../ir/slide-order.js';
 import { makeIr, mediaTypeForPath, qualityOf, type SourceIdentity } from '../common.js';
 import type { LocalLimits } from '../limits.js';
@@ -19,6 +23,24 @@ interface Context {
   rels: Map<string, Relationship>;
   /** 当前形状树坐标 → 幻灯片坐标（pt）。组合的子形状写在组合自己的子画布里，逐层复合。 */
   transform: Transform;
+  /** 这一页项目符号的继承来源。 */
+  textStyles: SlideTextStyles;
+}
+
+/** 版式或母版上的一个占位符，带着它的 lstStyle。 */
+interface StyledPlaceholder { key: PlaceholderKey; lstStyle: XmlNode | undefined }
+
+/** 版式、母版各自提供的样式来源；按部件缓存，几十页共用一个版式不必重复解析。 */
+interface StyleSource {
+  placeholders: StyledPlaceholder[];
+  textStyles: Partial<Record<'titleStyle' | 'bodyStyle' | 'otherStyle', XmlNode>>;
+}
+
+/** 一页幻灯片的项目符号继承链：版式占位符 → 母版占位符 → 母版文字样式 → 演示文稿默认样式。 */
+interface SlideTextStyles {
+  layout: StyleSource | undefined;
+  master: StyleSource | undefined;
+  defaultTextStyle: XmlNode | undefined;
 }
 
 interface Transform { scaleX: number; scaleY: number; translateX: number; translateY: number }
@@ -48,6 +70,8 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
   const checks: QualityCheck[] = [];
   const pages = [];
   let order = 0;
+  const styleSources = new Map<string, StyleSource>();
+  const defaultTextStyle = descendants(presentation, 'defaultTextStyle')[0];
 
   for (const [index, slideId] of slideIds.entries()) {
     // p:sldId carries both numeric id and namespaced r:id; relationship id wins.
@@ -59,7 +83,9 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     }
     const page = index + 1;
     const before = nodes.length;
-    const ctx: Context = { pkg, source, nodes, assets, checks, order, page, part: rel.target, rels: pkg.relationships(rel.target), transform: IDENTITY };
+    const rels = pkg.relationships(rel.target);
+    const ctx: Context = { pkg, source, nodes, assets, checks, order, page, part: rel.target, rels, transform: IDENTITY,
+      textStyles: slideTextStyles(pkg, rels, styleSources, defaultTextStyle) };
     const slide = pkg.xml(rel.target);
     const tree = descendants(slide, 'spTree')[0];
     if (tree) parseShapeTree(tree, ctx, null);
@@ -84,7 +110,7 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     objects: { parsed: nodes.length - opaque, opaque, total: nodes.length },
     textCharacters: nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0),
   });
-  const ir = makeIr({ format: 'pptx', source, producer: { name: 'deckparse-pptx', version: '2' },
+  const ir = makeIr({ format: 'pptx', source, producer: { name: 'deckparse-pptx', version: '3' },
     metadata: { ...readCoreProperties(pkg), slideSize: { width, height }, theme: readTheme(pkg, presentationRels) },
     pages, nodes, assets, quality });
   return { ir, quality, assets, warnings: quality.checks.map((check) => check.message) };
@@ -103,28 +129,112 @@ function parseShape(shape: XmlNode, ctx: Context, parentId: string | null): void
   const native = descendants(shape, 'cNvPr')[0];
   const nativeId = native?.attributes.id ?? String(ctx.order);
   const id = stableId(ctx.source.sha256, `${ctx.part}:shape:${nativeId}`);
-  const paragraphs = descendants(shape, 'p');
   const runs: DeckIrRun[] = [];
-  for (const paragraph of paragraphs) {
+  const spans: Array<{ start: number; end: number; pPr: XmlNode | undefined }> = [];
+  let length = 0;
+  for (const paragraph of descendants(shape, 'p')) {
     const paragraphRuns = textRuns(paragraph, ctx.rels);
-    if (runs.length && paragraphRuns.length) runs.push({ text: '\n' });
-    runs.push(...paragraphRuns);
+    if (!paragraphRuns.length) continue;
+    if (runs.length) { runs.push({ text: '\n' }); length += 1; }
+    const start = length;
+    for (const run of paragraphRuns) { runs.push(run); length += run.text.length; }
+    spans.push({ start, end: length, pPr: first(paragraph, 'pPr') });
   }
   const text = runs.map((run) => run.text).join('');
   const placeholder = descendants(shape, 'ph')[0];
   const placeholderType = placeholder?.attributes.type;
   const xfrm = descendants(shape, 'xfrm')[0];
   const bbox = bboxOf(xfrm, ctx.transform);
+  // 空的标题占位符不是标题：它没有字，当成 heading 只会在 Markdown 里留下一行空的 `##`。
+  const type = text && (placeholderType === 'title' || placeholderType === 'ctrTitle') ? 'heading'
+    : (placeholderType && FURNITURE_PLACEHOLDERS[placeholderType]) || (text ? 'text' : 'shape');
+  const placeholderKey = placeholder ? keyOf(placeholder) : undefined;
+  const paragraphs = type === 'text'
+    ? listParagraphs(spans.map(({ start, end, pPr }): TextParagraph => {
+      const level = Math.min(Math.max(Number(pPr?.attributes.lvl ?? 0) || 0, 0), 8);
+      const list = resolveList(bulletChain(pPr, level, shape, placeholderKey, ctx.textStyles));
+      return { start, end, level, ...(list ? { list } : {}) };
+    }))
+    : undefined;
   const deckNode: DeckIrNode = {
-    id, type: placeholderType === 'title' || placeholderType === 'ctrTitle' ? 'heading'
-      : (placeholderType && FURNITURE_PLACEHOLDERS[placeholderType]) || (text ? 'text' : 'shape'),
+    id, type,
     parentId, children: [], order: ctx.order++, text, runs, page: ctx.page, zIndex: ctx.order,
     sourceRef: { part: ctx.part, page: ctx.page, path: `shape/${nativeId}` },
     ...(bbox ? { bbox } : {}),
     extensions: { nativeId, name: native?.attributes.name, placeholder: placeholder ? { ...placeholder.attributes } : undefined,
-      rawTransform: rawTransform(xfrm), geometry: descendants(shape, 'prstGeom')[0]?.attributes.prst },
+      rawTransform: rawTransform(xfrm), geometry: descendants(shape, 'prstGeom')[0]?.attributes.prst,
+      ...(paragraphs ? { paragraphs } : {}) },
   };
   ctx.nodes.push(deckNode); attach(ctx, parentId, id);
+}
+
+/**
+ * 一个段落的项目符号，按 OOXML 的继承链逐层问：段落自己的 pPr → 形状的 lstStyle →
+ * 版式占位符 → 母版占位符 → 母版文字样式 → 演示文稿默认样式。实测讲义的要点全都写在
+ * 母版 bodyStyle 里，段落上只有 `lvl`；引导行则在段落上写 `<a:buNone/>` 把它关掉。
+ */
+function* bulletChain(pPr: XmlNode | undefined, level: number, shape: XmlNode, placeholder: PlaceholderKey | undefined, styles: SlideTextStyles): Generator<BulletDeclaration> {
+  const key = levelStyleKey(level);
+  yield declaredBullet(pPr);
+  yield declaredBullet(levelOf(first(first(shape, 'txBody') ?? emptyNode(), 'lstStyle'), key));
+  if (placeholder) {
+    const layout = styles.layout ? matchLayoutPlaceholder(placeholder, styles.layout.placeholders.map((item) => ({ key: item.key, value: item }))) : undefined;
+    yield declaredBullet(levelOf(layout?.lstStyle, key));
+    const kind = placeholderKind(layout?.key.type ?? placeholder.type);
+    const master = styles.master?.placeholders.find((item) => placeholderKind(item.key.type) === kind);
+    yield declaredBullet(levelOf(master?.lstStyle, key));
+  }
+  yield declaredBullet(levelOf(styles.master?.textStyles[masterTextStyleKey(placeholder)], key));
+  yield declaredBullet(levelOf(styles.defaultTextStyle, key));
+}
+
+function declaredBullet(pPr: XmlNode | undefined): BulletDeclaration {
+  if (!pPr) return undefined;
+  return bulletDeclaration({
+    none: Boolean(first(pPr, 'buNone')),
+    autoNumber: Boolean(first(pPr, 'buAutoNum')?.attributes.type),
+    character: Boolean(first(pPr, 'buChar')?.attributes.char),
+    picture: Boolean(first(pPr, 'buBlip')),
+  });
+}
+
+function levelOf(list: XmlNode | undefined, key: string): XmlNode | undefined {
+  return list ? first(list, key) : undefined;
+}
+
+function keyOf(placeholder: XmlNode): PlaceholderKey {
+  return { type: placeholder.attributes.type, idx: placeholder.attributes.idx };
+}
+
+function slideTextStyles(pkg: OpcPackage, slideRels: Map<string, Relationship>, cache: Map<string, StyleSource>, defaultTextStyle: XmlNode | undefined): SlideTextStyles {
+  const related = (rels: Map<string, Relationship>, suffix: string): string | undefined => {
+    const rel = [...rels.values()].find((item) => item.type.endsWith(suffix) && !item.external && pkg.has(item.target));
+    return rel?.target;
+  };
+  const source = (part: string | undefined): StyleSource | undefined => {
+    if (!part) return undefined;
+    let cached = cache.get(part);
+    if (!cached) { cached = readStyleSource(pkg.xml(part)); cache.set(part, cached); }
+    return cached;
+  };
+  const layoutPart = related(slideRels, '/slideLayout');
+  const masterPart = layoutPart ? related(pkg.relationships(layoutPart), '/slideMaster') : undefined;
+  return { layout: source(layoutPart), master: source(masterPart), defaultTextStyle };
+}
+
+function readStyleSource(root: XmlNode): StyleSource {
+  const tree = descendants(root, 'spTree')[0];
+  const placeholders = (tree ? descendants(tree, 'sp') : []).flatMap((sp): StyledPlaceholder[] => {
+    const placeholder = descendants(sp, 'ph')[0];
+    return placeholder ? [{ key: keyOf(placeholder), lstStyle: first(first(sp, 'txBody') ?? emptyNode(), 'lstStyle') }] : [];
+  });
+  const txStyles = descendants(root, 'txStyles')[0];
+  const textStyles: StyleSource['textStyles'] = {};
+  for (const name of ['titleStyle', 'bodyStyle', 'otherStyle'] as const) {
+    const style = txStyles ? first(txStyles, name) : undefined;
+    if (style) textStyles[name] = style;
+  }
+  return { placeholders, textStyles };
 }
 
 function parsePicture(pic: XmlNode, ctx: Context, parentId: string | null): void {
