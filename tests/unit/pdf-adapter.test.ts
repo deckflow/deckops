@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseArtifacts } from 'pdf-lite-parse';
+import { parseArtifacts } from '@deckflow/pdf-lite-parse';
 import { parsePdf } from '../../src/local/pdf/adapter.js';
 import { DEFAULT_LOCAL_LIMITS } from '../../src/local/limits.js';
 
-vi.mock('pdf-lite-parse', () => ({ parseArtifacts: vi.fn() }));
+vi.mock('@deckflow/pdf-lite-parse', () => ({ parseArtifacts: vi.fn() }));
 const source = { sha256: 'a'.repeat(64), name: 'fixture.pdf', bytes: 1 };
 
 beforeEach(() => {

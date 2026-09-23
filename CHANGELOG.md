@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Depend on `@deckflow/pdf-lite-parse@0.2.1`, the new scoped name of the local PDF parser; the unscoped
+  `pdf-lite-parse` package is deprecated. The parser code is unchanged, and so is the `pdf-lite-parse`
+  producer name recorded in IR, so existing local PDF artifacts stay reusable.
+
 ## 2.4.0 — 2026-09-23 — PPTX lists and clean emphasis
 
 - Read PPTX list structure in both engines: each paragraph's outline level and bullet are resolved

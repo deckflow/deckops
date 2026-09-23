@@ -1,4 +1,4 @@
-import type { Element, Mark, ResultArtifact, Warning } from 'pdf-lite-parse';
+import type { Element, Mark, ResultArtifact, Warning } from '@deckflow/pdf-lite-parse';
 import { stableId } from './ids.js';
 import type { CandidateAsset, DeckIR, DeckIrNode, ParseCandidate, QualityCheck } from './schema.js';
 import { makeIr, qualityOf, type SourceIdentity } from '../local/common.js';

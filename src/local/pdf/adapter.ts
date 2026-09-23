@@ -1,4 +1,4 @@
-import type { ParseArtifacts, ParseOptions } from 'pdf-lite-parse';
+import type { ParseArtifacts, ParseOptions } from '@deckflow/pdf-lite-parse';
 import { DeckOpsError } from '../../errors/index.js';
 import { result3ToDeckIr } from '../../ir/result3-adapter.js';
 import type { ParseCandidate } from '../../ir/schema.js';
@@ -14,7 +14,7 @@ export interface LocalPdfOptions {
 
 export async function parsePdf(input: string | Uint8Array, source: SourceIdentity, limits: LocalLimits, options: LocalPdfOptions = {}): Promise<ParseCandidate> {
   // Deliberately lazy: formats/help and OOXML paths do not load PDF.js.
-  const { parseArtifacts } = await import('pdf-lite-parse');
+  const { parseArtifacts } = await import('@deckflow/pdf-lite-parse');
   const upstreamOptions: ParseOptions = {
     images: options.includeImages === false ? 'none' : 'embedded',
     ...(options.password !== undefined ? { password: options.password } : {}),

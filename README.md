@@ -27,7 +27,7 @@ npm install -g @deckflow/deckops
 
 The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications use the separate cloud-only [browser entry](#use-it-in-the-browser).
 
-Local PDF parsing uses `pdf-lite-parse@0.2.1` and exports embedded images without expensive composite-figure rasterization. Extractable overlay text is retained separately; visual fidelity losses are reported in `quality`. `--no-images` (SDK: `includeImages: false`) skips image export entirely.
+Local PDF parsing uses `@deckflow/pdf-lite-parse@0.2.1` and exports embedded images without expensive composite-figure rasterization. Extractable overlay text is retained separately; visual fidelity losses are reported in `quality`. `--no-images` (SDK: `includeImages: false`) skips image export entirely.
 
 Ordinary `npm install @deckflow/deckops` is now lightweight for PDF parsing: the parser embeds a pinned subset of PDF.js and its portable resources, with no separately installed `pdfjs-dist` or automatic canvas dependency. DeckProbe is pinned to the published 2.6.0 package; it uses its matching optional native CLI when available and falls back to WASM otherwise. To omit those as well and use the strict no-native installation:
 
@@ -35,7 +35,7 @@ Ordinary `npm install @deckflow/deckops` is now lightweight for PDF parsing: the
 npm install --omit=optional @deckflow/deckops
 ```
 
-Embedded-image PDF parsing works in both installation modes without canvas. Use the cloud engine explicitly when full figure fidelity is needed. Applications calling `pdf-lite-parse` directly can explicitly install canvas for its opt-in composite mode; DeckOps does not enable it automatically.
+Embedded-image PDF parsing works in both installation modes without canvas. Use the cloud engine explicitly when full figure fidelity is needed. Applications calling `@deckflow/pdf-lite-parse` directly can explicitly install canvas for its opt-in composite mode; DeckOps does not enable it automatically.
 
 ## Content and upgrade policy
 
@@ -322,7 +322,7 @@ their original MIT license; this change does not revoke permissions already gran
 
 Third-party components retain their own licenses and copyright notices. See
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) and the licenses accompanying those
-components, including the PDF.js resources embedded in `pdf-lite-parse`.
+components, including the PDF.js resources embedded in `@deckflow/pdf-lite-parse`.
 The DeckOps license does not replace or remove those notices.
 
 Source and build instructions are available in this repository; use the tag or

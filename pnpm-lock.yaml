@@ -11,6 +11,9 @@ importers:
       '@deckflow/deckprobe':
         specifier: 2.6.0
         version: 2.6.0
+      '@deckflow/pdf-lite-parse':
+        specifier: 0.2.1
+        version: 0.2.1
       axios:
         specifier: 1.19.0
         version: 1.19.0
@@ -35,9 +38,6 @@ importers:
       parse5:
         specifier: ^7.3.0
         version: 7.3.0
-      pdf-lite-parse:
-        specifier: 0.2.1
-        version: 0.2.1
       saxes:
         specifier: ^6.0.0
         version: 6.0.0
@@ -112,6 +112,11 @@ packages:
   '@deckflow/deckprobe@2.6.0':
     resolution: {integrity: sha512-rkgv1kYlPyn6dAUf67oDU0zK6p51Wq3bpjF3dMKe+t+RJWBUwRuDyiBKTlPojN3rfjx5r1gt7ZY4S+iHOg+nkw==, tarball: https://registry.npmjs.org/@deckflow/deckprobe/-/deckprobe-2.6.0.tgz}
     engines: {node: '>=20'}
+    hasBin: true
+
+  '@deckflow/pdf-lite-parse@0.2.1':
+    resolution: {integrity: sha512-rrZGZ/EyYAtg/5mGrr0Y9FowjujcQNJJu6gScpUsaKNvNw1p/8s1ZnTJfoJPoZIFDaTE2526f6zr2hO90iGoOw==, tarball: https://registry.npmjs.org/@deckflow/pdf-lite-parse/-/pdf-lite-parse-0.2.1.tgz}
+    engines: {node: '>=22.18'}
     hasBin: true
 
   '@esbuild/aix-ppc64@0.21.5':
@@ -915,11 +920,6 @@ packages:
     resolution: {integrity: sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ==, tarball: https://registry.npmmirror.com/pathval/-/pathval-2.0.1.tgz}
     engines: {node: '>= 14.16'}
 
-  pdf-lite-parse@0.2.1:
-    resolution: {integrity: sha512-yQ2PucFfPxZRRXV7vwLbLEjzBok2IcdqdNH2qoXqA9V2mrC0akeJbj43BkovCqis40Uzjj4wYou2JT3mNhd6CA==, tarball: https://registry.npmjs.org/pdf-lite-parse/-/pdf-lite-parse-0.2.1.tgz}
-    engines: {node: '>=22.18'}
-    hasBin: true
-
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==, tarball: https://registry.npmmirror.com/picocolors/-/picocolors-1.1.1.tgz}
 
@@ -1178,6 +1178,8 @@ snapshots:
       '@deckflow/deckprobe-linux-x64-gnu': 2.6.0
       '@deckflow/deckprobe-linux-x64-musl': 2.6.0
       '@deckflow/deckprobe-win32-x64-msvc': 2.6.0
+
+  '@deckflow/pdf-lite-parse@0.2.1': {}
 
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
@@ -1782,8 +1784,6 @@ snapshots:
   pathe@2.0.3: {}
 
   pathval@2.0.1: {}
-
-  pdf-lite-parse@0.2.1: {}
 
   picocolors@1.1.1: {}
 

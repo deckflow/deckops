@@ -5,14 +5,14 @@ That license does not relicense the third-party components listed below.
 Their applicable original licenses, copyright statements and attribution
 notices must be retained when redistributing those components.
 
-pdf-lite-parse
+@deckflow/pdf-lite-parse
 Copyright its contributors. Licensed under the Apache License 2.0.
 https://github.com/deckflow/pdf-lite-parse
 
 PDF.js / pdfjs-dist
 Copyright Mozilla Foundation and contributors. Licensed under the Apache License 2.0.
 https://github.com/mozilla/pdf.js
-An allowlisted runtime and resource subset is embedded in pdf-lite-parse.
+An allowlisted runtime and resource subset is embedded in @deckflow/pdf-lite-parse.
 See its dist/vendor/pdfjs/PROVENANCE.json, LICENSE, and resource license notices.
 
 @napi-rs/canvas (only if explicitly installed by a consumer; not a dependency)

@@ -68,7 +68,7 @@ try {
     '--engine', 'local', '--preflight', 'off', '--output', defaultOutput, '--json'], {encoding:'utf8'}));
   if (!defaultSmoke.ok || defaultSmoke.engine !== 'local') throw new Error('Default production install failed the local PDF smoke test.');
   const ir = JSON.parse(fs.readFileSync(path.join(defaultOutput, 'ir.json'), 'utf8'));
-  const parserVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).dependencies['pdf-lite-parse'];
+  const parserVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).dependencies['@deckflow/pdf-lite-parse'];
   if (ir.producer.version !== parserVersion) throw new Error('Installed PDF parser version does not match the dependency pin.');
   process.stdout.write(`tarball ${(item.size / MiB).toFixed(2)} MiB; strict install ${(installedBytes / MiB).toFixed(2)} MiB; default install ${(defaultBytes / MiB).toFixed(2)} MiB (${defaultNative} native binaries); cold-start P95 ${p95.toFixed(0)} ms; PDF RSS ${(measured.maxRssBytes / MiB).toFixed(2)} MiB; files >1 MiB ${large.length}\n`);
 } finally {

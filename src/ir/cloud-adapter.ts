@@ -1,6 +1,6 @@
 import pLimit from 'p-limit';
 import type { ParseResult } from '../cloud/parse-facade.js';
-import type { ResultArtifact } from 'pdf-lite-parse';
+import type { ResultArtifact } from '@deckflow/pdf-lite-parse';
 import { stableId } from './ids.js';
 import {
   bulletDeclaration, levelStyleKey, listParagraphs, masterTextStyleKey, matchLayoutPlaceholder, placeholderKind, resolveList,
