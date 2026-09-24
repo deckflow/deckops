@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Cloud robustness
+## 2.5.1 — 2026-09-24 — Cloud robustness
 
 - Resume an interrupted cloud parse: when an earlier run recorded a task ID (the task was created,
   then the wait or the result download failed), rerunning the same parse waits for that task and
