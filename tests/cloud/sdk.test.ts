@@ -976,9 +976,20 @@ describe('Node cloud transport', () => {
     const lookups = vi.fn(() => [200, '']);
     mock.onGet('http://localhost:3000/api/tools/tasks/task-empty').reply(lookups);
 
-    await expect(deck.tasks.wait('task-empty', { timeout: 30, pollInterval: 1, useEventStream: false }))
-      .rejects.toThrow('The cloud returned no task status for task-empty 3 times in a row');
-    expect(lookups).toHaveBeenCalledTimes(3);
+    await expect(deck.tasks.wait('task-empty', { timeout: 30, pollInterval: 5, useEventStream: false, emptyStatusGrace: 0.05 }))
+      .rejects.toThrow(/The cloud returned no task status for task-empty for \d+s/);
+    expect(lookups.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('keeps waiting through the empty status a just-created task briefly returns', async () => {
+    // 实测（测试环境）：刚建好的任务头几秒回空响应体；2.5.1 连续三次就报错，一个正常的任务因此失败。
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    const snapshots: Array<[number, unknown]> = [[200, ''], [200, ''], [200, ''], [200, ''],
+      [200, { id: 'task-new', spaceId: 'space-1', type: 'pptx.parse', status: 'completed' }]];
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-new').reply(() => snapshots.shift() ?? [200, '']);
+
+    const task = await deck.tasks.wait('task-new', { timeout: 30, pollInterval: 1, useEventStream: false });
+    expect(task.status).toBe('completed');
   });
 
   it('resumes a submitted parse task without creating another one', async () => {

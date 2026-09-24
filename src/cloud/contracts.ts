@@ -123,6 +123,11 @@ export interface WaitForTaskOptions {
   onProgress?: ((task: DeckTask) => void) | undefined;
   /** Poll interval in milliseconds when polling is used. */
   pollInterval?: (number) | undefined;
+  /**
+   * Seconds to keep polling while the status endpoint answers with no task (empty body) before
+   * giving up. Defaults to 30.
+   */
+  emptyStatusGrace?: (number) | undefined;
 }
 
 export interface TaskDownloadOptions {

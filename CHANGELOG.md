@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Empty task status grace
+
+- Keep waiting while the task status comes back empty for up to 30 seconds (`emptyStatusGrace`),
+  instead of giving up after three empty answers. A task on the test backend answered empty for its
+  first few seconds, and 2.5.1–2.6.0 failed that healthy parse after about five seconds; rerunning
+  resumed it without a new charge. A task this identity cannot see still fails within half a minute.
+
 ## 2.6.0 — 2026-09-24 — PPTX paragraphs, speaker notes, embedded objects and charts
 
 - Keep the paragraphs of a text box apart. Both PPTX engines now record paragraph ranges for every

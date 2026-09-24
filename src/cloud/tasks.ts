@@ -32,11 +32,13 @@ type EventStreamBody = NodeReadableLike | ReadableStream<Uint8Array> | string;
 const SSE_RETRY_INTERVAL = 5000;
 const SSE_MAX_RETRIES = 100;
 /**
- * 等待任务时，状态接口连续几次回的不是任务（空响应体、没有 status）就报错。实测生产环境对不属于
- * 当前身份的任务回 200 与空响应体；原先把它当成「还在跑」，白等到超时（600 秒），最后只剩一句
- * 「The operation was aborted due to timeout」。留几次余地，偶发的一次空响应不至于打断等待。
+ * 等待任务时，状态接口回的不是任务（空响应体、没有 status）最多再等这么久（秒）就报错。
+ *
+ * 实测生产环境对不属于当前身份的任务一直回 200 与空响应体，原先当成「还在跑」白等到超时（600 秒）。
+ * 但刚建好的任务也会短暂地回空：2.5.1 连续三次（约 5 秒）就报错，测试环境上一个正常的任务因此
+ * 失败。按时间留余地，刚建好时的空响应等得过去，一直回空的仍在半分钟内报错。
  */
-const INVALID_TASK_RESPONSE_LIMIT = 3;
+const EMPTY_STATUS_GRACE_SECONDS = 30;
 
 /** The endpoint returned a snapshot, not a stream; polling can continue the wait. */
 class EventStreamUnavailableError extends Error {}
@@ -272,7 +274,8 @@ export class TasksApi {
     // Fast path: task may already be terminal before SSE connects (common for
     // quick guest-mode tasks after an explicit start). Avoid hanging on an SSE
     // connection that never emits a terminal event for an already-finished task.
-    const current = await this.getSnapshot<T>(taskId, options.signal, options.spaceId, options.pollInterval ?? DEFAULT_POLL_INTERVAL);
+    const grace = options.emptyStatusGrace ?? EMPTY_STATUS_GRACE_SECONDS;
+    const current = await this.getSnapshot<T>(taskId, options.signal, options.spaceId, options.pollInterval ?? DEFAULT_POLL_INTERVAL, grace);
     options.onProgress?.(current);
     if (current.status === 'completed') {
       return current;
@@ -285,7 +288,7 @@ export class TasksApi {
     if (options.useEventStream !== false) {
       return await this.waitWithEventStream<T>(
         taskId, remainingTimeout, options.onProgress, options.signal,
-        options.pollInterval ?? DEFAULT_POLL_INTERVAL, options.spaceId
+        options.pollInterval ?? DEFAULT_POLL_INTERVAL, options.spaceId, grace
       );
     }
     return await this.waitWithPolling<T>(
@@ -294,7 +297,8 @@ export class TasksApi {
       options.pollInterval ?? DEFAULT_POLL_INTERVAL,
       options.onProgress,
       options.signal,
-      options.spaceId
+      options.spaceId,
+      grace
     );
   }
 
@@ -672,7 +676,8 @@ export class TasksApi {
     onProgress?: (task: DeckTask) => void,
     signal?: AbortSignal,
     pollInterval = DEFAULT_POLL_INTERVAL,
-    spaceId?: string
+    spaceId?: string,
+    emptyStatusGrace = EMPTY_STATUS_GRACE_SECONDS
   ): Promise<DeckTask<T>> {
     return await new Promise<DeckTask<T>>((resolve, reject) => {
       throwIfAborted(signal);
@@ -706,7 +711,7 @@ export class TasksApi {
         fallbackStarted = true;
         clearInterval(timer);
         cancel?.();
-        this.waitWithPolling<T>(taskId, remainingTimeout(), pollInterval, onProgress, signal, spaceId)
+        this.waitWithPolling<T>(taskId, remainingTimeout(), pollInterval, onProgress, signal, spaceId, emptyStatusGrace)
           .then((task) => {
             finish(() => resolve(task));
           })
@@ -754,7 +759,8 @@ export class TasksApi {
     pollInterval: number,
     onProgress?: (task: DeckTask) => void,
     signal?: AbortSignal,
-    spaceId?: string
+    spaceId?: string,
+    emptyStatusGrace = EMPTY_STATUS_GRACE_SECONDS
   ): Promise<DeckTask<T>> {
     const start = Date.now();
     for (;;) {
@@ -763,7 +769,7 @@ export class TasksApi {
         throw new Error(`Task ${taskId} did not complete within ${timeout}s`);
       }
 
-      const task = await this.getSnapshot<T>(taskId, signal, spaceId, pollInterval);
+      const task = await this.getSnapshot<T>(taskId, signal, spaceId, pollInterval, emptyStatusGrace);
       onProgress?.(task);
 
       if (task.status === 'completed') {
@@ -777,13 +783,15 @@ export class TasksApi {
     }
   }
 
-  /** 等待时取任务状态：回的不是任务就隔一个轮询间隔再取，连续 {@link INVALID_TASK_RESPONSE_LIMIT} 次就报错。 */
-  private async getSnapshot<T extends DeckTaskType>(taskId: string, signal: AbortSignal | undefined, spaceId: string | undefined, pollInterval: number): Promise<DeckTask<T>> {
+  /** 等待时取任务状态：回的不是任务就隔一个轮询间隔再取，超过宽限（秒）仍是空的就报错。 */
+  private async getSnapshot<T extends DeckTaskType>(taskId: string, signal: AbortSignal | undefined, spaceId: string | undefined, pollInterval: number, graceSeconds: number): Promise<DeckTask<T>> {
+    const firstEmptyAt = Date.now();
     for (let attempt = 1; ; attempt += 1) {
       const task: unknown = await this.get<T>(taskId, { signal, spaceId });
       if (typeof task === 'object' && task !== null && typeof (task as { status?: unknown }).status === 'string') return task as DeckTask<T>;
-      if (attempt >= INVALID_TASK_RESPONSE_LIMIT) {
-        throw new Error(`The cloud returned no task status for ${taskId} ${attempt} times in a row (GET /tools/tasks/${taskId}); the task may belong to another account or space.`);
+      const waited = (Date.now() - firstEmptyAt) / 1000;
+      if (waited >= graceSeconds) {
+        throw new Error(`The cloud returned no task status for ${taskId} for ${Math.round(waited)}s (${attempt} tries, GET /tools/tasks/${taskId}); the task may belong to another account or space.`);
       }
       await delay(pollInterval, signal);
     }
