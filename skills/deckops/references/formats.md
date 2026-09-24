@@ -1,7 +1,7 @@
 # Formats and operations
 
 Use `deckops formats --json` for the installed CLI's high-level matrix and the relevant
-command's `--help` for live flags. The table below records the DeckOps 2.6.0 behavior that
+command's `--help` for live flags. The table below records the DeckOps 2.6.1 behavior that
 matters when choosing a workflow.
 
 | Input | Parse | Convert | Important limits |
@@ -19,7 +19,7 @@ matters when choosing a workflow.
 
 | Option | Format | Values and notes |
 | --- | --- | --- |
-| `--profile` | PDF | `balanced` works locally. `fast` and `quality` require cloud parsing in 2.6.0. |
+| `--profile` | PDF | `balanced` works locally. `fast` and `quality` require cloud parsing in 2.6.1. |
 | `--password` | PDF | Supplies the PDF password. Never repeat or expose it in summaries or logs. |
 | `--no-images` | PDF | Skips image extraction; use only when images cannot affect the task. |
 | `--page-furniture` | PDF | `off`, `drop`, or `extract`. |
@@ -36,9 +36,9 @@ available.
 
 | Option | Applies to | Notes |
 | --- | --- | --- |
-| `--to markdown` | Every convertible artifact/source | Markdown is the only target in 2.6.0. |
+| `--to markdown` | Every convertible artifact/source | Markdown is the only target in 2.6.1. |
 | `--anchors` | PDF | Emits provenance comments carrying DeckIR node IDs. |
-| `--split-pages` | PPTX and Keynote | Use artifact conversion for reliable per-page file materialization in 2.6.0. |
+| `--split-pages` | PPTX and Keynote | Use artifact conversion for reliable per-page file materialization in 2.6.1. |
 | `--strict` | Cloud Markdown renderer | This is not the local parse-quality or preflight switch. |
 | `--keep-remote-images` | Cloud view | Accepts expiring remote image links; a result that uses them is not durable offline. |
 

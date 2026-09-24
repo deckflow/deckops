@@ -15,7 +15,7 @@ metadata:
   tool: deckops
   homepage: https://github.com/deckflow/deckops
   deckops-skill-format: "1"
-  tested-cli-version: "2.6.0"
+  tested-cli-version: "2.6.1"
 ---
 
 # DeckOps
@@ -31,11 +31,11 @@ document.
 deckops --version
 ```
 
-The instructions are tested with DeckOps 2.6.0. If `deckops` is missing and Node.js 22.18+
+The instructions are tested with DeckOps 2.6.1. If `deckops` is missing and Node.js 22.18+
 and network access are available, use this command prefix in the examples below:
 
 ```bash
-npx -y @deckflow/deckops@2.6.0
+npx -y @deckflow/deckops@2.6.1
 ```
 
 If the installed version differs, inspect `deckops formats --json` and the relevant
@@ -158,4 +158,4 @@ Read references only when needed:
   downstream knowledge preparation.
 - [output.md](references/output.md): JSON envelopes, exit codes, and output caveats.
 - [limits.md](references/limits.md): preflight, quality controls, local budgets, cloud recovery,
-  and known 2.6.0 behavior.
+  and known 2.6.1 behavior.

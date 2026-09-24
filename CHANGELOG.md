@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Empty task status grace
+## 2.6.1 — 2026-09-24 — Empty task status grace
 
 - Keep waiting while the task status comes back empty for up to 30 seconds (`emptyStatusGrace`),
   instead of giving up after three empty answers. A task on the test backend answered empty for its
