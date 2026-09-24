@@ -2,8 +2,9 @@ import { DeckOpsError } from '../../errors/index.js';
 import { stableId } from '../../ir/ids.js';
 import type { CandidateAsset, DeckIrNode, DeckIrRun, ParseCandidate, QualityCheck } from '../../ir/schema.js';
 import { imageAltText } from '../../ir/alt-text.js';
+import { chartTableNodes } from '../../ir/chart-data.js';
 import {
-  bulletDeclaration, levelStyleKey, listParagraphs, resolveList, type BulletDeclaration, type TextParagraph,
+  bulletDeclaration, levelStyleKey, paragraphStructure, resolveList, type BulletDeclaration, type TextParagraph,
 } from '../../ir/pptx-lists.js';
 import { inheritedPlaceholders, masterTextStyleKey, type PlaceholderEntry, type PlaceholderKey } from '../../ir/pptx-placeholders.js';
 import { orderSlideNodes } from '../../ir/slide-order.js';
@@ -11,6 +12,7 @@ import { makeIr, packageImageAsset, qualityOf, type SourceIdentity } from '../co
 import type { LocalLimits } from '../limits.js';
 import { OpcPackage, type Relationship } from '../opc/package.js';
 import { children, descendants, first, textContent, type XmlNode } from '../xml.js';
+import { readChartPart } from './chart.js';
 
 interface Context {
   pkg: OpcPackage;
@@ -26,7 +28,24 @@ interface Context {
   transform: Transform;
   /** 这一页的版式与母版：占位符没写的位置、项目符号从这里继承。 */
   inheritance: SlideInheritance;
+  /** 这一页已按预览图或「看不见」处理过的嵌入对象关系；审计时不再报成不支持。 */
+  handledObjects: Set<string>;
+  /** 整份文档的嵌入对象去向，最后各汇总成一条 info。 */
+  embedded: EmbeddedTally;
+  /** 这一页旧式嵌入对象的预览图（VML 形状 id → 图片部件），用到时才读。 */
+  vmlImages?: Map<string, string>;
 }
+
+interface EmbeddedTally {
+  preview: { nodeIds: string[]; pages: Set<number> };
+  hidden: { nodeIds: string[]; pages: Set<number> };
+}
+
+/**
+ * 小于这个尺寸（pt）的嵌入对象在幻灯片上看不见。实测一份咨询讲义的 12 个嵌入对象全是
+ * think-cell 插件放在页面上的元数据，边长 0.125pt，原先每个都报一条「不支持的嵌入对象」。
+ */
+const HIDDEN_OBJECT_MAX_PT = 1;
 
 /** 版式或母版上的一个占位符：幻灯片占位符可能继承的位置与列表样式。 */
 interface InheritedPlaceholder { xfrm: XmlNode | undefined; lstStyle: XmlNode | undefined }
@@ -73,6 +92,7 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
   let order = 0;
   const inheritanceSources = new Map<string, InheritanceSource>();
   const defaultTextStyle = descendants(presentation, 'defaultTextStyle')[0];
+  const embedded: EmbeddedTally = { preview: { nodeIds: [], pages: new Set() }, hidden: { nodeIds: [], pages: new Set() } };
 
   for (const [index, slideId] of slideIds.entries()) {
     // p:sldId carries both numeric id and namespaced r:id; relationship id wins.
@@ -86,7 +106,7 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     const before = nodes.length;
     const rels = pkg.relationships(rel.target);
     const ctx: Context = { pkg, source, nodes, assets, checks, order, page, part: rel.target, rels, transform: IDENTITY,
-      inheritance: slideInheritance(pkg, rels, inheritanceSources, defaultTextStyle) };
+      inheritance: slideInheritance(pkg, rels, inheritanceSources, defaultTextStyle), handledObjects: new Set(), embedded };
     const slide = pkg.xml(rel.target);
     const tree = descendants(slide, 'spTree')[0];
     if (tree) parseShapeTree(tree, ctx, null);
@@ -98,6 +118,14 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
       ...(width > 0 ? { width } : {}), ...(height > 0 ? { height } : {}),
       nodeIds: nodes.slice(before).filter((node) => node.page === page).map((node) => node.id), sourceRef: { part: rel.target, page },
     });
+  }
+  if (embedded.preview.nodeIds.length) {
+    checks.push({ code: 'embedded_object_preview', severity: 'info', pages: [...embedded.preview.pages], nodeIds: embedded.preview.nodeIds,
+      message: `${embedded.preview.nodeIds.length} embedded objects are shown as their preview images; their own content (for example a worksheet) is not expanded.` });
+  }
+  if (embedded.hidden.nodeIds.length) {
+    checks.push({ code: 'embedded_object_hidden', severity: 'info', pages: [...embedded.hidden.pages], nodeIds: embedded.hidden.nodeIds,
+      message: `${embedded.hidden.nodeIds.length} embedded objects draw nothing visible on the slide (zero-size shells or add-in metadata) and are left out of the Markdown.` });
   }
   for (const part of pkg.names().filter((name) => /(?:^|\/)vbaProject\.bin$/i.test(name))) {
     const id = stableId(source.sha256, `${part}:opaque:vba_project`);
@@ -111,7 +139,7 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     objects: { parsed: nodes.length - opaque, opaque, total: nodes.length },
     textCharacters: nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0),
   });
-  const ir = makeIr({ format: 'pptx', source, producer: { name: 'deckparse-pptx', version: '4' },
+  const ir = makeIr({ format: 'pptx', source, producer: { name: 'deckparse-pptx', version: '5' },
     metadata: { ...readCoreProperties(pkg), slideSize: { width, height }, theme: readTheme(pkg, presentationRels) },
     pages, nodes, assets, quality });
   return { ir, quality, assets, warnings: quality.checks.map((check) => check.message) };
@@ -130,17 +158,7 @@ function parseShape(shape: XmlNode, ctx: Context, parentId: string | null): void
   const native = descendants(shape, 'cNvPr')[0];
   const nativeId = native?.attributes.id ?? String(ctx.order);
   const id = stableId(ctx.source.sha256, `${ctx.part}:shape:${nativeId}`);
-  const runs: DeckIrRun[] = [];
-  const spans: Array<{ start: number; end: number; pPr: XmlNode | undefined }> = [];
-  let length = 0;
-  for (const paragraph of descendants(shape, 'p')) {
-    const paragraphRuns = textRuns(paragraph, ctx.rels);
-    if (!paragraphRuns.length) continue;
-    if (runs.length) { runs.push({ text: '\n' }); length += 1; }
-    const start = length;
-    for (const run of paragraphRuns) { runs.push(run); length += run.text.length; }
-    spans.push({ start, end: length, pPr: first(paragraph, 'pPr') });
-  }
+  const { runs, spans } = shapeParagraphs(shape, ctx.rels);
   const text = runs.map((run) => run.text).join('');
   const placeholder = descendants(shape, 'ph')[0];
   const placeholderType = placeholder?.attributes.type;
@@ -158,7 +176,7 @@ function parseShape(shape: XmlNode, ctx: Context, parentId: string | null): void
   const type = text && (placeholderType === 'title' || placeholderType === 'ctrTitle') ? 'heading'
     : (placeholderType && FURNITURE_PLACEHOLDERS[placeholderType]) || (text ? 'text' : 'shape');
   const paragraphs = type === 'text'
-    ? listParagraphs(spans.map(({ start, end, pPr }): TextParagraph => {
+    ? paragraphStructure(spans.map(({ start, end, pPr }): TextParagraph => {
       const level = Math.min(Math.max(Number(pPr?.attributes.lvl ?? 0) || 0, 0), 8);
       const list = resolveList(bulletChain(pPr, level, shape, placeholderKey, inherited, ctx.inheritance));
       return { start, end, level, ...(list ? { list } : {}) };
@@ -244,6 +262,25 @@ function readInheritanceSource(root: XmlNode): InheritanceSource {
   return { placeholders, textStyles };
 }
 
+/**
+ * 形状里有文字的段落：文本运行（段落之间插一个 `\n`，跳过空段落）与每段在其中的范围。
+ * 幻灯片形状与备注页形状同一种切法，与云端 `text` 的拼法一致。
+ */
+function shapeParagraphs(shape: XmlNode, rels: Map<string, Relationship>): { runs: DeckIrRun[]; spans: Array<{ start: number; end: number; pPr: XmlNode | undefined }> } {
+  const runs: DeckIrRun[] = [];
+  const spans: Array<{ start: number; end: number; pPr: XmlNode | undefined }> = [];
+  let length = 0;
+  for (const paragraph of descendants(shape, 'p')) {
+    const paragraphRuns = textRuns(paragraph, rels);
+    if (!paragraphRuns.length) continue;
+    if (runs.length) { runs.push({ text: '\n' }); length += 1; }
+    const start = length;
+    for (const run of paragraphRuns) { runs.push(run); length += run.text.length; }
+    spans.push({ start, end: length, pPr: first(paragraph, 'pPr') });
+  }
+  return { runs, spans };
+}
+
 function parsePicture(pic: XmlNode, ctx: Context, parentId: string | null): void {
   const native = descendants(pic, 'cNvPr')[0];
   const nativeId = native?.attributes.id ?? String(ctx.order);
@@ -281,11 +318,25 @@ function parseGraphicFrame(frame: XmlNode, ctx: Context, parentId: string | null
   if (table) { parseTable(table, frame, ctx, parentId, nativeId); return; }
   const graphicData = descendants(frame, 'graphicData')[0];
   const uri = graphicData?.attributes.uri ?? '';
+  if (/\/ole$/.test(uri) && parseEmbeddedObject(frame, ctx, parentId, nativeId)) return;
   const relElement = descendants(frame, 'chart')[0] ?? descendants(frame, 'relIds')[0];
   const relId = relElement?.attributes.id ?? relElement?.attributes['r:id'] ?? relElement?.attributes.dm ?? relElement?.attributes['r:dm'];
   const rel = relId ? ctx.rels.get(relId) : undefined;
   const kind = /chart/i.test(uri) ? 'chart' : /diagram/i.test(uri) ? 'smartart' : 'graphic_frame';
   const id = stableId(ctx.source.sha256, `${ctx.part}:${kind}:${nativeId}`);
+  if (kind === 'chart' && rel && !rel.external && ctx.pkg.has(rel.target)) {
+    const chart = readChartPart(ctx.pkg.xml(rel.target));
+    if (chart) {
+      // 图表的类别与数值缓存在图表部件里，展开成一张表挂在图表节点下；标题作图表节点的文字。
+      const bbox = bboxOf(first(frame, 'xfrm'), ctx.transform);
+      const node: DeckIrNode = { id, type: 'chart', parentId, children: [], order: ctx.order++, text: chart.title ?? '', page: ctx.page, zIndex: ctx.order,
+        sourceRef: { part: ctx.part, page: ctx.page, relationship: rel.id, path: `chart/${nativeId}` }, ...(bbox ? { bbox } : {}),
+        extensions: { nativeId, name: native?.attributes.name, chart: { kind: chart.kind, ...(chart.title ? { title: chart.title } : {}), part: rel.target } } };
+      ctx.nodes.push(node); attach(ctx, parentId, id);
+      ctx.nodes.push(...chartTableNodes(node, chart, (suffix) => stableId(ctx.source.sha256, `${id}:${suffix}`), () => ctx.order++));
+      return;
+    }
+  }
   const visibleText = descendants(frame, 't').map(textContent).join(' ');
   ctx.nodes.push({ id, type: kind, parentId, children: [], order: ctx.order++, text: visibleText, page: ctx.page,
     sourceRef: { part: ctx.part, page: ctx.page, ...(relId ? { relationship: relId } : {}), path: `${kind}/${nativeId}` },
@@ -294,6 +345,82 @@ function parseGraphicFrame(frame: XmlNode, ctx: Context, parentId: string | null
       data: { uri, target: rel?.target } }, extensions: { nativeId, name: native?.attributes.name } });
   attach(ctx, parentId, id);
   ctx.checks.push({ code: `${kind}_partial`, severity: 'warning', message: `Slide ${ctx.page} contains ${kind} whose full semantics are not expanded locally.`, pages: [ctx.page], nodeIds: [id] });
+}
+
+/**
+ * 嵌入对象（OLE）。看不见的（插件元数据）只留一个不渲染的节点；看得见的用它的预览图作一张
+ * 图片——剪贴画、工作簿在幻灯片上显示的就是这张图。预览图先找对象里的 `p:pic`，旧式文件在
+ * VML 绘图里按 spid 找。两处都没有就交回通用分支，照旧报「不支持」。
+ */
+function parseEmbeddedObject(frame: XmlNode, ctx: Context, parentId: string | null, nativeId: string): boolean {
+  const objects = descendants(frame, 'oleObj');
+  if (!objects.length) return false;
+  const attribute = (name: string): string | undefined => objects.map((object) => object.attributes[name]).find((value) => typeof value === 'string' && value !== '');
+  const progId = attribute('progId');
+  const objectName = attribute('name');
+  const embeddedObject = { ...(progId ? { progId } : {}), ...(objectName ? { name: objectName } : {}) };
+  const relIds = objects.map((object) => object.attributes['r:id'] ?? object.attributes.id).filter((value): value is string => Boolean(value));
+  const native = descendants(frame, 'cNvPr')[0];
+  const bbox = bboxOf(first(frame, 'xfrm'), ctx.transform);
+  const id = stableId(ctx.source.sha256, `${ctx.part}:embedded:${nativeId}`);
+  const sourceRef = { part: ctx.part, page: ctx.page, ...(relIds[0] ? { relationship: relIds[0] } : {}), path: `embedded/${nativeId}` };
+  const tally = (bucket: EmbeddedTally['preview']): void => {
+    bucket.nodeIds.push(id); bucket.pages.add(ctx.page);
+    for (const relId of relIds) ctx.handledObjects.add(relId);
+    attach(ctx, parentId, id);
+  };
+  const preview = embeddedObjectPreview(objects, ctx);
+  // 什么也不画的对象：边长不到 1pt，或没有预览图且声明的图像尺寸为 0（实测讲义里 3 个空的剪贴画壳）。
+  const tiny = bbox !== undefined && (bbox[2] - bbox[0] < HIDDEN_OBJECT_MAX_PT || bbox[3] - bbox[1] < HIDDEN_OBJECT_MAX_PT);
+  const empty = !preview && attribute('imgW') === '0' && attribute('imgH') === '0';
+  if (tiny || empty) {
+    ctx.nodes.push({ id, type: 'embedded_object', parentId, children: [], order: ctx.order++, page: ctx.page, zIndex: ctx.order, sourceRef, ...(bbox ? { bbox } : {}),
+      opaque: { type: 'embedded_object', reason: 'The object draws nothing visible on the slide.', data: embeddedObject },
+      extensions: { nativeId, name: native?.attributes.name, embeddedObject } });
+    tally(ctx.embedded.hidden);
+    return true;
+  }
+  if (!preview) return false;
+  const bytes = ctx.pkg.readAsset(preview);
+  const asset = packageImageAsset(preview, bytes);
+  ctx.assets.push({ ...asset, data: bytes, sourceRef: { part: ctx.part } });
+  ctx.nodes.push({ id, type: 'image', parentId, children: [], order: ctx.order++, text: '', page: ctx.page, zIndex: ctx.order, sourceRef, ...(bbox ? { bbox } : {}),
+    extensions: { nativeId, name: native?.attributes.name, assetPath: asset.path, embeddedObject } });
+  tally(ctx.embedded.preview);
+  return true;
+}
+
+function embeddedObjectPreview(objects: XmlNode[], ctx: Context): string | undefined {
+  for (const object of objects) {
+    const blip = descendants(object, 'blip')[0];
+    const relId = blip?.attributes['r:embed'] ?? blip?.attributes.embed;
+    const rel = relId ? ctx.rels.get(relId) : undefined;
+    if (rel && !rel.external && ctx.pkg.has(rel.target)) return rel.target;
+  }
+  const spid = objects.map((object) => object.attributes.spid).find(Boolean);
+  const target = spid ? slideVmlImages(ctx).get(spid) : undefined;
+  return target && ctx.pkg.has(target) ? target : undefined;
+}
+
+/** 这一页 VML 绘图里的图片：形状 id（与 `p:oleObj@spid` 相同）→ `v:imagedata` 指向的图片部件。 */
+function slideVmlImages(ctx: Context): Map<string, string> {
+  if (ctx.vmlImages) return ctx.vmlImages;
+  const images = new Map<string, string>();
+  for (const rel of ctx.rels.values()) {
+    if (!rel.type.endsWith('/vmlDrawing') || rel.external || !ctx.pkg.has(rel.target)) continue;
+    let root: XmlNode;
+    try { root = ctx.pkg.xml(rel.target); } catch { continue; }
+    const vmlRels = ctx.pkg.relationships(rel.target);
+    for (const shape of descendants(root, 'shape')) {
+      const imagedata = descendants(shape, 'imagedata')[0];
+      const relId = imagedata?.attributes['o:relid'] ?? imagedata?.attributes.relid ?? imagedata?.attributes['r:id'];
+      const target = relId ? vmlRels.get(relId)?.target : undefined;
+      if (!target) continue;
+      for (const key of [shape.attributes.id, shape.attributes['o:spid'], shape.attributes.spid]) if (key) images.set(key, target);
+    }
+  }
+  ctx.vmlImages = images;
+  return images;
 }
 
 function parseTable(table: XmlNode, frame: XmlNode, ctx: Context, parentId: string | null, nativeId: string): void {
@@ -372,18 +499,21 @@ function parseNotes(ctx: Context): void {
   for (const [index, shape] of descendants(root, 'sp').entries()) {
     const placeholder = descendants(shape, 'ph')[0]?.attributes.type;
     if (placeholder === 'sldImg' || placeholder === 'hdr' || placeholder === 'ftr' || placeholder === 'dt' || placeholder === 'sldNum') continue;
-    const runs = descendants(shape, 'p').flatMap((p, pIndex) => [...(pIndex ? [{ text: '\n' }] : []), ...textRuns(p, rels)]);
-    const text = runs.map((run) => run.text).join('').trim();
-    if (!text) continue;
+    // 与幻灯片上的文本框同一种切法：跳过空段落，多段时记下段落边界，Markdown 逐段分开。
+    const { runs, spans } = shapeParagraphs(shape, rels);
+    const text = runs.map((run) => run.text).join('');
+    if (!text.trim()) continue;
+    const paragraphs = paragraphStructure(spans.map(({ start, end }): TextParagraph => ({ start, end, level: 0 })));
     const id = stableId(ctx.source.sha256, `${rel.target}:note:${index}`);
-    ctx.nodes.push({ id, type: 'speaker_note', parentId: null, children: [], order: ctx.order++, text, runs, page: ctx.page, sourceRef: { part: rel.target, page: ctx.page, path: `note/${index}` } });
+    ctx.nodes.push({ id, type: 'speaker_note', parentId: null, children: [], order: ctx.order++, text, runs, page: ctx.page,
+      sourceRef: { part: rel.target, page: ctx.page, path: `note/${index}` }, ...(paragraphs ? { extensions: { paragraphs } } : {}) });
   }
 }
 
 function auditUnsupportedRelationships(ctx: Context): void {
   for (const rel of ctx.rels.values()) {
     const kind = /oleObject|package/i.test(rel.type) ? 'embedded_object' : /audio|video|media/i.test(rel.type) ? 'media' : undefined;
-    if (!kind) continue;
+    if (!kind || ctx.handledObjects.has(rel.id)) continue;
     const id = stableId(ctx.source.sha256, `${ctx.part}:opaque:${kind}:${rel.id}`);
     ctx.nodes.push({ id, type: 'opaque', parentId: null, children: [], order: ctx.order++, page: ctx.page,
       sourceRef: { part: ctx.part, page: ctx.page, relationship: rel.id },

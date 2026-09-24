@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — PPTX paragraphs, speaker notes, embedded objects and charts
+
+- Keep the paragraphs of a text box apart. Both PPTX engines now record paragraph ranges for every
+  multi-paragraph text box (`extensions.paragraphs`), and Markdown gives each paragraph its own block;
+  a line break inside a paragraph stays a line break. They used to be joined by single newlines, so
+  every Markdown viewer merged them (`Client process: … Server process: …` on one line): 310 text boxes
+  on the example lecture deck, 184 on a Chinese business deck.
+- Speaker notes: the cloud path reads them too (presentation `readNotes`), so both engines give the
+  same notes, built like slide text. Markdown renders a note as a quote headed `**Speaker notes:**`
+  instead of a paragraph that looked like slide content.
+- Embedded objects (OLE): a visible object is shown as its preview image (`p:pic`, or the legacy VML
+  drawing), carrying `extensions.embeddedObject` with its program id and name; one
+  `embedded_object_preview` info check replaces a warning per object. Objects that draw nothing —
+  add-in metadata a fraction of a point wide, or empty shells with no preview — become non-rendered
+  `embedded_object` nodes under one `embedded_object_hidden` info check. The lecture deck goes from
+  147 "unsupported embedded object" warnings to 144 previews and 3 hidden shells; the business deck's 12
+  think-cell objects are hidden. The cloud path reports SmartArt as `smartart_partial` like the local
+  parser.
+- Charts: the categories and values cached in the chart part are rendered as a table under the chart,
+  titled by the chart title, in both engines. A chart without readable data still reports
+  `chart_partial`.
+- Bump the local PPTX parser to `deckparse-pptx` 5, the cloud adapter to `deckflow-cloud` 5 for PPTX and
+  the Markdown renderer to 1.4.0. The cloud features need a backend on `@deckflow/presentation` ≥ 0.4.0
+  with its `readNotes`, `readEmbeddedObjects` and `readCharts` options on.
+
 ## 2.5.1 — 2026-09-24 — Cloud robustness
 
 - Resume an interrupted cloud parse: when an earlier run recorded a task ID (the task was created,

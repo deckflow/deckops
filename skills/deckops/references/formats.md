@@ -7,7 +7,7 @@ matters when choosing a workflow.
 | Input | Parse | Convert | Important limits |
 | --- | --- | --- | --- |
 | `.pdf` | Local or explicitly cloud | Markdown | Local parsing has no OCR and uses the balanced profile. Embedded images do not imply complete composite-figure rendering. |
-| `.pptx` | Local or explicitly cloud | Markdown; artifact views can split by slide | Charts and SmartArt may be retained as opaque nodes without their full semantic models. Footer, date and slide-number placeholders stay in the artifact but are not rendered in Markdown. Bulleted and numbered paragraphs render as nested Markdown lists. |
+| `.pptx` | Local or explicitly cloud | Markdown; artifact views can split by slide | SmartArt is retained as an opaque node without its text and structure. Footer, date and slide-number placeholders stay in the artifact but are not rendered in Markdown. Bulleted and numbered paragraphs render as nested Markdown lists. Speaker notes render as a quoted `Speaker notes:` block; charts render their cached data as a table; embedded objects render as their preview image. |
 | `.docx` | Local or explicitly cloud | Markdown | Tracked-change view is selected at parse time. OMML formulas may retain text and opaque source rather than layout-equivalent math. |
 | `.key` | Cloud | Cloud Markdown; a v2 public IR can also use the local renderer | There is no local IWA parser. A local view of cloud-adapted IR is not automatically equivalent to a cloud view. |
 | HTTP(S) URL | Local `source` or cloud `runtime` | Markdown | Source mode fetches static HTML without executing a browser. It is not a general remote Office/PDF downloader. |

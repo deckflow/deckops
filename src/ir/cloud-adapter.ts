@@ -2,9 +2,10 @@ import pLimit from 'p-limit';
 import type { ParseResult } from '../cloud/parse-facade.js';
 import type { ResultArtifact } from '@deckflow/pdf-lite-parse';
 import { imageAltText } from './alt-text.js';
+import { asChartData, chartTableNodes } from './chart-data.js';
 import { stableId } from './ids.js';
 import {
-  bulletDeclaration, levelStyleKey, listParagraphs, resolveList, type BulletDeclaration, type TextParagraph,
+  bulletDeclaration, levelStyleKey, paragraphStructure, resolveList, type BulletDeclaration, type TextParagraph,
 } from './pptx-lists.js';
 import { inheritedPlaceholders, masterTextStyleKey, type PlaceholderEntry, type PlaceholderKey } from './pptx-placeholders.js';
 import { result3ToDeckIr } from './result3-adapter.js';
@@ -24,7 +25,7 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   }
   const format = formatForType(parsed.type as ParseTaskType);
   const nodes: DeckIrNode[] = [];
-  const sink: CloudNodeSink = { nodes, byId: new Map() };
+  const sink: CloudNodeSink = { nodes, byId: new Map(), checks: [], embedded: { preview: { nodeIds: [], pages: new Set() }, hidden: { nodeIds: [], pages: new Set() } } };
   const pages: DeckIrPage[] = [];
   const raw = parsed.ir as Record<string, unknown>;
   const pageItems = format === 'pptx' || format === 'keynote' ? array(raw.slides) : [];
@@ -39,6 +40,7 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
       const before = nodes.length;
       const styles = format === 'pptx' ? slideInheritance(raw, object(item)) : undefined;
       walkCloud(item, sink, source.sha256, `pages/${index}`, index + 1, null, pageTransform, styles);
+      if (format === 'pptx') emitCloudNotes(object(item), sink, source.sha256, index);
       pages.push({ id: stableId(source.sha256, `cloud:page:${index}`, 'p'), index: index + 1,
         ...(pageSize(raw.width ?? object(raw.slideSize)?.cx) ? { width: pageSize(raw.width ?? object(raw.slideSize)?.cx) } : {}),
         ...(pageSize(raw.height ?? object(raw.slideSize)?.cy) ? { height: pageSize(raw.height ?? object(raw.slideSize)?.cy) } : {}),
@@ -53,7 +55,16 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   } else {
     walkCloud(raw, sink, source.sha256, 'root', undefined, null);
   }
-  const checks: QualityCheck[] = [];
+  const checks: QualityCheck[] = [...sink.checks];
+  const { preview, hidden } = sink.embedded;
+  if (preview.nodeIds.length) {
+    checks.push({ code: 'embedded_object_preview', severity: 'info', pages: [...preview.pages], nodeIds: preview.nodeIds,
+      message: `${preview.nodeIds.length} embedded objects are shown as their preview images; their own content (for example a worksheet) is not expanded.` });
+  }
+  if (hidden.nodeIds.length) {
+    checks.push({ code: 'embedded_object_hidden', severity: 'info', pages: [...hidden.pages], nodeIds: hidden.nodeIds,
+      message: `${hidden.nodeIds.length} embedded objects draw nothing visible on the slide (zero-size shells or add-in metadata) and are left out of the Markdown.` });
+  }
   if (nodes.length === 0) checks.push({ code: 'cloud_schema_unmapped', severity: 'error', message: `Cloud schema ${parsed.irSchemaVersion} did not contain mappable document nodes.` });
   let quality = qualityOf(checks, { ...(pages.length ? { pages: { parsed: pages.length, total: pages.length } } : {}),
     objects: { parsed: nodes.length, opaque: 0 }, textCharacters: nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0) });
@@ -81,10 +92,10 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
 /**
  * 云端适配器的产物版本，按格式分开：parse-op 按主版本判断缓存能不能复用，缓存失效就要重新提交
  * 云端任务（计费）。只有产物真变了的格式才升版本：pptx 3 加了列表结构，4 加了继承的占位符
- * 位置与图片替代文字；其余格式仍是 2。
+ * 位置与图片替代文字，5 加了段落边界、讲者备注、嵌入对象预览与图表数据；其余格式仍是 2。
  */
 export function cloudProducerVersion(format: string | undefined): string {
-  return format === 'pptx' ? '4' : '2';
+  return format === 'pptx' ? '5' : '2';
 }
 
 /**
@@ -96,7 +107,14 @@ export function cloudProducerVersion(format: string | undefined): string {
 interface CloudNodeSink {
   nodes: DeckIrNode[];
   byId: Map<string, DeckIrNode>;
+  /** 遍历途中发现的问题，与本地解析器逐个形状报告的对应。 */
+  checks: QualityCheck[];
+  /** 嵌入对象的去向，最后各汇总成一条 info，与本地解析器一致。 */
+  embedded: { preview: { nodeIds: string[]; pages: Set<number> }; hidden: { nodeIds: string[]; pages: Set<number> } };
 }
+
+/** 小于这个尺寸（pt）的嵌入对象在幻灯片上看不见（插件元数据），与本地解析器同一个阈值。 */
+const HIDDEN_OBJECT_MAX_PT = 1;
 
 function push(sink: CloudNodeSink, node: DeckIrNode): void {
   sink.nodes.push(node);
@@ -146,6 +164,8 @@ function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: s
   if (!value || typeof value !== 'object') return;
   if (Array.isArray(value)) { value.forEach((item, index) => walkCloud(item, sink, hash, `${locator}/${index}`, page, parentId, transform, styles)); return; }
   const record = value as Record<string, unknown>;
+  if (object(record.ole)) { emitEmbeddedObject(record, sink, hash, locator, page, parentId, transform); return; }
+  if (record.graphicType === 'diagram') { emitSmartArt(record, sink, hash, locator, page, parentId, transform); return; }
   const text = cloudText(record);
   const kind = cloudKind(record, text);
   let nextParent = parentId;
@@ -181,6 +201,7 @@ function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: s
         ...(bboxInheritedFrom ? { bboxInheritedFrom } : {}), ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}),
         ...(alt ? { alt } : {}), ...(descr ? { descr } : {}), ...(mediaRef ? { mediaRef } : {}), ...(paragraphs ? { paragraphs } : {}) } };
     push(sink, node); if (parentId) sink.byId.get(parentId)?.children.push(id); nextParent = id;
+    if (kind === 'chart') expandCloudChart(record, node, sink, hash);
     // 表格必须按 table → table_row → table_cell 发，和 local/pptx、local/docx、result3 三个
     // 适配器一致：Markdown 渲染器只认这三种类型，让通用遍历把单元格摊成一串 shape 子节点，
     // 整张表会在渲染时被静默丢掉——IR 里看得见，产物里一个字都没有。
@@ -203,7 +224,105 @@ function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: s
  * 子串命中 —— "flowchart…" 里就含着 "chart"。实测一份文档因此多出 18 个空节点，还把
  * 「产物是否表示了图表」的判断带偏。
  */
-const WALK_SKIP_KEYS = ['style', 'xfrm', 'txBody', 'text', 't', 'name', 'id', 'type', 'prstGeom'] as const;
+const WALK_SKIP_KEYS = ['style', 'xfrm', 'txBody', 'text', 't', 'name', 'id', 'type', 'prstGeom', 'notes', 'chart', 'ole'] as const;
+
+/**
+ * 图表：presentation 开启 `readCharts` 后带着缓存的类别与数值，展开成一张表挂在图表节点下，
+ * 标题作图表节点的文字——与本地解析器同一套规则。没有数据（旧后端）就照实报 chart_partial。
+ */
+function expandCloudChart(record: Record<string, unknown>, node: DeckIrNode, sink: CloudNodeSink, hash: string): void {
+  const chart = asChartData(record.chart);
+  if (!chart) {
+    sink.checks.push({ code: 'chart_partial', severity: 'warning', message: `${node.page ? `Slide ${node.page} contains` : 'The document contains'} a chart whose data the cloud result does not include.`,
+      ...(node.page ? { pages: [node.page] } : {}), nodeIds: [node.id] });
+    return;
+  }
+  if (chart.title) node.text = chart.title;
+  node.extensions = { ...node.extensions, chart: { kind: chart.kind, ...(chart.title ? { title: chart.title } : {}) } };
+  let next = sink.nodes.length;
+  for (const child of chartTableNodes(node, chart, (suffix) => stableId(hash, `${node.id}:${suffix}`), () => next++)) push(sink, child);
+}
+
+/**
+ * 嵌入对象（OLE），与本地解析器同一套规则：看不见的留一个不渲染的节点；看得见且有预览图的
+ * 作一张图片；没有预览图的照实报不支持。
+ */
+function emitEmbeddedObject(record: Record<string, unknown>, sink: CloudNodeSink, hash: string, locator: string, page: number | undefined, parentId: string | null, transform: Transform): void {
+  const ole = object(record.ole)!;
+  const embeddedObject = { ...(string(ole.progId) ? { progId: string(ole.progId) } : {}), ...(string(ole.name) ? { name: string(ole.name) } : {}) };
+  const id = stableId(hash, `cloud:${locator}`);
+  const bbox = transformedBbox(object(record.xfrm), transform);
+  const assetPath = string(record.assetPath);
+  const base = { id, parentId, children: [], order: sink.nodes.length, ...(page ? { page } : {}), sourceRef: { path: locator, ...(page ? { page } : {}) }, ...(bbox ? { bbox } : {}) };
+  const extensions = { cloud: { id: record.id, name: record.name }, embeddedObject };
+  const tally = (bucket: CloudNodeSink['embedded']['preview']): void => {
+    bucket.nodeIds.push(id); if (page) bucket.pages.add(page);
+  };
+  const tiny = bbox !== undefined && (bbox[2] - bbox[0] < HIDDEN_OBJECT_MAX_PT || bbox[3] - bbox[1] < HIDDEN_OBJECT_MAX_PT);
+  const empty = !assetPath && number(ole.imgW) === 0 && number(ole.imgH) === 0;
+  if (tiny || empty) {
+    push(sink, { ...base, type: 'embedded_object', opaque: { type: 'embedded_object', reason: 'The object draws nothing visible on the slide.', data: embeddedObject }, extensions });
+    tally(sink.embedded.hidden);
+  } else if (assetPath) {
+    push(sink, { ...base, type: 'picture', extensions: { ...extensions, assetPath } });
+    tally(sink.embedded.preview);
+  } else {
+    push(sink, { ...base, type: 'graphic_frame', opaque: { type: 'embedded_object', reason: 'The embedded object has no preview image in the cloud result.', data: embeddedObject }, extensions });
+    sink.checks.push({ code: 'embedded_object_unsupported', severity: 'warning', message: `${page ? `Slide ${page} contains` : 'The document contains'} an embedded object without a preview image.`,
+      ...(page ? { pages: [page] } : {}), nodeIds: [id] });
+  }
+  if (parentId) sink.byId.get(parentId)?.children.push(id);
+}
+
+/** SmartArt：云端结果没有它的文字与结构，与本地解析器一样报 smartart_partial。 */
+function emitSmartArt(record: Record<string, unknown>, sink: CloudNodeSink, hash: string, locator: string, page: number | undefined, parentId: string | null, transform: Transform): void {
+  const id = stableId(hash, `cloud:${locator}`);
+  const bbox = transformedBbox(object(record.xfrm), transform);
+  push(sink, { id, type: 'smartart', parentId, children: [], order: sink.nodes.length, ...(page ? { page } : {}), sourceRef: { path: locator, ...(page ? { page } : {}) },
+    ...(bbox ? { bbox } : {}), opaque: { type: 'smartart', reason: 'The object is preserved, but its text and structure are not expanded.' },
+    extensions: { cloud: { id: record.id, name: record.name } } });
+  if (parentId) sink.byId.get(parentId)?.children.push(id);
+  sink.checks.push({ code: 'smartart_partial', severity: 'warning', message: `${page ? `Slide ${page} contains` : 'The document contains'} smartart whose full semantics are not expanded.`,
+    ...(page ? { pages: [page] } : {}), nodeIds: [id] });
+}
+
+/**
+ * 讲者备注：presentation 开启 `readNotes` 后幻灯片带着 `notes`（备注页上的形状，已去掉缩略图与
+ * 页眉页脚）。每个有字的形状一个 speaker_note 节点，与本地解析器一致；不进幻灯片的版面排序。
+ */
+function emitCloudNotes(slide: Record<string, unknown> | undefined, sink: CloudNodeSink, hash: string, index: number): void {
+  const shapes: Array<Record<string, unknown>> = [];
+  const collect = (items: unknown): void => {
+    for (const item of array(items)) {
+      const shape = object(item);
+      if (!shape) continue;
+      shapes.push(shape);
+      collect(shape.children);
+    }
+  };
+  collect(slide?.notes);
+  const page = index + 1;
+  shapes.forEach((shape, noteIndex) => {
+    const text = cloudText(shape);
+    if (!text.trim()) return;
+    const runs = cloudRuns(shape, text);
+    const locator = `slides/${index}/notes/${noteIndex}`;
+    const paragraphs = runs ? plainParagraphs(shape) : undefined;
+    push(sink, { id: stableId(hash, `cloud:${locator}`), type: 'speaker_note', parentId: null, children: [], order: sink.nodes.length, text,
+      ...(runs ? { runs } : {}), page, sourceRef: { path: locator, page }, ...(paragraphs ? { extensions: { paragraphs } } : {}) });
+  });
+}
+
+/** 段落范围（不判项目符号）：备注页不走幻灯片母版的样式链。 */
+function plainParagraphs(record: Record<string, unknown>): TextParagraph[] | undefined {
+  let length = 0;
+  return paragraphStructure(cloudParagraphs(record).map((paragraph, index): TextParagraph => {
+    if (index > 0) length += 1;
+    const start = length;
+    length += paragraph.runs.reduce((sum, run) => sum + (run.t as string).length, 0);
+    return { start, end: length, level: 0 };
+  }));
+}
 
 /**
  * 把云端表格结构展开成行列节点；认不出行列就返回 false，交回通用遍历。
@@ -354,7 +473,7 @@ function cloudPlaceholderKey(placeholder: Record<string, unknown>): PlaceholderK
 
 function cloudListParagraphs(record: Record<string, unknown>, slide: SlideInheritance, key: PlaceholderKey | undefined, inherited: InheritedShapes | undefined): TextParagraph[] | undefined {
   let length = 0;
-  return listParagraphs(cloudParagraphs(record).map((paragraph, index): TextParagraph => {
+  return paragraphStructure(cloudParagraphs(record).map((paragraph, index): TextParagraph => {
     if (index > 0) length += 1;
     const start = length;
     length += paragraph.runs.reduce((sum, run) => sum + (run.t as string).length, 0);

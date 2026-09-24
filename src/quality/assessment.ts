@@ -74,8 +74,8 @@ export function assessCandidate(candidate: ParseCandidate, probe?: DeckProbeRepo
 }
 
 /** 解析器表示或报告嵌入对象的方式；命中任一种就说明它知道这些东西存在。 */
-const EMBEDDED_REPORTED = new Set(['embedded_object_unsupported', 'graphic_frame_partial', 'chart_partial', 'smartart_partial', 'media_unsupported']);
-const EMBEDDED_TYPES = new Set(['graphic_frame', 'chart', 'diagram', 'graphic', 'opaque']);
+const EMBEDDED_REPORTED = new Set(['embedded_object_unsupported', 'embedded_object_preview', 'embedded_object_hidden', 'graphic_frame_partial', 'chart_partial', 'smartart_partial', 'media_unsupported']);
+const EMBEDDED_TYPES = new Set(['graphic_frame', 'chart', 'diagram', 'graphic', 'opaque', 'smartart', 'embedded_object']);
 /** 只在 OOXML 上判：probe 的嵌入对象事实是按 OOXML 部件数得出的，别的格式没有可比口径。 */
 const EMBEDDED_FORMATS = new Set(['pptx', 'docx']);
 
@@ -103,7 +103,8 @@ export function crossCheckEmbeddedObjects(candidate: ParseCandidate, probe?: Dec
   if (partCount === 0 && exactValue(probe, 'security.has_embedded_files') !== true) return;
   const quality = candidate.ir.quality;
   if (quality.checks.some((check) => EMBEDDED_REPORTED.has(check.code))) return;
-  const represented = candidate.ir.document.nodes.filter((node) => EMBEDDED_TYPES.has(node.type)).length;
+  // 以预览图出现的嵌入对象是图片节点，带着 `extensions.embeddedObject`，同样算表示了。
+  const represented = candidate.ir.document.nodes.filter((node) => EMBEDDED_TYPES.has(node.type) || node.extensions?.embeddedObject).length;
   // 数个数而不是「有没有」：一份文档里 1 张图表 + 1 个 SmartArt，产物只给出一个图表空壳，
   // 布尔判据会就此收声，SmartArt 与嵌入对象的缺失就再没人提。部件数拿不到时退回布尔判据。
   if (partCount > 0 ? represented >= partCount : represented > 0) return;

@@ -120,7 +120,8 @@ describe('cloud IR adapter: pptx slide layout', () => {
     ]);
     const [node] = candidate.ir.document.nodes;
     expect(node!.runs?.map((run) => run.text).join('')).toBe(node!.text);
-    expect(renderMarkdown(candidate.ir).markdown).toContain('server: **always-on** host\n*note*');
+    // 两个段落各成一段：原先只隔一个换行，Markdown 把它们并成了一段。
+    expect(renderMarkdown(candidate.ir).markdown).toContain('server: **always-on** host\n\n*note*');
   });
 
   it('drops runs that would not reproduce the node text', async () => {
@@ -269,7 +270,7 @@ describe('cloud IR adapter: pptx lists', () => {
       'clients:', '',
       '- communicate with server', '',
     ].join('\n'));
-    expect(candidate.ir.producer.version).toBe('4');
+    expect(candidate.ir.producer.version).toBe('5');
   });
 
   it('places placeholders without a frame like the layout and master do, as the local parser does', async () => {
@@ -286,7 +287,7 @@ describe('cloud IR adapter: pptx lists', () => {
     expect(renderMarkdown(candidate.ir).markdown).toBe('## HTTP overview\n\nHTTP: hypertext transfer protocol\n\n- client/server model\n\nHTTP request\n');
   });
 
-  it('numbers auto-numbered paragraphs and leaves plain text boxes alone', async () => {
+  it('numbers auto-numbered paragraphs and keeps plain paragraphs apart', async () => {
     const candidate = await deck([
       shape('TextBox 1', box(50, 100, 600, 200), [
         ['first', { buAutoNum: 'arabicPeriod' }], ['second', { buAutoNum: 'arabicPeriod' }],
@@ -294,8 +295,9 @@ describe('cloud IR adapter: pptx lists', () => {
       ]),
       shape('TextBox 2', box(50, 400, 600, 100), [['caption line one'], ['caption line two']]),
     ]);
-    expect(renderMarkdown(candidate.ir).markdown).toBe('1. first\n2. second\n   - detail\n3. third\n\ncaption line one\ncaption line two\n');
-    expect(candidate.ir.document.nodes.find((node) => node.text?.startsWith('caption'))!.extensions?.paragraphs).toBeUndefined();
+    expect(renderMarkdown(candidate.ir).markdown).toBe('1. first\n2. second\n   - detail\n3. third\n\ncaption line one\n\ncaption line two\n');
+    expect(candidate.ir.document.nodes.find((node) => node.text?.startsWith('caption'))!.extensions?.paragraphs)
+      .toEqual([{ start: 0, end: 16, level: 0 }, { start: 17, end: 33, level: 0 }]);
   });
 });
 
@@ -346,5 +348,47 @@ describe('cloud IR adapter: pictures', () => {
     expect(node!.issues).toEqual(['missing_media']);
     expect(candidate.ir.quality.checks.map((check) => check.code)).toEqual(['cloud_asset_missing']);
     expect(candidate.ir.quality.checks[0]!.message).toContain('ppt/media/image92.tmp');
+  });
+});
+
+describe('cloud IR adapter: notes, embedded objects and charts', () => {
+  const EMU = 12700;
+  const box = (x: number, y: number, cx: number, cy: number) => ({ x: x * EMU, y: y * EMU, cx: Math.round(cx * EMU), cy: Math.round(cy * EMU) });
+  const textShape = (name: string, paragraphs: string[], extra: Record<string, unknown> = {}) => ({
+    name, type: 'Shape', txBody: { children: paragraphs.map((t) => ({ children: [{ t }] })) }, text: paragraphs.join('\n'), ...extra,
+  });
+  const deck = (slide: Record<string, unknown>) => cloudResultToCandidate({
+    taskId: 'task', type: 'pptx.parse', irKey: 'ir/fixture', irSchemaVersion: 'pptx.v1',
+    ir: { slides: [{ _ref: 'slide1', ...slide }], files: {}, images: [] },
+  } as ParseResult, source);
+
+  it('reads speaker notes from the slide and renders them like the local parser', async () => {
+    const candidate = await deck({ spTree: [textShape('TextBox 1', ['slide body'], { xfrm: box(50, 100, 600, 100) })],
+      notes: [textShape('Notes', ['见ppt。解释三多云', '智慧城市云'], { ph: { type: 'body', idx: 1 } })] });
+    expect(renderMarkdown(candidate.ir).markdown).toBe('slide body\n\n> **Speaker notes:** 见ppt。解释三多云\n>\n> 智慧城市云\n');
+    expect(candidate.ir.document.nodes.filter((node) => node.type === 'speaker_note')).toHaveLength(1);
+  });
+
+  it('shows embedded objects as previews, leaves out the ones that draw nothing, and reports SmartArt', async () => {
+    const candidate = await deck({ spTree: [
+      { type: 'Graphic', name: 'Object 2', graphicType: 'ole', xfrm: box(50, 100, 200, 150), ole: { progId: 'Excel.Sheet.12', name: 'Worksheet', preview: 'ppt/media/image1.png' }, assetPath: 'assets/a.png' },
+      { type: 'Graphic', name: 'Object 3', graphicType: 'ole', xfrm: box(300, 230, 0.125, 0.125), ole: { name: 'think-cell Slide', preview: 'ppt/media/image18.emf' }, assetPath: 'assets/b.emf' },
+      { type: 'Graphic', name: 'Object 4', graphicType: 'ole', xfrm: box(120, 110, 480, 320), ole: { name: 'Clip', imgW: 0, imgH: 0 } },
+      { type: 'Graphic', name: 'Diagram 5', graphicType: 'diagram', xfrm: box(50, 300, 400, 200) },
+    ] });
+    expect(candidate.ir.document.nodes.map((node) => node.type)).toEqual(['picture', 'embedded_object', 'embedded_object', 'smartart']);
+    expect(candidate.ir.document.nodes[0]!.extensions?.embeddedObject).toEqual({ progId: 'Excel.Sheet.12', name: 'Worksheet' });
+    const codes = candidate.ir.quality.checks.map((check) => [check.code, check.severity]);
+    expect(codes).toContainEqual(['smartart_partial', 'warning']);
+    expect(codes).toContainEqual(['embedded_object_preview', 'info']);
+    expect(codes).toContainEqual(['embedded_object_hidden', 'info']);
+  });
+
+  it('renders cached chart data as a table, and reports a chart that came without data', async () => {
+    const chart = { title: 'Share by quarter', kind: 'bar', categories: ['Q1', 'Q2'], series: [{ name: 'Share', values: [0.25, 0.305], formatCode: '0%' }] };
+    const withData = await deck({ spTree: [{ type: 'Chart', name: 'Chart 3', xfrm: box(50, 100, 400, 300), chart }] });
+    expect(renderMarkdown(withData.ir).markdown).toBe('*Share by quarter*\n\n|  | Share |\n| --- | --- |\n| Q1 | 25% |\n| Q2 | 31% |\n');
+    const withoutData = await deck({ spTree: [{ type: 'Chart', name: 'Chart 3', xfrm: box(50, 100, 400, 300) }] });
+    expect(withoutData.ir.quality.checks.map((check) => check.code)).toEqual(['chart_partial']);
   });
 });

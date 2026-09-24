@@ -2,7 +2,7 @@ import type { ListKind, TextParagraph } from '../ir/pptx-lists.js';
 import type { DeckIR, DeckIrNode, DeckIrRun } from '../ir/schema.js';
 import { cleanControlCharacters, countControlCharacters } from '../shared/text-quality.js';
 
-export const MARKDOWN_RENDERER_VERSION = '1.3.0';
+export const MARKDOWN_RENDERER_VERSION = '1.4.0';
 
 export interface RenderedMarkdown {
   markdown: string;
@@ -35,9 +35,10 @@ function renderNode(node: DeckIrNode, byId: Map<string, DeckIrNode>, options: { 
   else if (node.type === 'formula') own = node.extensions?.formula && typeof node.extensions.formula === 'object' && 'latex' in node.extensions.formula
     ? `$$\n${String((node.extensions.formula as { latex?: unknown }).latex ?? node.text ?? '')}\n$$` : text;
   else if (node.type === 'table') own = renderTable(node, byId);
+  else if (node.type === 'speaker_note') own = renderSpeakerNote(node, text);
   // 页眉、页脚、页码是版式家具，文字留在 IR 里，不进阅读视图（pdf-parse 的 Markdown 同样只以注释保留）。
   else if (!['table_row', 'table_cell', 'group', 'section', 'article', 'main', 'header', 'footer', 'page_number', 'nav', 'aside', 'list'].includes(node.type)) {
-    const paragraphs = listParagraphsOf(node);
+    const paragraphs = paragraphsOf(node);
     own = paragraphs ? renderParagraphs(node, paragraphs) : text;
   }
   const childBody = node.type === 'table' ? '' : children.map((child) => renderNode(child, byId, options)).filter(Boolean).join('\n\n');
@@ -86,16 +87,14 @@ function renderHeading(node: DeckIrNode, text: string): string {
 }
 
 /**
- * 带列表结构的文本框（pptx 解析器写在 `extensions.paragraphs`）：列表项按大纲级别嵌套，
- * 普通段落照旧逐行输出，列表与段落之间空一行。级别跳级（0 直接到 2）只缩进一层——
- * Markdown 的嵌套按父项内容列对齐，多缩进一层就成了代码块。
+ * 带段落结构的文本框（pptx 解析器写在 `extensions.paragraphs`）：每个普通段落自成一段，列表项
+ * 按大纲级别嵌套，段落与列表之间都空一行；段内换行（`<a:br>`）仍是换行。级别跳级（0 直接到 2）
+ * 只缩进一层——Markdown 的嵌套按父项内容列对齐，多缩进一层就成了代码块。
  */
 function renderParagraphs(node: DeckIrNode, paragraphs: readonly TextParagraph[]): string {
   const blocks: string[] = [];
-  let plain: string[] = [];
   let items: string[] = [];
   const open: Array<{ level: number; kind: ListKind; indent: number; width: number; count: number }> = [];
-  const flushPlain = (): void => { if (plain.length) blocks.push(plain.join('\n')); plain = []; };
   const flushItems = (): void => { if (items.length) blocks.push(items.join('\n')); items = []; open.length = 0; };
   for (const paragraph of paragraphs) {
     const body = node.runs?.length
@@ -104,8 +103,7 @@ function renderParagraphs(node: DeckIrNode, paragraphs: readonly TextParagraph[]
     // 行首空白要去掉：列表标记后跟五个以上空格，CommonMark 就把这一项读成代码块。
     const lines = body.split('\n').map((line) => line.trim()).filter(Boolean);
     if (!lines.length) continue;
-    if (!paragraph.list) { flushItems(); plain.push(lines.join('\n')); continue; }
-    flushPlain();
+    if (!paragraph.list) { flushItems(); blocks.push(lines.join('\n')); continue; }
     while (open.length && open.at(-1)!.level > paragraph.level) open.pop();
     if (open.at(-1)?.level === paragraph.level && open.at(-1)!.kind !== paragraph.list) open.pop();
     let list = open.at(-1);
@@ -119,13 +117,25 @@ function renderParagraphs(node: DeckIrNode, paragraphs: readonly TextParagraph[]
     const pad = ' '.repeat(list.indent);
     items.push(`${pad}${marker} ${lines.join(`\n${pad}${' '.repeat(list.width)}`)}`);
   }
-  flushPlain();
   flushItems();
   return blocks.join('\n\n');
 }
 
-/** 读 IR 里的段落结构；缺字段或全无列表项就当没有，按纯文本渲染。 */
-function listParagraphsOf(node: DeckIrNode): TextParagraph[] | undefined {
+/**
+ * 讲者备注：引用块，并标明是备注。原先备注作为普通段落跟在幻灯片内容后面，读的人分不清哪句
+ * 在幻灯片上、哪句是讲者要说的。
+ */
+function renderSpeakerNote(node: DeckIrNode, text: string): string {
+  const paragraphs = paragraphsOf(node);
+  const body = (paragraphs ? renderParagraphs(node, paragraphs) : text).trim();
+  if (!body) return '';
+  // 以列表开头的备注，标签单独成行，免得「- 」接在标签后面不再是列表。
+  const labelled = /^(?:[-*+]|\d+\.)\s/.test(body) ? `**Speaker notes:**\n\n${body}` : `**Speaker notes:** ${body}`;
+  return labelled.split('\n').map((line) => (line ? `> ${line}` : '>')).join('\n');
+}
+
+/** 读 IR 里的段落结构；缺字段或对不上就当没有，按纯文本渲染。 */
+function paragraphsOf(node: DeckIrNode): TextParagraph[] | undefined {
   const raw = node.extensions?.paragraphs;
   if (!Array.isArray(raw)) return undefined;
   const paragraphs = raw.flatMap((item): TextParagraph[] => {
@@ -134,7 +144,7 @@ function listParagraphsOf(node: DeckIrNode): TextParagraph[] | undefined {
     if (typeof start !== 'number' || typeof end !== 'number' || typeof level !== 'number') return [];
     return [{ start, end, level, ...(list === 'bullet' || list === 'number' ? { list } : {}) }];
   });
-  return paragraphs.length === raw.length && paragraphs.some((paragraph) => paragraph.list) ? paragraphs : undefined;
+  return paragraphs.length > 0 && paragraphs.length === raw.length ? paragraphs : undefined;
 }
 
 function sliceRuns(runs: readonly DeckIrRun[], start: number, end: number): DeckIrRun[] {

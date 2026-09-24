@@ -226,7 +226,7 @@ function expectedParser(input: Exclude<ResolvedInput, { kind: 'artifact' }>, eng
     // Pre-1.0 minor releases can change parsing semantics (e.g. embedded image defaults).
     return { name: 'pdf-lite-parse', major: major!, ...(major === 0 ? { minor: minor! } : {}) };
   }
-  if (input.taskType === 'pptx.parse') return { name: 'deckparse-pptx', major: 4 };
+  if (input.taskType === 'pptx.parse') return { name: 'deckparse-pptx', major: 5 };
   if (input.taskType === 'docx.parseTextAndImage') return { name: 'deckparse-docx', major: 3 };
   return undefined;
 }

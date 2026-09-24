@@ -50,7 +50,12 @@ export function levelStyleKey(level: number): string {
   return `lvl${Math.min(Math.max(Math.trunc(level), 0), 8) + 1}pPr`;
 }
 
-/** 只有真有列表项时才值得写进 IR；全是普通段落的文本框照旧只有 text 与 runs。 */
-export function listParagraphs(paragraphs: readonly TextParagraph[]): TextParagraph[] | undefined {
-  return paragraphs.some((paragraph) => paragraph.list) ? [...paragraphs] : undefined;
+/**
+ * 值得写进 IR 的段落结构：有列表项，或不止一个段落。只有一段的文本框照旧只有 text 与 runs。
+ *
+ * 多段也要记：`text` 里段落之间与段内换行（`<a:br>`）都是 `\n`，不记段落边界，Markdown 只能把
+ * 整个文本框当成一段——实测讲义「Client process: …」「Server process: …」两段并成了一行。
+ */
+export function paragraphStructure(paragraphs: readonly TextParagraph[]): TextParagraph[] | undefined {
+  return paragraphs.length > 1 || paragraphs.some((paragraph) => paragraph.list) ? [...paragraphs] : undefined;
 }
