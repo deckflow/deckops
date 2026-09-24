@@ -1,7 +1,7 @@
 # Recipes
 
 Commands below assume `deckops` is installed. When using the npx fallback, replace the first
-word with `npx -y @deckflow/deckops@2.5.1`.
+word with `npx -y @deckflow/deckops@2.6.0`.
 
 Choose output paths inside a task-specific work directory. File names are examples.
 
@@ -46,7 +46,7 @@ deckops convert "work/slides-pptx" --engine local --split-pages --json
 ```
 
 The artifact view contains `index.md`, `001.md`, and subsequent page files. Do not rely on
-one-shot portable conversion to create those separate files in 2.5.1.
+one-shot portable conversion to create those separate files in 2.6.0.
 
 ## Keynote with existing upload authorization
 
@@ -99,7 +99,7 @@ deckops parse - --from pdf --engine local --preflight validate \
 
 ## Batch processing
 
-DeckOps 2.5.1 has no JSONL batch mode. Iterate an explicit file list in the host environment,
+DeckOps 2.6.0 has no JSONL batch mode. Iterate an explicit file list in the host environment,
 give every source a unique output path, and collect each process's exit code, stdout, and
 stderr separately. Avoid concurrent writes to the same artifact or view directory.
 

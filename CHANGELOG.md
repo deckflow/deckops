@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — PPTX paragraphs, speaker notes, embedded objects and charts
+## 2.6.0 — 2026-09-24 — PPTX paragraphs, speaker notes, embedded objects and charts
 
 - Keep the paragraphs of a text box apart. Both PPTX engines now record paragraph ranges for every
   multi-paragraph text box (`extensions.paragraphs`), and Markdown gives each paragraph its own block;
