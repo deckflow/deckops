@@ -76,6 +76,7 @@ const fakeClient = (overrides: Partial<CloudClient> = {}): CloudClient & { parse
       client.convertCalls += 1;
       return convertResult();
     }) as never,
+    resume: vi.fn(async () => { throw new Error('resume is not expected in this test'); }) as never,
     ...overrides,
   };
   return client as never;
@@ -182,6 +183,55 @@ describe('parse → artifact', () => {
       client,
     });
     expect(client.parseCalls).toBe(3);
+  });
+
+  it('resumes the task an interrupted run submitted instead of submitting again', async () => {
+    const dir = tmp();
+    const source = writeSource(dir);
+    const out = path.join(dir, 'artifact');
+    // 第一次：任务建好了，取结果时断网（实测 read ECONNRESET）。
+    const client = fakeClient({
+      parse: vi.fn(async (_source, options) => {
+        client.parseCalls += 1;
+        options?.onTask?.({ id: 't_parse_1', spaceId: 'space_1' } as never);
+        throw new DeckOpsError('backend_error', 'Cannot reach the DeckFlow API (GET https://x/v1/tools/tasks/t_parse_1/download): read ECONNRESET');
+      }) as never,
+      resume: vi.fn(async () => parseResult()) as never,
+    });
+    const run = async () => runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), preflight: 'off', client });
+    await expect(run()).rejects.toThrow('ECONNRESET');
+    const journal = JSON.parse(fs.readFileSync(path.join(out, 'upgrade.json'), 'utf8'));
+    expect(journal).toMatchObject({ status: 'submitted', taskId: 't_parse_1', spaceId: 'space_1' });
+
+    // 第二次：接着等同一个任务，不再上传、不再建任务。
+    const second = await run();
+    expect(client.parseCalls).toBe(1);
+    expect(client.resume).toHaveBeenCalledWith('t_parse_1', 'pdf.pdfParse', expect.objectContaining({ spaceId: 'space_1' }));
+    expect(second.engine).toBe('cloud');
+    expect(second.warnings.join('\n')).toContain('Resumed cloud task t_parse_1');
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'upgrade.json'), 'utf8')).status).toBe('completed');
+  });
+
+  it('gives up on a resumed task the cloud reports failed, so the next run submits anew', async () => {
+    const dir = tmp();
+    const source = writeSource(dir);
+    const out = path.join(dir, 'artifact');
+    fs.mkdirSync(out, { recursive: true });
+    const client = fakeClient({ resume: vi.fn(async () => { throw new Error('Task failed: worker crashed'); }) as never });
+    const run = async () => runParse({ input: await resolveInput(source), inputLabel: source, out, flags: {}, common: cloudCommon(), preflight: 'off', client });
+    // 先让一次正常运行写出 sourceHash 与 params，再把日志改成「已提交」。
+    await run();
+    const journalPath = path.join(out, 'upgrade.json');
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'));
+    fs.writeFileSync(journalPath, JSON.stringify({ ...journal, status: 'submitted', taskId: 't_gone' }));
+    fs.rmSync(path.join(out, 'manifest.json'));
+    fs.rmSync(path.join(out, 'candidates'), { recursive: true, force: true });
+
+    await expect(run()).rejects.toMatchObject({ taskId: 't_gone', hint: expect.stringContaining('submit a new task') });
+    expect(JSON.parse(fs.readFileSync(journalPath, 'utf8')).status).toBe('failed');
+    const parseCalls = client.parseCalls;
+    await run();
+    expect(client.parseCalls).toBe(parseCalls + 1);
   });
 
   it('refuses to parse an artifact, pointing at convert', async () => {

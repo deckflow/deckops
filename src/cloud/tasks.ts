@@ -31,6 +31,12 @@ type EventStreamBody = NodeReadableLike | ReadableStream<Uint8Array> | string;
 
 const SSE_RETRY_INTERVAL = 5000;
 const SSE_MAX_RETRIES = 100;
+/**
+ * 等待任务时，状态接口连续几次回的不是任务（空响应体、没有 status）就报错。实测生产环境对不属于
+ * 当前身份的任务回 200 与空响应体；原先把它当成「还在跑」，白等到超时（600 秒），最后只剩一句
+ * 「The operation was aborted due to timeout」。留几次余地，偶发的一次空响应不至于打断等待。
+ */
+const INVALID_TASK_RESPONSE_LIMIT = 3;
 
 /** The endpoint returned a snapshot, not a stream; polling can continue the wait. */
 class EventStreamUnavailableError extends Error {}
@@ -266,7 +272,7 @@ export class TasksApi {
     // Fast path: task may already be terminal before SSE connects (common for
     // quick guest-mode tasks after an explicit start). Avoid hanging on an SSE
     // connection that never emits a terminal event for an already-finished task.
-    const current = await this.get<T>(taskId, { signal: options.signal, spaceId: options.spaceId });
+    const current = await this.getSnapshot<T>(taskId, options.signal, options.spaceId, options.pollInterval ?? DEFAULT_POLL_INTERVAL);
     options.onProgress?.(current);
     if (current.status === 'completed') {
       return current;
@@ -757,7 +763,7 @@ export class TasksApi {
         throw new Error(`Task ${taskId} did not complete within ${timeout}s`);
       }
 
-      const task = await this.get<T>(taskId, { signal, spaceId });
+      const task = await this.getSnapshot<T>(taskId, signal, spaceId, pollInterval);
       onProgress?.(task);
 
       if (task.status === 'completed') {
@@ -767,6 +773,18 @@ export class TasksApi {
         throw new Error(`Task failed: ${task.error || 'Unknown error'}`);
       }
 
+      await delay(pollInterval, signal);
+    }
+  }
+
+  /** 等待时取任务状态：回的不是任务就隔一个轮询间隔再取，连续 {@link INVALID_TASK_RESPONSE_LIMIT} 次就报错。 */
+  private async getSnapshot<T extends DeckTaskType>(taskId: string, signal: AbortSignal | undefined, spaceId: string | undefined, pollInterval: number): Promise<DeckTask<T>> {
+    for (let attempt = 1; ; attempt += 1) {
+      const task: unknown = await this.get<T>(taskId, { signal, spaceId });
+      if (typeof task === 'object' && task !== null && typeof (task as { status?: unknown }).status === 'string') return task as DeckTask<T>;
+      if (attempt >= INVALID_TASK_RESPONSE_LIMIT) {
+        throw new Error(`The cloud returned no task status for ${taskId} ${attempt} times in a row (GET /tools/tasks/${taskId}); the task may belong to another account or space.`);
+      }
       await delay(pollInterval, signal);
     }
   }

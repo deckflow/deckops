@@ -24,6 +24,7 @@ import { MARKDOWN_RENDERER_VERSION, renderMarkdown } from '../views/markdown.js'
 import type { NodeDocumentInspector } from './inspector.js';
 import type { ResolvedInput } from './input.js';
 import { runSourcePreflight } from './parse-op.js';
+import { withinOperationTimeout } from './timeout.js';
 
 export interface ConvertOpOptions {
   assessment?: Assessment;
@@ -111,10 +112,10 @@ async function convertOneShot(options: ConvertOpOptions): Promise<ConvertEnvelop
   const inspected = await runSourcePreflight({ input, flags: options.parseFlags ?? {}, ...(options.preflight ? { mode: options.preflight } : {}), ...(options.inspector ? { inspector: options.inspector } : {}) });
   const source = await sourceIdentity(input, options.common.engine === 'cloud' ? undefined : (options.common.limits?.sourceBytes ?? DEFAULT_LOCAL_LIMITS.sourceBytes));
   const cloud = cloudFactory(options);
-  const candidate = await routeParse({ input: { input, inputLabel: options.inputLabel, source },
+  const candidate = await withinOperationTimeout(operationTimeoutMs(options.common), undefined, (signal) => routeParse({ input: { input, inputLabel: options.inputLabel, source },
     ...(inspected.report ? { probe: inspected.report } : {}),
     parse: { flags: options.parseFlags ?? {}, common: options.common }, ...(cloud ? { cloud } : {}),
-    signal: AbortSignal.timeout(operationTimeoutMs(options.common)) });
+    signal }));
   if ((options.common.engine === 'cloud' || options.flags.strict) && candidate.remote) {
     const result = await callConvert(await requireCloud(options), { irKey: candidate.remote.irKey }, options.flags, options.common);
     const target = options.out ?? defaultPortableName(input, options.inputLabel);

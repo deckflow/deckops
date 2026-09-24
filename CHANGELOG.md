@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased — Cloud robustness
+
+- Resume an interrupted cloud parse: when an earlier run recorded a task ID (the task was created,
+  then the wait or the result download failed), rerunning the same parse waits for that task and
+  downloads its result instead of blocking. Nothing is uploaded or submitted again, so nothing is
+  billed twice. The task's space is now recorded in `upgrade.json`. If the cloud reports the task
+  failed or no longer finds it, the journal is marked `failed` and the next run submits anew. A
+  production run that lost its download to `read ECONNRESET` previously could only continue with
+  `--force`, which re-bills.
+- Rejected saved credentials fail with `auth_error` and the `deckops auth login` hint. The CLI used to
+  switch to guest mode silently: the task landed in a guest space, its result could not be fetched,
+  and the command waited out its timeout without mentioning authentication.
+- Stop waiting when the task status comes back empty three times in a row, naming the task and the
+  endpoint. Production answers 200 with an empty body for a task outside the caller's identity, which
+  was treated as "still running" until the 600-second timeout. A resumed task that cannot be read is
+  marked `failed` so the next run submits anew.
+- A task-creation request the server rejects with 4xx (expired login, quota, bad parameters) is
+  journaled as `failed`, not `submission_unknown`: no task exists, and after logging in again the
+  next parse must not be blocked behind `--force`.
+- When the whole operation runs out of time, say so: `Stopped after 120s without a result.`, with a
+  hint to raise `--timeout`, rerun to resume a created task, or check the API root. It used to end with
+  a bare `The operation was aborted due to timeout`, even when the API host was unreachable.
+
 ## 2.5.0 — 2026-09-24 — PPTX placeholder positions and image fidelity
 
 - Placeholders that carry no frame of their own now take it from the matching layout placeholder,

@@ -5,6 +5,7 @@ import MockAdapter from 'axios-mock-adapter';
 import { resetAuthUuidCacheForTests } from '../../src/cloud/auth-uuid.js';
 import { resetRetryDelaysForTests, setRetryDelaysForTests } from '../../src/cloud/errors.js';
 import { createNodeTransport as createDeck } from '../../src/cloud/node.js';
+import { createCloudClient } from '../../src/cloud/client.js';
 import { DEFAULT_ROOT } from '../../src/cloud/contracts.js';
 import { isValidAuthUuid } from '../../src/cloud/auth-uuid.js';
 import { APIError } from '../../src/cloud/errors.js';
@@ -955,6 +956,44 @@ describe('Node cloud transport', () => {
     const create = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'], onDispatch }).catch((error: unknown) => error);
     expect(onDispatch).toHaveBeenCalledTimes(1);
     expect((create as APIError).message).toMatch(/^Cannot reach the DeckFlow API \(POST http:\/\/localhost:3000\/api\/tools\/tasks\): ECONNABORTED: timeout/);
+  });
+
+  it('fails with auth_error when saved credentials are rejected instead of switching to a guest', async () => {
+    // 实测：生产环境的 token 失效后，CLI 悄悄换成访客建任务，结果取不回来，白等 600 秒。
+    const client = createCloudClient({ apiBase: 'http://localhost:3000/api', token: 'expired-token', spaceId: 'space-1' } as never);
+    const guestLookup = vi.fn(() => [200, { id: 'guest-space' }]);
+    mock.onGet('http://localhost:3000/api/user').reply(guestLookup);
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply(401, { message: 'Not authentication' });
+
+    const error = await client.parse({ file: { input: new Uint8Array([1, 2, 3]), name: 'deck.pptx' } }).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'auth_error', hint: expect.stringContaining('deckops auth login') });
+    expect(guestLookup).not.toHaveBeenCalled();
+  });
+
+  it('stops waiting when the task status comes back empty', async () => {
+    // 实测：生产环境对不属于当前身份的任务回 200 与空响应体，原先当成「还在跑」一直等到超时。
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    const lookups = vi.fn(() => [200, '']);
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-empty').reply(lookups);
+
+    await expect(deck.tasks.wait('task-empty', { timeout: 30, pollInterval: 1, useEventStream: false }))
+      .rejects.toThrow('The cloud returned no task status for task-empty 3 times in a row');
+    expect(lookups).toHaveBeenCalledTimes(3);
+  });
+
+  it('resumes a submitted parse task without creating another one', async () => {
+    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
+    const create = vi.fn(() => [500, {}]);
+    mock.onPost('http://localhost:3000/api/tools/tasks').reply(create);
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-9').reply(200, { id: 'task-9', spaceId: 'space-2', type: 'pptx.parse', status: 'completed' });
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-9/download').reply((config) => {
+      expect(config.params).toEqual({ spaceId: 'space-2' });
+      return [200, { irKey: '2026-09/ab/ir.json', irSchemaVersion: 'pptx.v1', slides: [] }];
+    });
+
+    const parsed = await deck.resume('task-9', 'pptx.parse', { spaceId: 'space-2', wait: { timeout: 5 } });
+    expect(parsed).toMatchObject({ taskId: 'task-9', type: 'pptx.parse', irKey: '2026-09/ab/ir.json' });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('uploads files in guest mode using spaceId resolved from /user', async () => {

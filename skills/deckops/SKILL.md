@@ -73,8 +73,9 @@ not grant upload permission.
 
 Use `--engine cloud` for an explicitly selected cloud run. Use
 `--engine auto --allow-upload` only when the user has allowed automatic upload after local
-support or quality proves insufficient. Do not retry an uncertain cloud submission by
-parsing the source again; keep a known task ID for recovery.
+support or quality proves insufficient. After an interrupted cloud parse, rerun the same
+command with the same output: DeckOps resumes a recorded task instead of submitting again. Do not
+add `--force` to that retry unless the user accepts a second charge.
 
 Local file parsing does not upload the document. Local URL source mode still fetches the
 user-supplied URL and bounded redirects. Keynote and URL runtime parsing are cloud-only.

@@ -25,6 +25,7 @@ import { formatForTaskType } from '../shared/validation.js';
 import type { CommonFlags, Manifest, ManifestInspection, ManifestV2, OutputFile, ParseEnvelope, ParseFlags } from '../types.js';
 import { PDF_PARSER_VERSION, VERSION } from '../version.js';
 import { createNodeDocumentInspector, type NodeDocumentInspector } from './inspector.js';
+import { withinOperationTimeout } from './timeout.js';
 import type { ResolvedInput } from './input.js';
 
 export interface ParseOpOptions {
@@ -42,12 +43,15 @@ export async function runParse(options: ParseOpOptions): Promise<ParseEnvelope> 
   let lock: Awaited<ReturnType<typeof fs.open>>;
   try { lock = await fs.open(lockPath, 'wx', 0o600); }
   catch (cause) { throw DeckOpsError.input('Artifact is already in use or its lock cannot be created.', { hint: `Retry when the active operation finishes. A stale lock after a crash can be inspected at ${lockPath}.`, cause }); }
-  try { await lock.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })); return await runParseLocked(options); }
+  try {
+    await lock.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+    return await withinOperationTimeout(operationTimeoutMs(options.common), options.common.signal, (signal) => runParseLocked(options, signal),
+      'If a cloud task was created, rerunning the same command resumes it.');
+  }
   finally { await lock.close(); await fs.rm(lockPath, { force: true }); }
 }
 
-async function runParseLocked(options: ParseOpOptions): Promise<ParseEnvelope> {
-  const signal = options.common.signal ? AbortSignal.any([options.common.signal, AbortSignal.timeout(operationTimeoutMs(options.common))]) : AbortSignal.timeout(operationTimeoutMs(options.common));
+async function runParseLocked(options: ParseOpOptions, signal: AbortSignal): Promise<ParseEnvelope> {
   signal.throwIfAborted();
   // Freeze local source bytes for probe, candidate comparison and possible upload.
   if (options.input.kind === 'document') {
@@ -106,7 +110,7 @@ async function runFrozenParse(options: ParseOpOptions, signal: AbortSignal): Pro
   }
   const journalPath = path.join(dir, 'upgrade.json');
   const journal = await fs.readFile(journalPath, 'utf8').then(body => JSON.parse(body)).catch(() => undefined);
-  const previousSubmission = journal?.sourceHash === source.sha256 && JSON.stringify(journal.params) === JSON.stringify(params) && ['submitted', 'submission_unknown'].includes(journal.status) ? { status: journal.status as string, ...(typeof journal.taskId === 'string' ? { taskId: journal.taskId } : {}) } : undefined;
+  const previousSubmission = journal?.sourceHash === source.sha256 && JSON.stringify(journal.params) === JSON.stringify(params) && ['submitted', 'submission_unknown'].includes(journal.status) ? { status: journal.status as string, ...(typeof journal.taskId === 'string' ? { taskId: journal.taskId } : {}), ...(typeof journal.spaceId === 'string' ? { spaceId: journal.spaceId } : {}) } : undefined;
   const inspected = await runPreflight({ input, flags, mode: options.preflight ?? DEFAULT_PREFLIGHT_MODE, signal,
     ...(options.inspector ? { inspector: options.inspector } : {}), ...(storedInspection ? { stored: storedInspection } : {}) });
   const cloud = options.cloud ?? (options.client ? async () => options.client! : undefined);

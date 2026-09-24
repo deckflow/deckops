@@ -6,6 +6,7 @@ import { LocalEngine } from '../../src/engine/local.js';
 import { CloudEngine } from '../../src/engine/cloud.js';
 import { result3ToDeckIr } from '../../src/ir/result3-adapter.js';
 import type { ParseCandidate } from '../../src/ir/schema.js';
+import { DeckOpsError } from '../../src/errors/index.js';
 const source = { sha256: 'a'.repeat(64), name: 'a.pdf', bytes: 100 };
 const input = { input: { kind: 'document' as const, file: 'a.pdf', name: 'a.pdf', taskType: 'pdf.pdfParse' as const }, inputLabel: 'a.pdf', source };
 function candidate(engine: 'local' | 'cloud', failure = false): ParseCandidate {
@@ -71,6 +72,15 @@ describe('deterministic upgrade policy', () => {
     vi.spyOn(CloudEngine.prototype, 'parse').mockImplementationOnce(async (_input, options) => { options.onSubmit?.(); throw new Error('socket hang up'); });
     await expect(routeParse(opts)).rejects.toThrow('socket hang up');
     expect(states).toEqual(['submission_unknown']);
+    // 服务端明确拒绝（实测：保存的 token 失效，POST /tools/tasks 回 401）：任务没有建，不能挡住下一次。
+    states.length = 0;
+    const rejected = Object.assign(new Error('API Error (401): Not authentication'), { name: 'APIError', statusCode: 401 });
+    vi.spyOn(CloudEngine.prototype, 'parse').mockImplementationOnce(async (_input, options) => {
+      options.onSubmit?.();
+      throw new DeckOpsError('auth_error', rejected.message, { cause: rejected });
+    });
+    await expect(routeParse(opts)).rejects.toMatchObject({ code: 'auth_error' });
+    expect(states).toEqual(['submission_unknown', 'failed']);
   });
   it('blocks a resubmission over an unresolved one unless --force, and then warns about billing', async () => {
     const cloud = vi.spyOn(CloudEngine.prototype, 'parse').mockResolvedValue(candidate('cloud'));

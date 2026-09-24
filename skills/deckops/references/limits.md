@@ -80,10 +80,16 @@ participate in artifact cache identity. A larger limit does not improve semantic
 
 ## Cloud recovery
 
-Cloud task creation is not generally safe to repeat after an ambiguous network failure. Keep the
-task ID as soon as it is reported. When the SDK or surrounding application exposes task lookup,
-inspect that task and convert its completed parse reference rather than uploading and parsing the
-source again.
+Cloud task creation is not generally safe to repeat after an ambiguous network failure. When a
+parse is interrupted after its task was created (timeout, dropped connection while downloading),
+rerun the same command with the same output directory: DeckOps reads the task ID from
+`upgrade.json`, waits for that task and downloads its result, with no new upload or charge. If the
+cloud reports that task failed or gone, the journal is marked failed and the next run submits anew.
+A submission that was sent without any task ID coming back cannot be resumed; `--force` resubmits it
+and may be billed twice.
+
+A rejected saved credential fails with `auth_error` rather than continuing as a guest. Restore the
+login (`deckops auth login`) and rerun.
 
 Remote IR references currently expire, while local v2 IR remains usable for local conversion.
 Signed image URLs are previews, not permanent assets. Preserve or localize required assets before

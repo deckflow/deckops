@@ -57,8 +57,8 @@ deckops convert "work/talk-key" --engine cloud --split-pages --json
 ```
 
 The second command consumes the existing remote reference and does not upload the source
-again. Preserve task IDs. If submission outcome is uncertain, inspect/recover that task
-rather than submitting another parse.
+again. Preserve task IDs and the output directory: rerunning an interrupted parse into the same
+output resumes the recorded task rather than submitting another parse.
 
 ## Allow cloud only when local is insufficient
 

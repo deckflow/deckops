@@ -77,7 +77,7 @@ DeckOps errors use a stable `error.code` when they reach the product error layer
 | `3` | `unsupported` | Change the real format/engine/option path; do not approximate success. |
 | `4` | `auth_error` | Restore the same cloud identity/space; do not silently switch user or guest. |
 | `5` | `input_error`, `ir_not_found`, `ir_expired`, `ir_schema_unsupported`, `ir_invalid`, `asset_error` | Fix the named local or remote input condition using its hint. |
-| `6` | `backend_error` | Retain a known task ID and recover before retrying a parse submission. |
+| `6` | `backend_error` | Rerun the same parse into the same output to resume a recorded task; `--force` resubmits and may bill again. |
 | `7` | `not_implemented` | The reserved operation is unavailable in this version. |
 | `8` | `quota_error` | Report the quota/login route; do not create another identity to bypass it. |
 | Other | Unexpected process failure | Preserve the code and necessary stderr; do not invent an envelope. |

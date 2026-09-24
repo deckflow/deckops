@@ -23,6 +23,19 @@ export class CloudEngine implements ParseEngine {
     if (!input.source) throw new Error('Cloud parsing needs a resolved source identity.');
     return cloudResultToCandidate(parsed, input.source, signal);
   }
+
+  /** 接着等上一次提交的任务并取回结果：不上传、不建新任务。 */
+  async resume(input: EngineParseInput, submission: { taskId: string; spaceId?: string | undefined }, options: EngineParseOptions, signal: AbortSignal) {
+    signal.throwIfAborted();
+    const spaceId = submission.spaceId ?? options.common.spaceId;
+    const parsed = await this.client.resume(submission.taskId, input.input.kind === 'link' ? 'html.getByURL' : input.input.taskType, {
+      signal,
+      ...(spaceId ? { spaceId } : {}),
+      ...(options.common.timeout ? { wait: { timeout: options.common.timeout } } : {}),
+    });
+    if (!input.source) throw new Error('Cloud parsing needs a resolved source identity.');
+    return cloudResultToCandidate(parsed, input.source, signal);
+  }
 }
 function sourceFor(input: EngineParseInput['input']): ParseSource {
   if (input.kind === 'document') return input.file;

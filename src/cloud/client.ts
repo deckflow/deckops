@@ -4,8 +4,9 @@ import { createNodeTransport } from './node.js';
 import type { TransportClient } from './transport.js';
 import type {
   ConvertOptions as SdkConvertOptions, ConvertRef, ConvertResult,
-  ParseOptions as SdkParseOptions, ParseResult, ParseSource,
+  ParseOptions as SdkParseOptions, ParseResult, ParseSource, ResumeOptions,
 } from './parse-facade.js';
+import type { ParseTaskType } from '../types.js';
 import type { ResolvedCredentials } from '../config/index.js';
 import { PRE_UPLOAD_THRESHOLD } from '../shared/constants.js';
 import { translateError } from '../shared/errors.js';
@@ -21,12 +22,16 @@ export { translateError as translate } from '../shared/errors.js';
 export interface CloudClient {
   parse<R = unknown>(source: ParseSource, options?: SdkParseOptions): Promise<ParseResult<R>>;
   convert(ref: ConvertRef, options?: SdkConvertOptions): Promise<ConvertResult>;
+  resume<R = unknown>(taskId: string, type: ParseTaskType | 'html.getByURL', options?: ResumeOptions): Promise<ParseResult<R>>;
 }
 
 export function createCloudClient(credentials: ResolvedCredentials): CloudClient {
   const deck: TransportClient = createNodeTransport({
     root: credentials.apiBase,
     retryMutations: false,
+    // 保存的凭据被拒（过期、被吊销）时直接报 auth_error，不悄悄换成访客：访客的任务落在另一个
+    // 空间，结果取不回来；实测命令白等 600 秒，从头到尾没提一句登录。
+    allowGuestFallback: false,
     ...(credentials.token ? { token: credentials.token } : {}),
     ...(credentials.apiKey ? { apiKey: credentials.apiKey } : {}),
     ...(credentials.spaceId ? { spaceId: credentials.spaceId } : {}),
@@ -45,6 +50,13 @@ export function createCloudClient(credentials: ResolvedCredentials): CloudClient
         return await deck.convert(ref, options);
       } catch (error) {
         throw translateError(error);
+      }
+    },
+    resume: async (taskId, type, options) => {
+      try {
+        return await deck.resume(taskId, type, options);
+      } catch (error) {
+        throw translateError(error, 'node', taskId);
       }
     },
   };

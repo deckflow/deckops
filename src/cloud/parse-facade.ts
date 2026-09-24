@@ -70,6 +70,15 @@ export interface ParseOptions {
   stayImageAreaRate?: (number) | undefined;
 }
 
+export interface ResumeOptions {
+  /** Stops client-side waiting; the cloud task keeps running. */
+  signal?: (AbortSignal) | undefined;
+  /** Space owning the task; defaults to the client's space. */
+  spaceId?: (string) | undefined;
+  /** 等待任务完成的选项 */
+  wait?: (WaitForTaskOptions) | undefined;
+}
+
 export interface ParseResult<R = unknown> extends IrResult {
   /** 产出该 IR 的任务 id，可交给 `convert()` 或用于回查 */
   taskId: string;
@@ -295,5 +304,21 @@ export const createParse = (deps: ParseDeps) => {
     return { ...raw, taskId: done.id };
   };
 
-  return { parse, convert };
+  /**
+   * 接着等一个已经提交的解析任务并取回它的 IR：不上传、不建任务，也就不再计费。
+   * 用于上一次提交拿到了任务 id、却没等到结果的情形（超时、断网、进程被中断）。
+   */
+  const resume = async <R = unknown>(
+    taskId: string,
+    type: ParseTaskType | 'html.getByURL',
+    options: ResumeOptions = {}
+  ): Promise<ParseResult<R>> => {
+    const signal = options.signal ?? options.wait?.signal;
+    throwIfAborted(signal);
+    const done = await deps.waitTask(taskId, { ...options.wait, signal, spaceId: options.spaceId });
+    const raw = await deps.downTask(done.id, { signal, spaceId: done.spaceId ?? options.spaceId });
+    return toParseResult<R>(raw, done.id, type);
+  };
+
+  return { parse, convert, resume };
 };

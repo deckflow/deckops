@@ -17,7 +17,7 @@ export interface EngineParseInput {
 export interface EngineParseOptions {
   /** 云端建任务的请求即将发出；在此之前失败不会留下云端任务。 */
   onSubmit?: () => void;
-  onTask?: (task: { id: string }) => void;
+  onTask?: (task: { id: string; spaceId?: string | undefined }) => void;
   flags: ParseFlags;
   common: CommonFlags;
 }
