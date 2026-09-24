@@ -232,15 +232,16 @@ describe('cloud IR adapter: pptx lists', () => {
     text: paragraphs.map(([t]) => t).join('\n'),
     ...extra,
   });
-  const placeholder = (type: string, idx?: number) => ({ type: 'Shape', ph: { type, ...(idx === undefined ? {} : { idx }) }, txBody: { children: [] } });
+  const placeholder = (type: string, idx?: number, xfrm?: Record<string, number>) =>
+    ({ type: 'Shape', ph: { type, ...(idx === undefined ? {} : { idx }) }, ...(xfrm ? { xfrm } : {}), txBody: { children: [] } });
   // 与 tests/unit/pptx-parser.test.ts 的 pptxWithMaster 同一份演示文稿：项目符号来自母版 bodyStyle。
   const deck = (spTree: unknown[]) => cloudResultToCandidate({
     taskId: 'task', type: 'pptx.parse', irKey: 'ir/fixture', irSchemaVersion: 'pptx.v1',
     ir: {
       slides: [{ _ref: 'slide1', _layoutRef: 'layout1', _masterRef: 'master1', spTree }],
       slideMasters: [{
-        _ref: 'master1', spTree: [placeholder('title'), placeholder('body', 1)],
-        slideLayouts: [{ _ref: 'layout1', _masterRef: 'master1', spTree: [placeholder('title'), placeholder('body', 1)] }],
+        _ref: 'master1', spTree: [placeholder('title', undefined, box(40, 20, 600, 60)), placeholder('body', 1, box(40, 110, 600, 290))],
+        slideLayouts: [{ _ref: 'layout1', _masterRef: 'master1', spTree: [placeholder('title'), placeholder('body', 1, box(50, 120, 570, 260))] }],
         titleStyle: { lvl1pPr: { buNone: true } },
         bodyStyle: { lvl1pPr: { buChar: '•' }, lvl2pPr: { buChar: '–' }, lvl3pPr: { buChar: '»' } },
         otherStyle: { lvl1pPr: {} },
@@ -268,7 +269,21 @@ describe('cloud IR adapter: pptx lists', () => {
       'clients:', '',
       '- communicate with server', '',
     ].join('\n'));
-    expect(candidate.ir.producer.version).toBe('3');
+    expect(candidate.ir.producer.version).toBe('4');
+  });
+
+  it('places placeholders without a frame like the layout and master do, as the local parser does', async () => {
+    const candidate = await deck([
+      shape('Label 1', box(400, 110, 100, 20), [['HTTP request']]),
+      { ...shape('Title 1', box(0, 0, 0, 0), [['HTTP overview']], { ph: { type: 'title' } }), xfrm: undefined },
+      { ...shape('Content Placeholder 2', box(0, 0, 0, 0), [['HTTP: hypertext transfer protocol', { buNone: true }], ['client/server model']],
+        { ph: { type: 'body', idx: 1 } }), xfrm: undefined },
+    ]);
+    const named = (name: string) => candidate.ir.document.nodes.find((node) => (node.extensions?.cloud as { name?: string }).name === name)!;
+    expect(named('Content Placeholder 2').bbox).toEqual([50, 120, 620, 380]);
+    expect(named('Content Placeholder 2').extensions?.bboxInheritedFrom).toBe('layout');
+    expect(named('Title 1').bbox).toEqual([40, 20, 640, 80]);
+    expect(renderMarkdown(candidate.ir).markdown).toBe('## HTTP overview\n\nHTTP: hypertext transfer protocol\n\n- client/server model\n\nHTTP request\n');
   });
 
   it('numbers auto-numbered paragraphs and leaves plain text boxes alone', async () => {
@@ -306,5 +321,30 @@ describe('Markdown emphasis from text runs', () => {
 
   it('nests italic inside bold instead of butting the markers together', async () => {
     expect(await render([{ t: 'abc', style: { b: true } }, { t: 'def', style: { b: true, i: true } }])).toBe('**abc*def***');
+  });
+});
+
+describe('cloud IR adapter: pictures', () => {
+  const EMU = 12700;
+  const picture = (extra: Record<string, unknown>) => ({ type: 'Picture', name: 'Picture 1', xfrm: { x: 0, y: 0, cx: 10 * EMU, cy: 10 * EMU }, picture: { blip: 'ppt/media/image92.tmp' }, ...extra });
+
+  it('reads alt text from descr with the same cleanup as the local parser', async () => {
+    const candidate = await parse([
+      picture({ descr: `Image result for ${String.fromCharCode(...new TextEncoder().encode('中信集团'))} logo`, assetPath: 'assets/a.png' }),
+      picture({ descr: 'https://timgsa.baidu.com/timg?image&quality=80', assetPath: 'assets/b.png' }),
+    ]);
+    const [kept, dropped] = candidate.ir.document.nodes;
+    expect(kept!.extensions?.alt).toBe('中信集团 logo');
+    expect(dropped!.extensions?.alt).toBeUndefined();
+    expect(dropped!.extensions?.descr).toMatch(/^https:/);
+  });
+
+  it('reports a picture whose image the cloud result left out instead of dropping it silently', async () => {
+    // 实测：后端按扩展名筛图片，两张存成 .tmp 的 PNG 没有 assetPath，Markdown 里就少了两张图。
+    const candidate = await parse([picture({})]);
+    const [node] = candidate.ir.document.nodes;
+    expect(node!.issues).toEqual(['missing_media']);
+    expect(candidate.ir.quality.checks.map((check) => check.code)).toEqual(['cloud_asset_missing']);
+    expect(candidate.ir.quality.checks[0]!.message).toContain('ppt/media/image92.tmp');
   });
 });

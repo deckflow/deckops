@@ -1,11 +1,12 @@
 import pLimit from 'p-limit';
 import type { ParseResult } from '../cloud/parse-facade.js';
 import type { ResultArtifact } from '@deckflow/pdf-lite-parse';
+import { imageAltText } from './alt-text.js';
 import { stableId } from './ids.js';
 import {
-  bulletDeclaration, levelStyleKey, listParagraphs, masterTextStyleKey, matchLayoutPlaceholder, placeholderKind, resolveList,
-  type BulletDeclaration, type PlaceholderKey, type TextParagraph,
+  bulletDeclaration, levelStyleKey, listParagraphs, resolveList, type BulletDeclaration, type TextParagraph,
 } from './pptx-lists.js';
+import { inheritedPlaceholders, masterTextStyleKey, type PlaceholderEntry, type PlaceholderKey } from './pptx-placeholders.js';
 import { result3ToDeckIr } from './result3-adapter.js';
 import type { CandidateAsset, DeckIrNode, DeckIrPage, DeckIrRun, DocumentFormat, ParseCandidate, QualityCheck } from './schema.js';
 import { orderSlideNodes } from './slide-order.js';
@@ -36,7 +37,7 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
   if (pageItems.length) {
     pageItems.forEach((item, index) => {
       const before = nodes.length;
-      const styles = format === 'pptx' ? slideTextStyles(raw, object(item)) : undefined;
+      const styles = format === 'pptx' ? slideInheritance(raw, object(item)) : undefined;
       walkCloud(item, sink, source.sha256, `pages/${index}`, index + 1, null, pageTransform, styles);
       pages.push({ id: stableId(source.sha256, `cloud:page:${index}`, 'p'), index: index + 1,
         ...(pageSize(raw.width ?? object(raw.slideSize)?.cx) ? { width: pageSize(raw.width ?? object(raw.slideSize)?.cx) } : {}),
@@ -60,6 +61,13 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
     metadata: { cloudSchemaVersion: parsed.irSchemaVersion }, pages, nodes, assets, quality });
   const availableAssets = new Set(ir.document.assets.map((asset) => asset.path));
   for (const node of ir.document.nodes) {
+    // 图片形状指着包里的媒体，云端结果却没有给出这张图：原先悄无声息地少一张图（实测两张存成
+    // `.tmp` 的 PNG 被后端按扩展名筛掉）。
+    const mediaRef = node.extensions?.mediaRef;
+    if (typeof mediaRef === 'string') {
+      node.issues = [...(node.issues ?? []), 'missing_media'];
+      checks.push({ code: 'cloud_asset_missing', severity: 'warning', message: `The cloud result does not include the image ${mediaRef} that a picture refers to.`, ...(node.page ? { pages: [node.page] } : {}), nodeIds: [node.id] });
+    }
     const assetPath = node.extensions?.assetPath;
     if (typeof assetPath !== 'string' || availableAssets.has(assetPath)) continue;
     delete node.extensions!.assetPath;
@@ -72,10 +80,11 @@ export async function cloudResultToCandidate(parsed: ParseResult, source: Source
 
 /**
  * 云端适配器的产物版本，按格式分开：parse-op 按主版本判断缓存能不能复用，缓存失效就要重新提交
- * 云端任务（计费）。只有产物真变了的格式才升版本——3 是 pptx 的列表结构，其余格式仍是 2。
+ * 云端任务（计费）。只有产物真变了的格式才升版本：pptx 3 加了列表结构，4 加了继承的占位符
+ * 位置与图片替代文字；其余格式仍是 2。
  */
 export function cloudProducerVersion(format: string | undefined): string {
-  return format === 'pptx' ? '3' : '2';
+  return format === 'pptx' ? '4' : '2';
 }
 
 /**
@@ -133,7 +142,7 @@ function transformedBbox(xfrm: Record<string, unknown> | undefined, transform: T
 
 function round(value: number): number { return Math.round(value * 1000) / 1000; }
 
-function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: string, page?: number, parentId: string | null = null, transform: Transform = IDENTITY, styles?: SlideTextStyles): void {
+function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: string, page?: number, parentId: string | null = null, transform: Transform = IDENTITY, styles?: SlideInheritance): void {
   if (!value || typeof value !== 'object') return;
   if (Array.isArray(value)) { value.forEach((item, index) => walkCloud(item, sink, hash, `${locator}/${index}`, page, parentId, transform, styles)); return; }
   const record = value as Record<string, unknown>;
@@ -144,21 +153,33 @@ function walkCloud(value: unknown, sink: CloudNodeSink, hash: string, locator: s
   const xfrm = object(record.xfrm);
   if (text || ['shape', 'picture', 'image', 'table', 'group', 'chart'].some((token) => kind.includes(token)) || FURNITURE_KINDS.has(kind)) {
     const id = stableId(hash, `cloud:${locator}`);
-    const bbox = transformedBbox(xfrm, transform);
+    const placeholder = object(record.ph);
+    const placeholderKey = placeholder ? cloudPlaceholderKey(placeholder) : undefined;
+    const inherited = placeholderKey && styles ? inheritedPlaceholders(placeholderKey, styles.layoutPlaceholders, styles.masterPlaceholders) : undefined;
+    // 占位符没写位置就照版式、再照母版上的那一个摆，与本地解析器一致；继承来的框是页面坐标。
+    const ownBbox = transformedBbox(xfrm, transform);
+    const layoutBbox = ownBbox ? undefined : transformedBbox(object(inherited?.layout?.xfrm), EMU_TO_PT);
+    const masterBbox = ownBbox || layoutBbox ? undefined : transformedBbox(object(inherited?.master?.xfrm), EMU_TO_PT);
+    const bbox = ownBbox ?? layoutBbox ?? masterBbox;
+    const bboxInheritedFrom = layoutBbox ? 'layout' : masterBbox ? 'master' : undefined;
     const runs = text ? cloudRuns(record, text) : undefined;
     // 只认解析器明确给出的资产指针。`path` 曾经也在这条兜底链上，但在 pptx 里它是自选
     // 图形的几何路径（`"M 0 0 L 10 10 Z"`），任何 Freeform 都会因此被判成「指向不存在的
     // 资产」，凭空产出一条 cloud_asset_unavailable 并把 quality 顶成 degraded。
     const assetPath = string(record.assetPath ?? record.suggestedPath);
     const externalUrl = string(record.accessURL ?? record.url);
-    const placeholder = object(record.ph);
     // 段落范围按 runs 切，runs 与 text 对不上时一并不给。
-    const paragraphs = kind === 'text' && runs && styles ? cloudListParagraphs(record, styles) : undefined;
-    const node: DeckIrNode = { id, type: kind, parentId, children: [], order: sink.nodes.length, ...(text ? { text } : {}),
+    const paragraphs = kind === 'text' && runs && styles ? cloudListParagraphs(record, styles, placeholderKey, inherited) : undefined;
+    // 图片的替代文字与本地解析器同一套清洗；原文留在 descr。
+    const descr = kind === 'picture' ? string(record.descr) : undefined;
+    const alt = imageAltText(descr);
+    const mediaRef = kind === 'picture' && !assetPath && !externalUrl ? string(object(record.picture)?.blip) : undefined;
+    const node: DeckIrNode = { id, type: kind, parentId, children: [], order: sink.nodes.length, ...(text ? { text } : alt ? { text: alt } : {}),
       ...(runs ? { runs } : {}), ...(page ? { page } : {}), sourceRef: { path: locator, ...(page ? { page } : {}) },
       ...(bbox ? { bbox } : {}),
       extensions: { cloud: { id: record.id, name: record.name, style: record.style }, ...(placeholder ? { placeholder } : {}),
-        ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}), ...(paragraphs ? { paragraphs } : {}) } };
+        ...(bboxInheritedFrom ? { bboxInheritedFrom } : {}), ...(assetPath ? { assetPath } : {}), ...(externalUrl ? { externalUrl } : {}),
+        ...(alt ? { alt } : {}), ...(descr ? { descr } : {}), ...(mediaRef ? { mediaRef } : {}), ...(paragraphs ? { paragraphs } : {}) } };
     push(sink, node); if (parentId) sink.byId.get(parentId)?.children.push(id); nextParent = id;
     // 表格必须按 table → table_row → table_cell 发，和 local/pptx、local/docx、result3 三个
     // 适配器一致：Markdown 渲染器只认这三种类型，让通用遍历把单元格摊成一串 shape 子节点，
@@ -295,15 +316,17 @@ function cloudParagraphs(record: Record<string, unknown>): Array<{ style: Record
   });
 }
 
-/** 一页幻灯片的项目符号继承来源，与 local/pptx/parser.ts 同一条链。 */
-interface SlideTextStyles {
-  layoutPlaceholders: Array<{ key: PlaceholderKey; value: Record<string, unknown> }>;
-  masterPlaceholders: Array<{ key: PlaceholderKey; value: Record<string, unknown> }>;
+/** 一页幻灯片的版式与母版：占位符没写的位置、项目符号从这里继承，与 local/pptx/parser.ts 同一条链。 */
+interface SlideInheritance {
+  layoutPlaceholders: Array<PlaceholderEntry<Record<string, unknown>>>;
+  masterPlaceholders: Array<PlaceholderEntry<Record<string, unknown>>>;
   master: Record<string, unknown> | undefined;
   defaultTextStyle: Record<string, unknown> | undefined;
 }
 
-function slideTextStyles(raw: Record<string, unknown>, slide: Record<string, unknown> | undefined): SlideTextStyles {
+type InheritedShapes = { layout: Record<string, unknown> | undefined; master: Record<string, unknown> | undefined };
+
+function slideInheritance(raw: Record<string, unknown>, slide: Record<string, unknown> | undefined): SlideInheritance {
   const masters = array(raw.slideMasters).flatMap((item) => object(item) ? [object(item)!] : []);
   const master = masters.find((item) => item._ref === slide?._masterRef);
   const layout = masters.flatMap((item) => array(item.slideLayouts)).map(object).find((item) => item?._ref === slide?._layoutRef);
@@ -315,7 +338,7 @@ function slideTextStyles(raw: Record<string, unknown>, slide: Record<string, unk
   };
 }
 
-function placeholdersOf(tree: unknown): Array<{ key: PlaceholderKey; value: Record<string, unknown> }> {
+function placeholdersOf(tree: unknown): Array<PlaceholderEntry<Record<string, unknown>>> {
   return array(tree).flatMap((item) => {
     const shape = object(item);
     if (!shape) return [];
@@ -329,35 +352,29 @@ function cloudPlaceholderKey(placeholder: Record<string, unknown>): PlaceholderK
   return { type: string(placeholder.type), idx: typeof idx === 'number' || typeof idx === 'string' ? String(idx) : undefined };
 }
 
-function cloudListParagraphs(record: Record<string, unknown>, styles: SlideTextStyles): TextParagraph[] | undefined {
-  const placeholder = object(record.ph);
-  const key = placeholder ? cloudPlaceholderKey(placeholder) : undefined;
+function cloudListParagraphs(record: Record<string, unknown>, slide: SlideInheritance, key: PlaceholderKey | undefined, inherited: InheritedShapes | undefined): TextParagraph[] | undefined {
   let length = 0;
   return listParagraphs(cloudParagraphs(record).map((paragraph, index): TextParagraph => {
     if (index > 0) length += 1;
     const start = length;
     length += paragraph.runs.reduce((sum, run) => sum + (run.t as string).length, 0);
     const level = Math.min(Math.max(number(paragraph.style?.lvl) ?? 0, 0), 8);
-    const list = resolveList(cloudBulletChain(paragraph.style, level, record, key, styles));
+    const list = resolveList(cloudBulletChain(paragraph.style, level, record, key, inherited, slide));
     return { start, end: length, level, ...(list ? { list } : {}) };
   }));
 }
 
 /** 段落 → 形状 lstStyle → 版式占位符 → 母版占位符 → 母版文字样式 → 默认文字样式。 */
-function* cloudBulletChain(style: Record<string, unknown> | undefined, level: number, record: Record<string, unknown>, placeholder: PlaceholderKey | undefined, styles: SlideTextStyles): Generator<BulletDeclaration> {
+function* cloudBulletChain(style: Record<string, unknown> | undefined, level: number, record: Record<string, unknown>, placeholder: PlaceholderKey | undefined,
+  inherited: InheritedShapes | undefined, slide: SlideInheritance): Generator<BulletDeclaration> {
   const levelKey = levelStyleKey(level);
   const levelOf = (list: unknown): Record<string, unknown> | undefined => object(object(list)?.[levelKey]);
   yield cloudDeclaredBullet(style);
   yield cloudDeclaredBullet(levelOf(object(record.txBody)?.lstStyle));
-  if (placeholder) {
-    const layout = matchLayoutPlaceholder(placeholder, styles.layoutPlaceholders);
-    yield cloudDeclaredBullet(levelOf(object(layout?.txBody)?.lstStyle));
-    const layoutType = (layout ? string(object(layout.ph)?.type) : undefined) ?? placeholder.type;
-    const master = styles.masterPlaceholders.find((item) => placeholderKind(item.key.type) === placeholderKind(layoutType))?.value;
-    yield cloudDeclaredBullet(levelOf(object(master?.txBody)?.lstStyle));
-  }
-  yield cloudDeclaredBullet(levelOf(styles.master?.[masterTextStyleKey(placeholder)]));
-  yield cloudDeclaredBullet(levelOf(styles.defaultTextStyle));
+  yield cloudDeclaredBullet(levelOf(object(inherited?.layout?.txBody)?.lstStyle));
+  yield cloudDeclaredBullet(levelOf(object(inherited?.master?.txBody)?.lstStyle));
+  yield cloudDeclaredBullet(levelOf(slide.master?.[masterTextStyleKey(placeholder)]));
+  yield cloudDeclaredBullet(levelOf(slide.defaultTextStyle));
 }
 
 /** 云端 IR 不带图片项目符号（`buBlip`）：presentation 没有读出这个元素，那一层按「没说」处理。 */

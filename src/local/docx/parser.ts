@@ -1,6 +1,6 @@
 import type { DeckIrNode, DeckIrRun, ParseCandidate, QualityCheck, CandidateAsset } from '../../ir/schema.js';
 import { stableId } from '../../ir/ids.js';
-import { makeIr, mediaTypeForPath, qualityOf, type SourceIdentity } from '../common.js';
+import { makeIr, packageImageAsset, qualityOf, type SourceIdentity } from '../common.js';
 import type { LocalLimits } from '../limits.js';
 import { OpcPackage, type Relationship } from '../opc/package.js';
 import { children, descendants, first, textContent, type XmlNode } from '../xml.js';
@@ -66,7 +66,7 @@ export function parseDocx(data: Uint8Array, source: SourceIdentity, limits: Loca
     textCharacters: ctx.nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0),
   });
   const metadata = readCoreProperties(pkg);
-  const ir = makeIr({ format: 'docx', source, producer: { name: 'deckparse-docx', version: '2' }, metadata,
+  const ir = makeIr({ format: 'docx', source, producer: { name: 'deckparse-docx', version: '3' }, metadata,
     nodes: ctx.nodes, assets: ctx.assets, quality });
   return { ir, quality, assets: ctx.assets, warnings: quality.checks.map((check) => check.message) };
 }
@@ -198,8 +198,9 @@ function addImageNode(rel: Relationship, ctx: Context, parentId: string, part: s
     return;
   }
   const data = ctx.pkg.readAsset(rel.target);
-  ctx.assets.push({ path: rel.target, data, ...(mediaTypeForPath(rel.target) ? { mediaType: mediaTypeForPath(rel.target) } : {}), sourceRef: { part, relationship: rel.id } });
-  ctx.nodes.push({ id, type: 'image', parentId, children: [], order: ctx.order++, sourceRef: { part, relationship: rel.id }, extensions: { assetPath: rel.target } });
+  const asset = packageImageAsset(rel.target, data);
+  ctx.assets.push({ ...asset, data, sourceRef: { part, relationship: rel.id } });
+  ctx.nodes.push({ id, type: 'image', parentId, children: [], order: ctx.order++, sourceRef: { part, relationship: rel.id }, extensions: { assetPath: asset.path } });
   ctx.nodes.find((node) => node.id === parentId)?.children.push(id);
 }
 

@@ -1,12 +1,13 @@
 import { DeckOpsError } from '../../errors/index.js';
 import { stableId } from '../../ir/ids.js';
 import type { CandidateAsset, DeckIrNode, DeckIrRun, ParseCandidate, QualityCheck } from '../../ir/schema.js';
+import { imageAltText } from '../../ir/alt-text.js';
 import {
-  bulletDeclaration, levelStyleKey, listParagraphs, masterTextStyleKey, matchLayoutPlaceholder, placeholderKind, resolveList,
-  type BulletDeclaration, type PlaceholderKey, type TextParagraph,
+  bulletDeclaration, levelStyleKey, listParagraphs, resolveList, type BulletDeclaration, type TextParagraph,
 } from '../../ir/pptx-lists.js';
+import { inheritedPlaceholders, masterTextStyleKey, type PlaceholderEntry, type PlaceholderKey } from '../../ir/pptx-placeholders.js';
 import { orderSlideNodes } from '../../ir/slide-order.js';
-import { makeIr, mediaTypeForPath, qualityOf, type SourceIdentity } from '../common.js';
+import { makeIr, packageImageAsset, qualityOf, type SourceIdentity } from '../common.js';
 import type { LocalLimits } from '../limits.js';
 import { OpcPackage, type Relationship } from '../opc/package.js';
 import { children, descendants, first, textContent, type XmlNode } from '../xml.js';
@@ -23,23 +24,23 @@ interface Context {
   rels: Map<string, Relationship>;
   /** 当前形状树坐标 → 幻灯片坐标（pt）。组合的子形状写在组合自己的子画布里，逐层复合。 */
   transform: Transform;
-  /** 这一页项目符号的继承来源。 */
-  textStyles: SlideTextStyles;
+  /** 这一页的版式与母版：占位符没写的位置、项目符号从这里继承。 */
+  inheritance: SlideInheritance;
 }
 
-/** 版式或母版上的一个占位符，带着它的 lstStyle。 */
-interface StyledPlaceholder { key: PlaceholderKey; lstStyle: XmlNode | undefined }
+/** 版式或母版上的一个占位符：幻灯片占位符可能继承的位置与列表样式。 */
+interface InheritedPlaceholder { xfrm: XmlNode | undefined; lstStyle: XmlNode | undefined }
 
-/** 版式、母版各自提供的样式来源；按部件缓存，几十页共用一个版式不必重复解析。 */
-interface StyleSource {
-  placeholders: StyledPlaceholder[];
+/** 版式、母版各自提供的继承来源；按部件缓存，几十页共用一个版式不必重复解析。 */
+interface InheritanceSource {
+  placeholders: Array<PlaceholderEntry<InheritedPlaceholder>>;
   textStyles: Partial<Record<'titleStyle' | 'bodyStyle' | 'otherStyle', XmlNode>>;
 }
 
-/** 一页幻灯片的项目符号继承链：版式占位符 → 母版占位符 → 母版文字样式 → 演示文稿默认样式。 */
-interface SlideTextStyles {
-  layout: StyleSource | undefined;
-  master: StyleSource | undefined;
+/** 一页幻灯片的继承链：版式占位符 → 母版占位符 → 母版文字样式 → 演示文稿默认样式。 */
+interface SlideInheritance {
+  layout: InheritanceSource | undefined;
+  master: InheritanceSource | undefined;
   defaultTextStyle: XmlNode | undefined;
 }
 
@@ -70,7 +71,7 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
   const checks: QualityCheck[] = [];
   const pages = [];
   let order = 0;
-  const styleSources = new Map<string, StyleSource>();
+  const inheritanceSources = new Map<string, InheritanceSource>();
   const defaultTextStyle = descendants(presentation, 'defaultTextStyle')[0];
 
   for (const [index, slideId] of slideIds.entries()) {
@@ -85,7 +86,7 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     const before = nodes.length;
     const rels = pkg.relationships(rel.target);
     const ctx: Context = { pkg, source, nodes, assets, checks, order, page, part: rel.target, rels, transform: IDENTITY,
-      textStyles: slideTextStyles(pkg, rels, styleSources, defaultTextStyle) };
+      inheritance: slideInheritance(pkg, rels, inheritanceSources, defaultTextStyle) };
     const slide = pkg.xml(rel.target);
     const tree = descendants(slide, 'spTree')[0];
     if (tree) parseShapeTree(tree, ctx, null);
@@ -110,7 +111,7 @@ export function parsePptx(data: Uint8Array, source: SourceIdentity, limits: Loca
     objects: { parsed: nodes.length - opaque, opaque, total: nodes.length },
     textCharacters: nodes.reduce((sum, node) => sum + (node.text?.length ?? 0), 0),
   });
-  const ir = makeIr({ format: 'pptx', source, producer: { name: 'deckparse-pptx', version: '3' },
+  const ir = makeIr({ format: 'pptx', source, producer: { name: 'deckparse-pptx', version: '4' },
     metadata: { ...readCoreProperties(pkg), slideSize: { width, height }, theme: readTheme(pkg, presentationRels) },
     pages, nodes, assets, quality });
   return { ir, quality, assets, warnings: quality.checks.map((check) => check.message) };
@@ -143,16 +144,23 @@ function parseShape(shape: XmlNode, ctx: Context, parentId: string | null): void
   const text = runs.map((run) => run.text).join('');
   const placeholder = descendants(shape, 'ph')[0];
   const placeholderType = placeholder?.attributes.type;
+  const placeholderKey = placeholder ? keyOf(placeholder) : undefined;
+  const inherited = placeholderKey ? inheritedPlaceholders(placeholderKey, ctx.inheritance.layout?.placeholders ?? [], ctx.inheritance.master?.placeholders ?? []) : undefined;
   const xfrm = descendants(shape, 'xfrm')[0];
-  const bbox = bboxOf(xfrm, ctx.transform);
+  // 占位符常常不写自己的位置，照版式或母版上的那一个摆。原先这样的正文没有框，排在整页最后：
+  // 实测讲义 21 页的正文跑到了图示标签后面。继承来的框是幻灯片坐标，不经组合换算。
+  const ownBbox = bboxOf(xfrm, ctx.transform);
+  const layoutBbox = ownBbox ? undefined : bboxOf(inherited?.layout?.xfrm, IDENTITY);
+  const masterBbox = ownBbox || layoutBbox ? undefined : bboxOf(inherited?.master?.xfrm, IDENTITY);
+  const bbox = ownBbox ?? layoutBbox ?? masterBbox;
+  const bboxInheritedFrom = layoutBbox ? 'layout' : masterBbox ? 'master' : undefined;
   // 空的标题占位符不是标题：它没有字，当成 heading 只会在 Markdown 里留下一行空的 `##`。
   const type = text && (placeholderType === 'title' || placeholderType === 'ctrTitle') ? 'heading'
     : (placeholderType && FURNITURE_PLACEHOLDERS[placeholderType]) || (text ? 'text' : 'shape');
-  const placeholderKey = placeholder ? keyOf(placeholder) : undefined;
   const paragraphs = type === 'text'
     ? listParagraphs(spans.map(({ start, end, pPr }): TextParagraph => {
       const level = Math.min(Math.max(Number(pPr?.attributes.lvl ?? 0) || 0, 0), 8);
-      const list = resolveList(bulletChain(pPr, level, shape, placeholderKey, ctx.textStyles));
+      const list = resolveList(bulletChain(pPr, level, shape, placeholderKey, inherited, ctx.inheritance));
       return { start, end, level, ...(list ? { list } : {}) };
     }))
     : undefined;
@@ -163,7 +171,7 @@ function parseShape(shape: XmlNode, ctx: Context, parentId: string | null): void
     ...(bbox ? { bbox } : {}),
     extensions: { nativeId, name: native?.attributes.name, placeholder: placeholder ? { ...placeholder.attributes } : undefined,
       rawTransform: rawTransform(xfrm), geometry: descendants(shape, 'prstGeom')[0]?.attributes.prst,
-      ...(paragraphs ? { paragraphs } : {}) },
+      ...(bboxInheritedFrom ? { bboxInheritedFrom } : {}), ...(paragraphs ? { paragraphs } : {}) },
   };
   ctx.nodes.push(deckNode); attach(ctx, parentId, id);
 }
@@ -173,19 +181,15 @@ function parseShape(shape: XmlNode, ctx: Context, parentId: string | null): void
  * 版式占位符 → 母版占位符 → 母版文字样式 → 演示文稿默认样式。实测讲义的要点全都写在
  * 母版 bodyStyle 里，段落上只有 `lvl`；引导行则在段落上写 `<a:buNone/>` 把它关掉。
  */
-function* bulletChain(pPr: XmlNode | undefined, level: number, shape: XmlNode, placeholder: PlaceholderKey | undefined, styles: SlideTextStyles): Generator<BulletDeclaration> {
+function* bulletChain(pPr: XmlNode | undefined, level: number, shape: XmlNode, placeholder: PlaceholderKey | undefined,
+  inherited: { layout: InheritedPlaceholder | undefined; master: InheritedPlaceholder | undefined } | undefined, slide: SlideInheritance): Generator<BulletDeclaration> {
   const key = levelStyleKey(level);
   yield declaredBullet(pPr);
   yield declaredBullet(levelOf(first(first(shape, 'txBody') ?? emptyNode(), 'lstStyle'), key));
-  if (placeholder) {
-    const layout = styles.layout ? matchLayoutPlaceholder(placeholder, styles.layout.placeholders.map((item) => ({ key: item.key, value: item }))) : undefined;
-    yield declaredBullet(levelOf(layout?.lstStyle, key));
-    const kind = placeholderKind(layout?.key.type ?? placeholder.type);
-    const master = styles.master?.placeholders.find((item) => placeholderKind(item.key.type) === kind);
-    yield declaredBullet(levelOf(master?.lstStyle, key));
-  }
-  yield declaredBullet(levelOf(styles.master?.textStyles[masterTextStyleKey(placeholder)], key));
-  yield declaredBullet(levelOf(styles.defaultTextStyle, key));
+  yield declaredBullet(levelOf(inherited?.layout?.lstStyle, key));
+  yield declaredBullet(levelOf(inherited?.master?.lstStyle, key));
+  yield declaredBullet(levelOf(slide.master?.textStyles[masterTextStyleKey(placeholder)], key));
+  yield declaredBullet(levelOf(slide.defaultTextStyle, key));
 }
 
 function declaredBullet(pPr: XmlNode | undefined): BulletDeclaration {
@@ -206,15 +210,15 @@ function keyOf(placeholder: XmlNode): PlaceholderKey {
   return { type: placeholder.attributes.type, idx: placeholder.attributes.idx };
 }
 
-function slideTextStyles(pkg: OpcPackage, slideRels: Map<string, Relationship>, cache: Map<string, StyleSource>, defaultTextStyle: XmlNode | undefined): SlideTextStyles {
+function slideInheritance(pkg: OpcPackage, slideRels: Map<string, Relationship>, cache: Map<string, InheritanceSource>, defaultTextStyle: XmlNode | undefined): SlideInheritance {
   const related = (rels: Map<string, Relationship>, suffix: string): string | undefined => {
     const rel = [...rels.values()].find((item) => item.type.endsWith(suffix) && !item.external && pkg.has(item.target));
     return rel?.target;
   };
-  const source = (part: string | undefined): StyleSource | undefined => {
+  const source = (part: string | undefined): InheritanceSource | undefined => {
     if (!part) return undefined;
     let cached = cache.get(part);
-    if (!cached) { cached = readStyleSource(pkg.xml(part)); cache.set(part, cached); }
+    if (!cached) { cached = readInheritanceSource(pkg.xml(part)); cache.set(part, cached); }
     return cached;
   };
   const layoutPart = related(slideRels, '/slideLayout');
@@ -222,14 +226,17 @@ function slideTextStyles(pkg: OpcPackage, slideRels: Map<string, Relationship>, 
   return { layout: source(layoutPart), master: source(masterPart), defaultTextStyle };
 }
 
-function readStyleSource(root: XmlNode): StyleSource {
+function readInheritanceSource(root: XmlNode): InheritanceSource {
   const tree = descendants(root, 'spTree')[0];
-  const placeholders = (tree ? descendants(tree, 'sp') : []).flatMap((sp): StyledPlaceholder[] => {
+  const placeholders = (tree ? descendants(tree, 'sp') : []).flatMap((sp): Array<PlaceholderEntry<InheritedPlaceholder>> => {
     const placeholder = descendants(sp, 'ph')[0];
-    return placeholder ? [{ key: keyOf(placeholder), lstStyle: first(first(sp, 'txBody') ?? emptyNode(), 'lstStyle') }] : [];
+    return placeholder ? [{ key: keyOf(placeholder), value: {
+      xfrm: first(first(sp, 'spPr') ?? emptyNode(), 'xfrm'),
+      lstStyle: first(first(sp, 'txBody') ?? emptyNode(), 'lstStyle'),
+    } }] : [];
   });
   const txStyles = descendants(root, 'txStyles')[0];
-  const textStyles: StyleSource['textStyles'] = {};
+  const textStyles: InheritanceSource['textStyles'] = {};
   for (const name of ['titleStyle', 'bodyStyle', 'otherStyle'] as const) {
     const style = txStyles ? first(txStyles, name) : undefined;
     if (style) textStyles[name] = style;
@@ -244,18 +251,22 @@ function parsePicture(pic: XmlNode, ctx: Context, parentId: string | null): void
   const blip = descendants(pic, 'blip')[0];
   const relId = blip?.attributes.embed ?? blip?.attributes['r:embed'] ?? blip?.attributes.link ?? blip?.attributes['r:link'];
   const rel = relId ? ctx.rels.get(relId) : undefined;
-  const node: DeckIrNode = { id, type: 'image', parentId, children: [], order: ctx.order++, text: native?.attributes.descr ?? '',
+  // 替代文字只收作者写的描述；网址、文件路径、剪贴画缓存名这类原文留在 descr 里。
+  const descr = native?.attributes.descr;
+  const alt = imageAltText(descr);
+  const node: DeckIrNode = { id, type: 'image', parentId, children: [], order: ctx.order++, text: alt ?? '',
     page: ctx.page, zIndex: ctx.order, sourceRef: { part: ctx.part, page: ctx.page, ...(relId ? { relationship: relId } : {}), path: `picture/${nativeId}` },
     ...(bboxOf(descendants(pic, 'xfrm')[0], ctx.transform) ? { bbox: bboxOf(descendants(pic, 'xfrm')[0], ctx.transform) } : {}),
-    extensions: { nativeId, name: native?.attributes.name, alt: native?.attributes.descr } };
+    extensions: { nativeId, name: native?.attributes.name, ...(alt ? { alt } : {}), ...(descr ? { descr } : {}) } };
   if (rel?.external) {
     node.extensions = { ...node.extensions, externalUrl: rel.target }; node.issues = ['external_asset'];
     ctx.checks.push({ code: 'external_asset', severity: 'warning', message: `Slide ${ctx.page} contains an externally linked image that was not downloaded.`, pages: [ctx.page], nodeIds: [id] });
   }
   else if (rel && ctx.pkg.has(rel.target)) {
     const bytes = ctx.pkg.readAsset(rel.target);
-    ctx.assets.push({ path: rel.target, data: bytes, ...(mediaTypeForPath(rel.target) ? { mediaType: mediaTypeForPath(rel.target) } : {}), sourceRef: { part: ctx.part, relationship: rel.id } });
-    node.extensions = { ...node.extensions, assetPath: rel.target };
+    const asset = packageImageAsset(rel.target, bytes);
+    ctx.assets.push({ ...asset, data: bytes, sourceRef: { part: ctx.part, relationship: rel.id } });
+    node.extensions = { ...node.extensions, assetPath: asset.path };
   } else {
     node.issues = ['missing_media'];
     ctx.checks.push({ code: 'missing_media', severity: 'error', message: `Slide ${ctx.page} contains a picture with missing media.`, pages: [ctx.page], nodeIds: [id] });

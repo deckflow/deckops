@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — PPTX placeholder positions and image fidelity
+
+- Placeholders that carry no frame of their own now take it from the matching layout placeholder,
+  then from the master, in both engines (`extensions.bboxInheritedFrom`). They used to have no box
+  and were read after everything else on the slide: on 21 slides of the example lecture deck the
+  body text came after the diagram labels. **Behavior change**: PPTX node order and Markdown order
+  change on such slides; unplaced text nodes drop from 101 to 0 on that deck.
+- Name package images by their real type when the extension is not an image type (a lecture deck
+  stores two PNGs as `ppt/media/image92.tmp`): local PPTX and DOCX assets become `.png` instead of
+  unreadable `.tmp` files. The cloud path reports a picture whose image the result left out as
+  `cloud_asset_missing` instead of silently dropping it (platform-slave now stores such images too).
+- Image alt text: the cloud adapter reads `descr` like the local parser. Both keep only author
+  descriptions: links, file paths, file names, clip-art cache names (`imgyjavg[1]`) and search-engine
+  boilerplate are dropped, UTF-8 garbled as Latin-1 is repaired, and `Image result for 中信集团 logo`
+  becomes `中信集团 logo`. The original text stays in `extensions.descr`.
+- Bump the local PPTX parser to `deckparse-pptx` 4, the local DOCX parser to `deckparse-docx` 3 and the
+  cloud adapter to `deckflow-cloud` 4 for PPTX only.
+
 ## 2.4.1 — 2026-09-23 — Scoped PDF parser
 
 - Depend on `@deckflow/pdf-lite-parse@0.2.1`, the new scoped name of the local PDF parser; the unscoped

@@ -50,45 +50,6 @@ export function levelStyleKey(level: number): string {
   return `lvl${Math.min(Math.max(Math.trunc(level), 0), 8) + 1}pPr`;
 }
 
-export interface PlaceholderKey {
-  type?: string | undefined;
-  idx?: string | undefined;
-}
-
-const FURNITURE_PLACEHOLDER_TYPES: ReadonlySet<string> = new Set(['dt', 'ftr', 'sldNum', 'hdr']);
-
-/**
- * 占位符归类：标题、四类家具各成一类，其余（正文、内容、副标题、图片、表格……）都按正文。
- * 母版上每类只有一个占位符，版式占位符按这个归类找到它的母版占位符。
- */
-export function placeholderKind(type: string | undefined): string {
-  if (type === 'title' || type === 'ctrTitle') return 'title';
-  if (type && FURNITURE_PLACEHOLDER_TYPES.has(type)) return type;
-  return 'body';
-}
-
-/** 母版文字样式：标题占位符用 titleStyle，家具与不是占位符的形状用 otherStyle，其余用 bodyStyle。 */
-export function masterTextStyleKey(placeholder: PlaceholderKey | undefined): 'titleStyle' | 'bodyStyle' | 'otherStyle' {
-  if (!placeholder) return 'otherStyle';
-  const kind = placeholderKind(placeholder.type);
-  return kind === 'title' ? 'titleStyle' : kind === 'body' ? 'bodyStyle' : 'otherStyle';
-}
-
-/**
- * 幻灯片占位符 → 版式占位符：有 idx 先按 idx 找（PowerPoint 的做法），找不到再按类型，
- * 类型也对不上就按归类。
- */
-export function matchLayoutPlaceholder<T>(target: PlaceholderKey, candidates: ReadonlyArray<{ key: PlaceholderKey; value: T }>): T | undefined {
-  if (target.idx !== undefined) {
-    const byIdx = candidates.find((candidate) => candidate.key.idx === target.idx);
-    if (byIdx) return byIdx.value;
-  }
-  const sameType = (type: string | undefined): string => type === 'ctrTitle' ? 'title' : type ?? 'obj';
-  const byType = candidates.find((candidate) => sameType(candidate.key.type) === sameType(target.type));
-  if (byType) return byType.value;
-  return candidates.find((candidate) => placeholderKind(candidate.key.type) === placeholderKind(target.type))?.value;
-}
-
 /** 只有真有列表项时才值得写进 IR；全是普通段落的文本框照旧只有 text 与 runs。 */
 export function listParagraphs(paragraphs: readonly TextParagraph[]): TextParagraph[] | undefined {
   return paragraphs.some((paragraph) => paragraph.list) ? [...paragraphs] : undefined;
