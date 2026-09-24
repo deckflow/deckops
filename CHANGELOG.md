@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — PPTX placeholder positions and image fidelity
+## 2.5.0 — 2026-09-24 — PPTX placeholder positions and image fidelity
 
 - Placeholders that carry no frame of their own now take it from the matching layout placeholder,
   then from the master, in both engines (`extensions.bboxInheritedFrom`). They used to have no box
