@@ -1,5 +1,4 @@
 import { browserRuntime } from '../cloud/browser.js';
-import { DeckOpsError } from '../errors/index.js';
 import { createClientWith, CloudParsedDocument, type DeckClient } from '../client/index.js';
 import type { ClientOptions } from '../client/types.js';
 
@@ -20,10 +19,5 @@ export type BrowserClient = DeckClient<BrowserInput>;
 
 /** Explicit browser entry; importing this module is also safe during SSR. */
 export function createClient(options: BrowserClientOptions = {}): BrowserClient {
-  if (typeof options === 'object' && options !== null && 'apiKey' in options) {
-    throw DeckOpsError.usage('Unknown client option: apiKey.', {
-      hint: 'Keep server API keys on your backend. Use a browser user token or an authenticated proxy.',
-    });
-  }
   return createClientWith<BrowserInput>(options, browserRuntime, 'browser');
 }

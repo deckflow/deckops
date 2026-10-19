@@ -88,6 +88,26 @@ describe('localizeImages', () => {
   });
 });
 
+describe('cancellation', () => {
+  it('aborts a hanging download and its retries with the signal reason, even with keepRemote', async () => {
+    // Like fetch: rejects at once for an aborted signal, otherwise when it aborts.
+    const hanging = ((_url: string, init?: RequestInit) => new Promise((_, reject) => {
+      if (init?.signal?.aborted) reject(init.signal.reason);
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true });
+    })) as unknown as typeof fetch;
+    const controller = new AbortController();
+    const running = localizeImages({ images: [image()], destDir: tmp(), linkPrefix: 'a/', keepRemote: true, fetchImpl: hanging, signal: controller.signal });
+    controller.abort(new Error('stopped by caller'));
+    await expect(running).rejects.toThrow('stopped by caller');
+
+    const failing = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch;
+    const started = Date.now();
+    await expect(localizeImages({ images: [image()], destDir: tmp(), linkPrefix: 'a/', fetchImpl: failing, signal: AbortSignal.timeout(50) }))
+      .rejects.toMatchObject({ name: 'TimeoutError' });
+    expect(Date.now() - started).toBeLessThan(500); // the retry backoff stopped waiting
+  });
+});
+
 describe('rewriteLinks', () => {
   it('rewrites by exact string, no URL normalization', () => {
     const rewrites = new Map([['https://s.example/a?Expires=1&sig=x', 'assets/a.png']]);

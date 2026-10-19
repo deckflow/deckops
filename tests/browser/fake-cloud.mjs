@@ -95,6 +95,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
       if (route === '/user') { json(res, 200, { id: 'fixture-space' }); return; }
       if (route === '/image.png') {
         if (kind('dead-image')) { json(res, 404, { message: 'gone' }); return; }
+        if (kind('hanging-image')) return;
         res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(FIXTURE_PNG); return;
       }
       if (route.endsWith('/file/auth') && req.method === 'POST') {

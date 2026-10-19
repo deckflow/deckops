@@ -59,7 +59,9 @@ deckops convert slides/ -o - --anchors              # Markdown to stdout
 - **Interrupted runs resume.** If a parse task was created but its result never arrived (timeout, lost connection), `submission.json` records it and the next identical run waits for that task instead of submitting and paying again.
 - **Cloud IR lives 7 days.** A parse after `expiresAt` parses again (with a warning); a convert after it fails with `ir_expired` before any request.
 
-Options: `-o/--output`, `--from <ext>` (stdin), `--space <id>`, `--timeout <seconds>` (default 120, the whole operation), `--force`, `--api-key`, `--token`, `--api-base`, `--json`, `--quiet`. Parse: `--profile fast|balanced|quality`, `--password`, `--no-images` (PDF); `--stay-image-area-rate` (Keynote); `--mode source|runtime` (URL, default runtime). Convert: `--to markdown`, `--anchors` (PDF), `--split-pages` (PPTX/Keynote), `--strict`, `--keep-remote-images`. A flag that cannot apply to the input is a `usage_error` before anything is uploaded.
+Options: `-o/--output`, `--from <ext>` (stdin), `--space <id>`, `--timeout <seconds>` (default 120), `--force`, `--api-key`, `--token`, `--api-base`, `--json`, `--quiet`. Parse: `--profile fast|balanced|quality`, `--password`, `--no-images` (PDF); `--stay-image-area-rate` (Keynote); `--mode source|runtime` (URL, default runtime). Convert: `--to markdown`, `--anchors` (PDF), `--split-pages` (PPTX/Keynote), `--strict`, `--keep-remote-images`. A flag that cannot apply to the input is a `usage_error` before anything is uploaded.
+
+`--timeout` (SDK `timeout`, seconds, fractions allowed) bounds each stage: a `parse`, or a `convert` including its image downloads and portable copy. A one-shot `convert SOURCE` runs parse and convert in one budget; `read` gives its parse and its convert one budget each, so it can take up to twice the value. Sources larger than 256 MiB are refused before they are read.
 
 | Input | Parse task | Markdown | Notes |
 | --- | --- | --- | --- |
@@ -149,7 +151,7 @@ await client.convert('slides.pptx', { out: 'slides.md', splitPages: true });
 await client.parseEnvelope('doc.pdf', { out: 'doc', force: true });   // the CLI's --json envelope
 ```
 
-`createClient({ apiKey, token, spaceId, apiBase })` resolves the rest through the shared credential chain. Every call takes `signal`, `spaceId`, `timeout` (seconds) and `force`; `parse`/`read`/`convert` take the parse options (`profile`, `password`, `includeImages`, `stayImageAreaRate`, `mode`), `out` and `from`; `convert` adds `to`, `anchors`, `splitPages`, `strict`, `keepRemoteImages`; `read` adds `format`, `reportFile`, `cacheDir`, `anchors`. Unknown options — including the removed 2.x ones such as `engine` or `preflight` — are a `usage_error`, never silently ignored.
+`createClient({ apiKey, token, spaceId, apiBase })` resolves the rest through the shared credential chain. Every call takes `signal` (it also stops image downloads), `spaceId`, `timeout` (seconds per stage) and `force`; `parse`/`read`/`convert` take the parse options (`profile`, `password`, `includeImages`, `stayImageAreaRate`, `mode`), `out` and `from`; `convert` adds `to`, `anchors`, `splitPages`, `strict`, `keepRemoteImages`; `read` adds `format`, `reportFile`, `cacheDir`, `anchors`. Unknown options — including the removed 2.x ones such as `engine` or `preflight` — are a `usage_error`, never silently ignored.
 
 ## Browser SDK
 

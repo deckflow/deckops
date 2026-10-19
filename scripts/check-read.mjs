@@ -32,6 +32,7 @@ try {
   assert.equal(first.schemaVersion, 'deckops.read.v2'); assert.equal(first.report.schemaVersion, 'deckops.run.v2');
   const cached = path.join(first.report.artifactBase, 'assets').replaceAll(' ', '%20') + '/';
   assert.equal(first.content, page(cached)); assert.ok(first.content.includes('%20'));
+  assert.equal(cloud.state('read').requests.filter((req) => req.path === '/user').length, 1, 'one client per command');
   for (const asset of first.assets) { assert.equal(asset.lifecycle, 'cache'); assert.deepEqual(fs.readFileSync(asset.path), FIXTURE_PNG); }
   assert.equal((await run([file])).stdout, page(cached));
   assert.equal((await run([file, '--quiet'])).stdout, page(cached));

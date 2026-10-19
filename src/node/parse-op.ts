@@ -4,13 +4,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CloudParsedDocument, DeckClient, ParseOptions } from '../client/index.js';
 import { DeckOpsError } from '../errors/index.js';
+import { MAX_SOURCE_BYTES } from '../shared/constants.js';
 import { parseParams } from '../shared/params.js';
 import { irFormatForTaskType } from '../shared/validation.js';
 import type { CommonFlags, Manifest, OutputFile, ParseEnvelope, ParseFlags, ParseType } from '../types.js';
 import { VERSION } from '../version.js';
 import {
-  assetsDir, defaultArtifactDir, expired, IR_RETENTION_MS, irPath, manifestPath, normalizeParseParams, parseHit, readManifest,
-  submissionPath, viewDir, writeManifest,
+  assetsDir, defaultArtifactDir, expired, IR_RETENTION_MS, irPath, isLegacyArtifact, legacyArtifactError, manifestPath,
+  normalizeParseParams, parseHit, readManifest, submissionPath, viewDir, writeManifest,
 } from './artifact.js';
 import type { ResolvedInput } from './input.js';
 import { withinOperationTimeout } from './timeout.js';
@@ -56,6 +57,9 @@ async function parseLocked(options: ParseOpOptions, input: SourceInput, dir: str
   const startedAt = Date.now();
   const { flags, common, inputLabel } = options;
   const warnings: string[] = [];
+  // A 2.x artifact is never mixed with v3 files: it stays untouched unless --force replaces it whole.
+  const legacy = await isLegacyArtifact(dir);
+  if (legacy && !common.force) throw legacyArtifactError(dir);
   const source = await freezeSource(input, signal);
   const type: ParseType = input.kind === 'link' ? 'html.getByURL' : input.taskType;
   const params = normalizeParseParams(parseParams(flags, input.kind === 'link'));
@@ -120,6 +124,7 @@ async function parseLocked(options: ParseOpOptions, input: SourceInput, dir: str
     }
   }
   signal.throwIfAborted();
+  if (legacy) await fs.rm(dir, { recursive: true, force: true });
   const { manifest, outputs } = await persist(dir, parsed, source, params);
   rmSync(submissionPath(dir), { force: true });
   return envelope(inputLabel, dir, manifest, { reused: false, startedAt, outputs, warnings });
@@ -128,14 +133,24 @@ async function parseLocked(options: ParseOpOptions, input: SourceInput, dir: str
 /** Read the source once and verify it did not change meanwhile; the bytes are the snapshot. */
 export async function freezeSource(input: SourceInput, signal?: AbortSignal): Promise<FrozenSource> {
   if (input.kind === 'link') return { url: input.url, name: input.url, sha256: sha256(input.url), bytes: 0 };
-  if (input.kind === 'stdin') return { data: input.data, name: input.name, sha256: sha256(input.data), bytes: input.data.byteLength };
+  if (input.kind === 'stdin') {
+    assertSourceSize(input.name, input.data.byteLength);
+    return { data: input.data, name: input.name, sha256: sha256(input.data), bytes: input.data.byteLength };
+  }
   const before = await fs.stat(input.file);
+  assertSourceSize(input.name, before.size);
   const data = await fs.readFile(input.file, { signal });
   const after = await fs.stat(input.file);
   if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || data.byteLength !== before.size) {
     throw DeckOpsError.input('Source changed while it was being read.');
   }
   return { data, name: input.name, sha256: sha256(data), bytes: data.byteLength };
+}
+
+function assertSourceSize(name: string, bytes: number): void {
+  if (bytes > MAX_SOURCE_BYTES) {
+    throw DeckOpsError.input(`${name} is ${(bytes / 1024 / 1024).toFixed(1)} MiB; DeckOps Cloud accepts sources up to ${MAX_SOURCE_BYTES / 1024 / 1024} MiB.`);
+  }
 }
 
 export function sourceInput(input: SourceInput, source: FrozenSource): { file: Uint8Array; name: string } | { url: string } {
@@ -154,8 +169,11 @@ export function parseFlagsOnly(flags: ParseFlags): Pick<ParseOptions, 'profile' 
 }
 
 export function operationTimeoutMs(common: CommonFlags): number {
-  const value = common.timeout !== undefined ? common.timeout * 1000 : 120_000;
-  if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) throw DeckOpsError.usage('Timeout must be a positive duration within the Node.js timer range.');
+  if (common.timeout === undefined) return 120_000;
+  const value = Math.ceil(common.timeout * 1000);
+  if (!Number.isFinite(common.timeout) || common.timeout <= 0 || value > 2_147_483_647) {
+    throw DeckOpsError.usage('timeout must be a positive number of seconds within the Node.js timer range.');
+  }
   return value;
 }
 

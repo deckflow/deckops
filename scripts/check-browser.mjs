@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 
-// Measured 34,016 bytes (minified + gzip) at 3.0.0, plus 10 %. axios stays in the bundle.
-const GZIP_BUDGET = 37_418;
+// Measured 34,049 bytes (minified + gzip) at 3.0.0, plus 10 %. axios stays in the bundle.
+const GZIP_BUDGET = 37_454;
 
 // Bundle the *public package export*, not an internal source path. No aliases,
 // externals, polyfills, Node types, or browser globals may hide a broken build.

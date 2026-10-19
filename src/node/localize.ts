@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import pLimit from 'p-limit';
+import { delay } from '../cloud/abort.js';
 import type { ConvertImage } from '../cloud/parse/types.js';
 import { DeckOpsError } from '../errors/index.js';
 import type { ManifestAsset } from '../types.js';
@@ -23,6 +24,8 @@ export interface LocalizeOptions {
   /** Accept expiring remote links instead of failing; failures become warnings. */
   keepRemote?: boolean;
   concurrency?: number;
+  /** Stops downloads and retry waits; an abort is rethrown as is, never turned into a warning. */
+  signal?: AbortSignal;
   /** Injected for tests. */
   fetchImpl?: typeof fetch;
 }
@@ -70,7 +73,7 @@ export function assignFileNames(images: ConvertImage[]): Map<string, string> {
 }
 
 export async function localizeImages(options: LocalizeOptions): Promise<LocalizedAssets> {
-  const { images, destDir, linkPrefix, keepRemote = false, concurrency = 4 } = options;
+  const { images, destDir, linkPrefix, keepRemote = false, concurrency = 4, signal } = options;
   const fetchImpl = options.fetchImpl ?? fetch;
 
   const rewrites = new Map<string, string>();
@@ -87,7 +90,7 @@ export async function localizeImages(options: LocalizeOptions): Promise<Localize
 
   const fetchOne = async (image: ConvertImage, fileName: string): Promise<void> => {
     const target = path.join(destDir, fileName);
-    const { data, mediaType } = await downloadWithRetry(fetchImpl, image.ref, image.key);
+    const { data, mediaType } = await downloadWithRetry(fetchImpl, image.ref, image.key, signal);
     // A wrong image is worse than a missing one: verify when the identity is known.
     if (image.hash) {
       const md5 = createHash('md5').update(data).digest('hex');
@@ -121,6 +124,7 @@ export async function localizeImages(options: LocalizeOptions): Promise<Localize
     )
   );
 
+  signal?.throwIfAborted();
   for (const result of results) {
     if (result.status !== 'rejected') {
       continue;
@@ -156,11 +160,11 @@ export function rewriteLinks(text: string, rewrites: Map<string, string>): strin
 }
 
 /** The media type comes from the response header (else the file extension), never from sniffing bytes. */
-async function downloadWithRetry(fetchImpl: typeof fetch, url: string, key: string): Promise<{ data: Buffer; mediaType: string | undefined }> {
+async function downloadWithRetry(fetchImpl: typeof fetch, url: string, key: string, signal?: AbortSignal): Promise<{ data: Buffer; mediaType: string | undefined }> {
   let lastError: unknown;
   for (let attempt = 0; attempt < RETRIES; attempt += 1) {
     try {
-      const response = await fetchImpl(url);
+      const response = await fetchImpl(url, signal ? { signal } : {});
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -168,9 +172,10 @@ async function downloadWithRetry(fetchImpl: typeof fetch, url: string, key: stri
       const mediaType = header && header !== 'application/octet-stream' ? header : undefined;
       return { data: Buffer.from(await response.arrayBuffer()), mediaType };
     } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
       if (attempt < RETRIES - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+        await delay(200 * 2 ** attempt, signal);
       }
     }
   }

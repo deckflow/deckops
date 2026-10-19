@@ -6,3 +6,6 @@
  * spawning eight duplicate tasks. Small synthetic files never hit it.
  */
 export const PRE_UPLOAD_THRESHOLD = 4 * 1024 * 1024;
+
+/** The largest source DeckOps Cloud accepts; checked before a file is read into memory. */
+export const MAX_SOURCE_BYTES = 256 * 1024 * 1024;

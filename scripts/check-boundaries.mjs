@@ -7,6 +7,10 @@ import path from 'node:path';
  * local engines and Node-only code out of the layers that must stay portable.
  */
 const root = path.resolve(import.meta.dirname, '..');
+if (!fs.existsSync(path.join(root, 'dist'))) {
+  console.error('check-boundaries: dist/ is missing; run pnpm build first.');
+  process.exit(1);
+}
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const sdkPackages = /@(?:deckops|decktools)\/sdk|@deckflow\/(?:cloud-client|decktools-sdk)/;
 const parsingPackages = /deckprobe|pdf-lite-parse|pdfjs|^parse5$|^saxes$|^canvas$|@napi-rs\/canvas/;

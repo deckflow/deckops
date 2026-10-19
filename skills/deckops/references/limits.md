@@ -31,9 +31,12 @@ and rewrites the links; a failed download fails the convert unless `--keep-remot
 
 ## Timeouts and resume
 
-`--timeout <seconds>` (default 120) bounds the whole operation. A timeout or lost connection
-after the cloud task was created leaves `submission.json` in the artifact directory with the
-task id. Rerun the same command into the same output: DeckOps waits for that task and
+`--timeout <seconds>` (default 120) bounds each stage: a parse, or a convert with its image
+downloads. A one-shot `convert SOURCE` shares one budget; the default `read` entry gives its
+parse and its convert one budget each. Sources over 256 MiB are refused.
+
+A timeout or lost connection after the cloud task was created leaves `submission.json` in the
+artifact directory with the task id. Rerun the same command into the same output: DeckOps waits for that task and
 downloads its result, with no new upload and no new charge. If the cloud reports the task
 failed or gone, DeckOps forgets it and says so; the next run submits anew.
 

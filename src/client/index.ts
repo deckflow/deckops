@@ -70,7 +70,12 @@ const PARSE_TYPES: readonly string[] = DECK_TASK_TYPES.filter((type) => type !==
 export function createClientWith<Input extends ClientInput = ClientInput>(
   options: ClientOptions, runtime: DeckRuntime, context: HintContext
 ): DeckClient<Input> {
-  assertOptions(options, CLIENT_OPTIONS, 'client', context);
+  if (context === 'browser' && typeof options === 'object' && options !== null && 'apiKey' in options) {
+    throw DeckOpsError.usage('Unknown client option: apiKey.', {
+      hint: 'Keep server API keys on your backend. Use a browser user token or an authenticated proxy.',
+    });
+  }
+  assertOptions(options, context === 'browser' ? CLIENT_OPTIONS.filter((key) => key !== 'apiKey') : CLIENT_OPTIONS, 'client', context);
   for (const key of ['token', 'apiKey', 'spaceId'] as const) {
     if (options[key] !== undefined) nonemptyString(options[key], key);
   }

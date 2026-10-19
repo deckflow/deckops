@@ -1,3 +1,4 @@
+import type { DeckClient } from '../../client/index.js';
 import { translateError as translate } from '../../shared/errors.js';
 import { cloudClient } from '../../node/cloud.js';
 import { runConvert } from '../../node/convert-op.js';
@@ -74,13 +75,15 @@ export function commonFlagsOf(options: RawCliOptions): CommonFlags {
   };
 }
 
-function clientFor(options: RawCliOptions) {
-  return () => cloudClient({
+/** One client per command: read parses and converts through the same transport and resolved space. */
+function clientFor(options: RawCliOptions): () => Promise<DeckClient> {
+  let cached: DeckClient | undefined;
+  return async () => (cached ??= await cloudClient({
     ...(options.apiKey ? { apiKey: options.apiKey } : {}),
     ...(options.token ? { token: options.token } : {}),
     ...(options.apiBase ? { apiBase: options.apiBase } : {}),
     ...(options.space ? { spaceId: options.space } : {}),
-  });
+  }));
 }
 
 export async function runParseCommand(inputArg: string, options: RawCliOptions): Promise<void> {

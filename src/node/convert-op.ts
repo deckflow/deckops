@@ -28,7 +28,10 @@ export async function runConvert(options: ConvertOpOptions): Promise<ConvertEnve
 
 interface ConvertWork extends ConvertOpOptions { onContent: (markdown: string) => void }
 
-/** Artifact → irKey → parse.convert → images localized into assets/ → views/markdown/. */
+/**
+ * Artifact → irKey → parse.convert → images localized into assets/ → views/markdown/. The
+ * render, the downloads and a portable copy share one time budget and the caller's signal.
+ */
 async function convertArtifact(options: ConvertWork, dir: string, manifest: Manifest): Promise<ConvertEnvelope> {
   const startedAt = Date.now();
   const { flags, common } = options;
@@ -43,54 +46,63 @@ async function convertArtifact(options: ConvertWork, dir: string, manifest: Mani
     throw new DeckOpsError('ir_expired', `The cloud IR behind ${dir} has expired.`, { hint: `Re-run \`deckops parse ${manifest.source.name} --force\`.` });
   }
   const client = await options.client();
-  const result = await withinOperationTimeout(operationTimeoutMs(common), common.signal,
-    (signal) => callConvert(client, { irKey: manifest.parse.irKey }, flags, common, signal));
-  const localized = await localizeImages({
-    images: result.images, destDir: assetsDir(dir), linkPrefix: '../../assets/',
-    ...(flags.keepRemoteImages !== undefined ? { keepRemote: flags.keepRemoteImages } : {}),
+  return withinOperationTimeout(operationTimeoutMs(common), common.signal, async (signal) => {
+    const result = await callConvert(client, { irKey: manifest.parse.irKey }, flags, common, signal);
+    // A new render replaces the view and its images. Download beside the artifact first, so a
+    // failed download leaves the previous view, assets/ and manifest as they were.
+    const staging = await fs.mkdtemp(path.join(dir, '.assets-'));
+    try {
+      const localized = await localizeImages({
+        images: result.images, destDir: staging, linkPrefix: '../../assets/', signal,
+        ...(flags.keepRemoteImages !== undefined ? { keepRemote: flags.keepRemoteImages } : {}),
+      });
+      const target = viewDir(dir, 'markdown');
+      await fs.rm(target, { recursive: true, force: true });
+      await fs.rm(assetsDir(dir), { recursive: true, force: true });
+      if (Object.keys(localized.saved).length) await fs.rename(staging, assetsDir(dir));
+      const outputs: OutputFile[] = assetOutputs(assetsDir(dir), localized);
+      await fs.mkdir(target, { recursive: true });
+      const files: string[] = [];
+      const write = async (name: string, text: string): Promise<void> => {
+        const body = rewriteLinks(text, localized.rewrites); const file = path.join(target, name);
+        await fs.writeFile(file, body, 'utf-8'); files.push(path.join('views', 'markdown', name)); outputs.push({ file, bytes: Buffer.byteLength(body) });
+      };
+      await write('index.md', result.markdown);
+      if (flags.splitPages && result.markdownPages) {
+        for (const [index, page] of result.markdownPages.entries()) await write(`${String(index + 1).padStart(3, '0')}.md`, page);
+      }
+      manifest.views.markdown = { taskId: result.taskId, schemaVersion: result.schemaVersion, params: viewParams, files, createdAt: new Date().toISOString() };
+      manifest.assets = Object.fromEntries(Object.entries(localized.saved).map(([file, asset]) =>
+        [`assets/${file}`, { key: asset.key, hash: asset.hash, bytes: asset.bytes, ...(asset.mediaType ? { mediaType: asset.mediaType } : {}) }]));
+      await writeManifest(dir, manifest);
+      const warnings = [...localized.warnings];
+      if (options.out) {
+        const portable = await writePortable(options.out, result, flags, options, signal);
+        outputs.push(...portable.outputs); warnings.push(...portable.warnings);
+      }
+      return envelope(options, { startedAt, format, taskId: result.taskId, parseTaskId: manifest.parse.taskId, reusedParse: true, outputs, warnings });
+    } finally {
+      await fs.rm(staging, { recursive: true, force: true });
+    }
   });
-  const outputs: OutputFile[] = Object.values(localized.saved).map((asset) => ({ file: path.join(assetsDir(dir), asset.file), bytes: asset.bytes }));
-  const target = viewDir(dir, 'markdown');
-  await fs.rm(target, { recursive: true, force: true }); await fs.mkdir(target, { recursive: true });
-  const files: string[] = [];
-  const write = async (name: string, text: string): Promise<void> => {
-    const body = rewriteLinks(text, localized.rewrites); const file = path.join(target, name);
-    await fs.writeFile(file, body, 'utf-8'); files.push(path.join('views', 'markdown', name)); outputs.push({ file, bytes: Buffer.byteLength(body) });
-  };
-  await write('index.md', result.markdown);
-  if (flags.splitPages && result.markdownPages) {
-    for (const [index, page] of result.markdownPages.entries()) await write(`${String(index + 1).padStart(3, '0')}.md`, page);
-  }
-  manifest.views.markdown = { taskId: result.taskId, schemaVersion: result.schemaVersion, params: viewParams, files, createdAt: new Date().toISOString() };
-  for (const [file, asset] of Object.entries(localized.saved)) {
-    manifest.assets[`assets/${file}`] = { key: asset.key, hash: asset.hash, bytes: asset.bytes, ...(asset.mediaType ? { mediaType: asset.mediaType } : {}) };
-  }
-  await writeManifest(dir, manifest);
-  const warnings = [...localized.warnings];
-  if (options.out) {
-    const portable = await writePortable(options.out, result, flags, options);
-    outputs.push(...portable.outputs); warnings.push(...portable.warnings);
-  }
-  return envelope(options, { startedAt, format, taskId: result.taskId, parseTaskId: manifest.parse.taskId, reusedParse: true, outputs, warnings });
 }
 
-/** Document → parse → convert → portable Markdown; no artifact is left behind. */
+/** Document → parse → convert → portable Markdown in one time budget; no artifact is left behind. */
 async function convertOneShot(options: ConvertWork, input: SourceInput): Promise<ConvertEnvelope> {
   const startedAt = Date.now();
   const { flags, common } = options;
   const client = await options.client();
-  const { parsed, result } = await withinOperationTimeout(operationTimeoutMs(common), common.signal, async (signal) => {
+  return withinOperationTimeout(operationTimeoutMs(common), common.signal, async (signal) => {
     const source = await freezeSource(input, signal);
     const parsed = await client.parse(sourceInput(input, source), {
       ...parseFlagsOnly(options.parseFlags ?? {}),
       ...(common.spaceId ? { spaceId: common.spaceId } : {}), ...(common.timeout ? { timeout: common.timeout } : {}), signal,
     });
     const result = await callConvert(client, { irKey: parsed.irKey }, flags, { ...common, ...(parsed.spaceId ? { spaceId: parsed.spaceId } : {}) }, signal);
-    return { parsed, result };
+    const portable = await writePortable(options.out ?? defaultPortableName(input, options.inputLabel), result, flags, options, signal);
+    return envelope(options, { startedAt, format: result.format, taskId: result.taskId, parseTaskId: parsed.taskId, reusedParse: false,
+      outputs: portable.outputs, warnings: portable.warnings });
   }, 'A one-shot convert leaves no artifact to resume; `deckops parse` records the task for reruns.');
-  const portable = await writePortable(options.out ?? defaultPortableName(input, options.inputLabel), result, flags, options);
-  return envelope(options, { startedAt, format: result.format, taskId: result.taskId, parseTaskId: parsed.taskId, reusedParse: false,
-    outputs: portable.outputs, warnings: portable.warnings });
 }
 
 async function callConvert(client: DeckClient, ref: { irKey: string }, flags: ConvertFlags, common: CommonFlags, signal: AbortSignal): Promise<ConvertResult> {
@@ -106,8 +118,8 @@ async function callConvert(client: DeckClient, ref: { irKey: string }, flags: Co
 }
 
 /** `-o FILE` writes FILE.md plus FILE.assets/; `-o -` localizes into the cache and hands back the text. */
-async function writePortable(target: string, result: ConvertResult, flags: ConvertFlags, options: { onContent: (markdown: string) => void }): Promise<{ outputs: OutputFile[]; warnings: string[] }> {
-  const keep = flags.keepRemoteImages !== undefined ? { keepRemote: flags.keepRemoteImages } : {};
+async function writePortable(target: string, result: ConvertResult, flags: ConvertFlags, options: { onContent: (markdown: string) => void }, signal: AbortSignal): Promise<{ outputs: OutputFile[]; warnings: string[] }> {
+  const keep = { signal, ...(flags.keepRemoteImages !== undefined ? { keepRemote: flags.keepRemoteImages } : {}) };
   if (target === '-') {
     const dir = await stdoutAssetDir();
     const localized = await localizeImages({ images: result.images, destDir: dir, linkPrefix: `${dir}/`, ...keep });

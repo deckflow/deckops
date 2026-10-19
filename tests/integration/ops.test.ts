@@ -8,6 +8,7 @@ import { runConvert } from '../../src/node/convert-op.js';
 import { resolveInput } from '../../src/node/input.js';
 import { runParse } from '../../src/node/parse-op.js';
 import { runRead } from '../../src/node/read-op.js';
+import { MAX_SOURCE_BYTES } from '../../src/shared/constants.js';
 import type { CommonFlags } from '../../src/types.js';
 import { createFakeCloud, FIXTURE_PNG, type FakeCloud } from '../browser/fake-cloud.mjs';
 
@@ -91,6 +92,41 @@ describe('parse → artifact', () => {
     fs.mkdirSync(legacy);
     fs.writeFileSync(path.join(legacy, 'manifest.json'), JSON.stringify({ manifestVersion: 2 }));
     await expect(convert('refuse', legacy)).rejects.toMatchObject({ code: 'input_error', hint: expect.stringContaining('--force') });
+  });
+});
+
+describe('parse guards', () => {
+  it('leaves a DeckOps 2.x artifact untouched, and --force replaces the whole directory', async () => {
+    const dir = tmp();
+    const source = writeSource(dir);
+    const out = path.join(dir, 'artifact');
+    fs.mkdirSync(path.join(out, 'candidates', 'local'), { recursive: true });
+    for (const [name, body] of [['manifest.json', '{"manifestVersion":2}'], ['probe.json', '{}'], ['upgrade.json', '{}'], ['assessment.json', '{}'], ['run.json', '{}']]) {
+      fs.writeFileSync(path.join(out, name!), body!);
+    }
+    await expect(parse('legacy', source, out)).rejects.toMatchObject({ code: 'input_error', hint: expect.stringContaining('--force') });
+    expect(cloud.state('legacy').requests).toHaveLength(0);
+    expect(fs.readdirSync(out).sort()).toEqual(['assessment.json', 'candidates', 'manifest.json', 'probe.json', 'run.json', 'upgrade.json']);
+
+    const forced = await parse('legacy', source, out, { common: { force: true } });
+    expect(forced).toMatchObject({ reusedParse: false, taskId: 'task-1' });
+    expect(fs.readdirSync(out).sort()).toEqual(['ir.json', 'manifest.json']);
+    expect(readJson(path.join(out, 'manifest.json')).manifestVersion).toBe(3);
+  });
+
+  it('refuses a source over the cloud size limit before reading it', async () => {
+    const dir = tmp();
+    const source = path.join(dir, 'huge.pdf');
+    fs.writeFileSync(source, '');
+    fs.truncateSync(source, MAX_SOURCE_BYTES + 1); // sparse: no real disk use
+    try {
+      await expect(parse('huge', source, path.join(dir, 'artifact'))).rejects.toMatchObject({
+        code: 'input_error', message: expect.stringContaining('accepts sources up to 256 MiB'),
+      });
+      expect(cloud.state('huge').requests).toHaveLength(0);
+    } finally {
+      fs.rmSync(source, { force: true });
+    }
   });
 });
 
@@ -188,6 +224,49 @@ describe('convert <artifact>', () => {
     const tolerated = await convert('dead-image', dead.out, { flags: { keepRemoteImages: true } });
     expect(tolerated.warnings).toHaveLength(1);
     expect(fs.readFileSync(path.join(dead.out, 'views/markdown/index.md'), 'utf8')).toContain('image.png?expires=fixture');
+  });
+});
+
+describe('convert time budget and asset replacement', () => {
+  it('bounds image downloads by --timeout and by the caller signal', async () => {
+    const dir = tmp();
+    const out = path.join(dir, 'artifact');
+    await parse('hanging-image', writeSource(dir), out);
+    const started = Date.now();
+    await expect(convert('hanging-image', out, { common: { timeout: 0.5 } })).rejects.toMatchObject({
+      code: 'backend_error', message: expect.stringMatching(/^Stopped after/),
+    });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new Error('cancelled by caller')), 300);
+    await expect(convert('hanging-image', out, { common: { signal: controller.signal } })).rejects.toThrow('cancelled by caller');
+    await expect(convert('hanging-image', writeSource(dir), { out: path.join(dir, 'oneshot.md'), common: { timeout: 0.5 } }))
+      .rejects.toMatchObject({ code: 'backend_error' });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    // The interrupted renders left the artifact as parse wrote it.
+    expect(fs.readdirSync(out).sort()).toEqual(['ir.json', 'manifest.json']);
+  });
+
+  it('replaces assets/ on a new render, and keeps the previous view when a download fails', async () => {
+    const dir = tmp();
+    const out = path.join(dir, 'artifact');
+    await parse('replace', writeSource(dir), out);
+    await convert('replace', out);
+    const manifestFile = path.join(out, 'manifest.json');
+    fs.writeFileSync(path.join(out, 'assets', 'stale.png'), 'old');
+    fs.writeFileSync(manifestFile, JSON.stringify({ ...readJson(manifestFile), assets: { ...readJson(manifestFile).assets, 'assets/stale.png': { key: 'old', hash: '', bytes: 3 } } }));
+    await convert('replace', out, { common: { force: true } });
+    expect(fs.readdirSync(path.join(out, 'assets'))).toEqual(['image.png']);
+    expect(Object.keys(readJson(manifestFile).assets)).toEqual(['assets/image.png']);
+
+    const dead = path.join(dir, 'dead');
+    await parse('dead-image_replace', writeSource(dir), dead);
+    fs.mkdirSync(path.join(dead, 'assets'));
+    fs.writeFileSync(path.join(dead, 'assets', 'previous.png'), 'kept');
+    const before = readJson(path.join(dead, 'manifest.json'));
+    await expect(convert('dead-image_replace', dead)).rejects.toMatchObject({ code: 'asset_error' });
+    expect(fs.readdirSync(dead).sort()).toEqual(['assets', 'ir.json', 'manifest.json']); // no staging directory left
+    expect(fs.readdirSync(path.join(dead, 'assets'))).toEqual(['previous.png']);
+    expect(readJson(path.join(dead, 'manifest.json'))).toEqual(before);
   });
 });
 

@@ -15,13 +15,16 @@ Markdown; the client uploads, waits, stores the server's answer and downloads im
   `submission.json`. Artifacts from 2.x are refused with `input_error`: parse the source again with
   `--force`.
 - `read` returns `deckops.read.v2`; `--report` writes `deckops.run.v2`.
+- `--timeout` (SDK `timeout`, fractional seconds allowed) bounds each parse or convert stage, image
+  downloads included, and the SDK `signal` stops downloads too. Sources over 256 MiB are refused with
+  `input_error` before they are read.
 - Removed the `capabilities` and `config migrate` commands; product configuration keeps only `timeout`.
   Removed options (`--engine`, `--allow-upload`, `--fail-on-degraded`, `--preflight`, `--page-furniture`,
   `--overlaid-text`, `--tracked-changes`, `--max-*`, `--worker-heap-mb`) and the `DECKOPS_ENGINE`,
   `DECKOPS_ALLOW_UPLOAD` and `DECKOPS_FAIL_ON_DEGRADED` variables now fail as unknown (`usage_error`). The
   Node SDK rejects unknown options the same way instead of ignoring them.
 - The browser entry drops `preflight`, `inspection`, `inspectionReport()` and the `preflight` progress
-  phase. Node and browser share one SDK core. The browser bundle measures 34,016 bytes minified +
+  phase. Node and browser share one SDK core. The browser bundle measures 34,049 bytes minified +
   gzip and no longer loads a Worker or WebAssembly; CI holds it to that plus 10 %.
 - Dependencies `@deckflow/deckprobe`, `@deckflow/pdf-lite-parse`, `parse5`, `saxes` and `fflate` are gone.
 - DeckOps-owned code is licensed under Apache-2.0 instead of AGPL-3.0-only. Published 2.x releases keep

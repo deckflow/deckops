@@ -42,11 +42,7 @@ export async function readManifest(dir: string): Promise<Manifest> {
     throw DeckOpsError.input(`${file} is not valid JSON.`, { hint: 'The artifact is damaged. Re-run parse with --force.', cause });
   }
   if (!isRecord(parsed)) throw DeckOpsError.input(`${file} is not a deckops manifest.`);
-  if (parsed.manifestVersion === 1 || parsed.manifestVersion === 2) {
-    throw DeckOpsError.input(`${dir} was created by DeckOps 2.x with a local engine and cannot be read by 3.x.`, {
-      hint: 'Run `deckops parse <source> --force` to create a cloud artifact.',
-    });
-  }
+  if (parsed.manifestVersion === 1 || parsed.manifestVersion === 2) throw legacyArtifactError(dir);
   if (parsed.manifestVersion !== 3) throw DeckOpsError.input(`${file} is from an incompatible deckops version.`);
   const manifest = parsed as unknown as Manifest;
   if (!isRecord(manifest.parse) || !manifest.parse.irKey || !manifest.parse.type || !isRecord(manifest.source) || !manifest.source.sha256 ||
@@ -57,6 +53,20 @@ export async function readManifest(dir: string): Promise<Manifest> {
     if (!containedPath(dir, relative)) throw DeckOpsError.input(`${dir} registers an unsafe path: ${relative}.`);
   }
   return manifest;
+}
+
+/** DeckOps 2.x artifacts (manifest v1/v2) hold local-engine files a v3 artifact must not mix with. */
+export async function isLegacyArtifact(dir: string): Promise<boolean> {
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(manifestPath(dir), 'utf-8'));
+    return isRecord(parsed) && (parsed.manifestVersion === 1 || parsed.manifestVersion === 2);
+  } catch { return false; }
+}
+
+export function legacyArtifactError(dir: string): DeckOpsError {
+  return DeckOpsError.input(`${dir} was created by DeckOps 2.x with a local engine and cannot be read by 3.x.`, {
+    hint: 'Run `deckops parse <source> --force` to create a cloud artifact.',
+  });
 }
 
 export async function writeManifest(dir: string, manifest: Manifest): Promise<void> {

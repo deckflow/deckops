@@ -312,7 +312,9 @@ describe('browser SDK over real HTTP', () => {
     await expect(client.parse({ file: new Blob(['slides']), name: 'slides.pptx' }, { profile: 'quality' })).rejects.toMatchObject({ code: 'usage_error' });
     await expect(client.convert({ irKey: 'a', taskId: 'b' } as never)).rejects.toBeInstanceOf(DeckOpsError);
     await expect(client.convert({ irKey: 'a' }, { to: 'html' } as never)).rejects.toMatchObject({ code: 'unsupported' });
-    expect(() => createClient({ apiKey: 'server-secret' } as never)).toThrow(DeckOpsError);
+    expect(() => createClient({ apiKey: 'server-secret' } as never)).toThrow(expect.objectContaining({
+      code: 'usage_error', hint: expect.stringContaining('Keep server API keys on your backend'),
+    }));
     await expect(client.parse({ file: new Blob(['pdf']), name: 'a.pdf' }, { preflight: 'off' } as never)).rejects.toMatchObject({ code: 'usage_error' });
     expect(cloud.state('invalid').requests).toHaveLength(0);
   });

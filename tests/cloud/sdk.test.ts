@@ -961,6 +961,13 @@ describe('Node cloud transport', () => {
     expect((create as APIError).message).toMatch(/^Cannot reach the DeckFlow API \(POST http:\/\/localhost:3000\/api\/tools\/tasks\): ECONNABORTED: timeout/);
   });
 
+  it('accepts a server API key in Node but refuses one in the browser context', () => {
+    expect(() => createClientWith({ apiKey: 'server-key' }, nodeRuntime, 'node')).not.toThrow();
+    expect(() => createClientWith({ apiKey: 'server-key' }, nodeRuntime, 'browser')).toThrow(expect.objectContaining({
+      code: 'usage_error', hint: expect.stringContaining('Keep server API keys on your backend'),
+    }));
+  });
+
   it('fails with auth_error when saved credentials are rejected instead of switching to a guest', async () => {
     // 实测：生产环境的 token 失效后，CLI 悄悄换成访客建任务，结果取不回来，白等 600 秒。
     const client = createClientWith({ apiBase: 'http://localhost:3000/api', token: 'expired-token', spaceId: 'space-1' }, nodeRuntime, 'node');

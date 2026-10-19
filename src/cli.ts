@@ -39,7 +39,7 @@ function commonOptions(command: Command): Command {
     .option('-o, --output <path>', 'output file or directory (- for stdout on convert)')
     .option('--from <ext>', 'input format for stdin (e.g. pdf)')
     .option('--space <id>', 'cloud space id')
-    .option('--timeout <seconds>', 'overall operation timeout in seconds (default: 120)')
+    .option('--timeout <seconds>', 'seconds for each parse or convert stage, image downloads included (default: 120)')
     .option('--force', 'ignore artifact reuse and redo the work')
     .option('--api-key <key>', 'API key (overrides stored credentials)')
     .option('--token <token>', 'user token (overrides stored credentials)')
