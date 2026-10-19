@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: { index: 'src/index.ts', cli: 'src/cli.ts', 'local-worker': 'src/local/worker.ts' },
+  entry: { index: 'src/index.ts', cli: 'src/cli.ts' },
   format: ['esm'],
   target: 'node22',
   dts: { entry: { index: 'src/index.ts' } },

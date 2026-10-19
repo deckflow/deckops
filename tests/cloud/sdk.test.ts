@@ -5,7 +5,8 @@ import MockAdapter from 'axios-mock-adapter';
 import { resetAuthUuidCacheForTests } from '../../src/cloud/auth-uuid.js';
 import { resetRetryDelaysForTests, setRetryDelaysForTests } from '../../src/cloud/errors.js';
 import { createNodeTransport as createDeck } from '../../src/cloud/node.js';
-import { createCloudClient } from '../../src/cloud/client.js';
+import { createClientWith } from '../../src/client/index.js';
+import { nodeRuntime } from '../../src/cloud/node-runtime.js';
 import { DEFAULT_ROOT } from '../../src/cloud/contracts.js';
 import { isValidAuthUuid } from '../../src/cloud/auth-uuid.js';
 import { APIError } from '../../src/cloud/errors.js';
@@ -960,12 +961,12 @@ describe('Node cloud transport', () => {
 
   it('fails with auth_error when saved credentials are rejected instead of switching to a guest', async () => {
     // 实测：生产环境的 token 失效后，CLI 悄悄换成访客建任务，结果取不回来，白等 600 秒。
-    const client = createCloudClient({ apiBase: 'http://localhost:3000/api', token: 'expired-token', spaceId: 'space-1' } as never);
+    const client = createClientWith({ apiBase: 'http://localhost:3000/api', token: 'expired-token', spaceId: 'space-1' }, nodeRuntime, 'node');
     const guestLookup = vi.fn(() => [200, { id: 'guest-space' }]);
     mock.onGet('http://localhost:3000/api/user').reply(guestLookup);
     mock.onPost('http://localhost:3000/api/tools/tasks').reply(401, { message: 'Not authentication' });
 
-    const error = await client.parse({ file: { input: new Uint8Array([1, 2, 3]), name: 'deck.pptx' } }).catch((caught: unknown) => caught);
+    const error = await client.parse({ file: new Uint8Array([1, 2, 3]), name: 'deck.pptx' }).catch((caught: unknown) => caught);
     expect(error).toMatchObject({ code: 'auth_error', hint: expect.stringContaining('deckops auth login') });
     expect(guestLookup).not.toHaveBeenCalled();
   });
