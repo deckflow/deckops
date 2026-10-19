@@ -2,7 +2,7 @@
 
 Commands below assume `deckops` is installed and logged in, and that the user agreed to upload
 the document. With the npx fallback, replace the first word with
-`npx -y @deckflow/deckops@3.0.0-next.0`.
+`npx -y @deckflow/deckops@3.0.0`.
 
 Choose output paths inside a task-specific work directory. File names are examples.
 

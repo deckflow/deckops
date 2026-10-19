@@ -15,7 +15,7 @@ metadata:
   tool: deckops
   homepage: https://github.com/deckflow/deckops
   deckops-skill-format: "1"
-  tested-cli-version: "3.0.0-next.0"
+  tested-cli-version: "3.0.0"
 ---
 
 # DeckOps
@@ -38,11 +38,11 @@ deckops --version
 deckops auth status
 ```
 
-The instructions are tested with DeckOps 3.0.0-next.0. If `deckops` is missing and Node.js
+The instructions are tested with DeckOps 3.0.0. If `deckops` is missing and Node.js
 22.18+ and network access are available, use this command prefix in the examples below:
 
 ```bash
-npx -y @deckflow/deckops@3.0.0-next.0
+npx -y @deckflow/deckops@3.0.0
 ```
 
 If `auth status` reports no login, ask the user to run `deckops auth login` (it opens a browser)
