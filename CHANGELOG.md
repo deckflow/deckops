@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.0.0 — 2026-10-19 — Cloud-only SDK and CLI
+
+Breaking. DeckOps is now a thin client for DeckOps Cloud: the server parses, owns the IR and renders
+Markdown; the client uploads, waits, stores the server's answer and downloads images.
+
+- Removed the local engine, `--engine`, upload authorization and local limits. All parsing and Markdown
+  come from DeckOps Cloud and need credentials (`deckops auth login` or an API key).
+- Removed DeckProbe preflight and `inspection` (`--preflight`, `probe.json`, `inspectionReport()`).
+- `ir.json` is the server's parse response verbatim, and `irSchemaVersion` is whatever the server
+  reports. Removed `deckir.v1` (and `schemas/deckir.v1.schema.json`), the client-side quality report and
+  routing decisions (`engine`, `quality`, `assessment`, `decision`).
+- Artifacts use manifest v3 (`parse.expiresAt`, `views.markdown.schemaVersion`); `upgrade.json` is now
+  `submission.json`. Artifacts from 2.x are refused with `input_error`: parse the source again with
+  `--force`.
+- `read` returns `deckops.read.v2`; `--report` writes `deckops.run.v2`.
+- Removed the `capabilities` and `config migrate` commands; product configuration keeps only `timeout`.
+  Removed options (`--engine`, `--allow-upload`, `--fail-on-degraded`, `--preflight`, `--page-furniture`,
+  `--overlaid-text`, `--tracked-changes`, `--max-*`, `--worker-heap-mb`) and the `DECKOPS_ENGINE`,
+  `DECKOPS_ALLOW_UPLOAD` and `DECKOPS_FAIL_ON_DEGRADED` variables now fail as unknown (`usage_error`). The
+  Node SDK rejects unknown options the same way instead of ignoring them.
+- The browser entry drops `preflight`, `inspection`, `inspectionReport()` and the `preflight` progress
+  phase. Node and browser share one SDK core. The browser bundle measures 34,016 bytes minified +
+  gzip and no longer loads a Worker or WebAssembly; CI holds it to that plus 10 %.
+- Dependencies `@deckflow/deckprobe`, `@deckflow/pdf-lite-parse`, `parse5`, `saxes` and `fflate` are gone.
+
 ## 2.6.1 — 2026-09-24 — Empty task status grace
 
 - Keep waiting while the task status comes back empty for up to 30 seconds (`emptyStatusGrace`),

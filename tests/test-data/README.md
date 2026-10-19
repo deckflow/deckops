@@ -2,8 +2,8 @@
 
 `scripts/conformance.mjs` drives the built CLI against a real backend with
 every document in this directory, asserting the acceptance criteria: artifact
-layout, local reuse with zero cloud calls, convert-without-reparse, and
-durable (non-expiring) markdown.
+layout (manifest v3, server IR verbatim), artifact reuse with zero cloud calls,
+convert-without-reparse, cached views, and durable (non-expiring) markdown.
 
 The documents themselves are **not** in the repository — they are large, and
 the ones that exercise parsing well tend to be real work files. Bring your own
@@ -32,7 +32,7 @@ carries an image manifest. Multi-page documents exercise `--split-pages`.
 
 ```bash
 pnpm build
-DECKPARSE_API_BASE=… DECKPARSE_TOKEN=… pnpm conformance
+DECKOPS_API_BASE=… DECKOPS_TOKEN=… pnpm conformance
 ```
 
 It needs credentials, spends backend quota, and uploads the fixtures to the

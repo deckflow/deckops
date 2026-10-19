@@ -1,52 +1,60 @@
 # Machine-readable output
 
-Use `--json` with file or artifact output. Capture process exit code, stdout, and stderr
-separately. Do not assume every failure emits JSON: Commander option errors and an unexpected
-process failure may write only stderr.
+Use `--json` and capture the exit code, stdout, and stderr separately. Not every failure
+emits JSON: an unknown option and an unexpected process failure may write only stderr.
 
-Default `deckops SOURCE --json` returns one `deckops.read.v1` object with `content`,
-`assets`, `outputs`, and `report.assessment` / `report.decision`. `--format ir` makes content
-an object. `-o FILE --json` returns null content and output receipts. `-o - --json` is also
-one JSON value; it does not mix Markdown with a second envelope. Preserve the report when
-wrapping the tool for an Agent. Pure Markdown consumers must also read stderr diagnostics.
-`completeness: partial` indicates observed missing source content; a visual warning alone
-does not imply missing pages. `unknown` does not certify completeness.
-`assessment.summary` reports known source pages and evidence, parsed/missing/failed pages,
-body text characters, textless/OCR/visual-risk pages, and unsupported control counts.
-Large inferred missing-page lists are capped at 1,000 with a full count and truncation flag.
-`assessment.recommendation` describes an optional paid cloud run and upload scope.
-`decision` describes actual policy execution; read these separately.
-Markdown replaces unsupported C0/DEL controls with U+FFFD, preserving original IR and
-recording the replacement. This does not recover missing text.
+## Read
 
-## Parse envelope
+Default `deckops SOURCE --json` returns one object:
 
-Important fields on success:
+```jsonc
+{
+  "schemaVersion": "deckops.read.v2",
+  "ok": true,
+  "format": "markdown",
+  "content": "# Title\n…",
+  "outputs": [],
+  "assets": [{ "path": "/home/me/.cache/deckops/…/assets/p1.png", "lifecycle": "cache", "bytes": 2048 }],
+  "report": {
+    "schemaVersion": "deckops.run.v2",
+    "parseTaskId": "t_1",
+    "convertTaskId": "t_2",
+    "cacheHit": false,
+    "artifactBase": "/home/me/.cache/deckops/…",
+    "warnings": []
+  }
+}
+```
+
+`--format ir` makes `content` the server IR object. `-o FILE` sets `content` to null, lists the
+written files in `outputs`, and marks copied images `lifecycle: "output"`. `--report FILE`
+writes the `report` object to a file. Without `--json`, stdout carries only the content and
+warnings go to stderr.
+
+## Parse
 
 ```jsonc
 {
   "ok": true,
   "op": "parse",
   "input": "report.pdf",
-  "engine": "local",
+  "type": "pdf.pdfParse",
   "format": "pdf",
-  "quality": { "status": "pass", "checks": [], "coverage": {} },
-  "taskId": null,
+  "taskId": "t_1",
+  "irKey": "…/ir.json",
+  "irSchemaVersion": "result.v3",
+  "expiresAt": "2026-10-26T08:00:00.000Z",
   "reusedParse": false,
-  "irSchemaVersion": "deckir.v1",
   "artifact": "work/report-pdf",
-  "outputs": [],
+  "outputs": [{ "file": "work/report-pdf/ir.json", "bytes": 52311 }],
   "warnings": [],
-  "durationMs": 100
+  "durationMs": 9100
 }
 ```
 
-`engine` can be `local`, `cloud`, or `artifact-cache`. Cloud fields and inspection are
-conditional. Use the actual envelope rather than requiring every optional field.
+On reuse, `reusedParse` is true and `taskId` is the original parse task.
 
-## Convert envelope
-
-Important fields on success:
+## Convert
 
 ```jsonc
 {
@@ -54,45 +62,46 @@ Important fields on success:
   "op": "convert",
   "input": "work/report-pdf",
   "to": "markdown",
-  "engine": "local",
   "format": "pdf",
-  "taskId": null,
+  "taskId": "t_2",
+  "parseTaskId": "t_1",
   "reusedParse": true,
   "outputs": [{ "file": "work/report-pdf/views/markdown/index.md", "bytes": 1200 }],
   "warnings": [],
-  "durationMs": 20
+  "durationMs": 2400
 }
 ```
 
-Quality, inspection, parse task ID, and cloud task ID depend on the conversion path. Cached
-outputs report actual file bytes on both new writes and cache hits; zero means an empty file.
+`taskId` is null when the cached view was returned. `reusedParse` is false only for a one-shot
+convert of a source document. `-o - --json` adds the Markdown as `content` in the same object.
 
 ## Errors and exit codes
 
-DeckOps errors use a stable `error.code` when they reach the product error layer:
+```jsonc
+{ "ok": false, "op": "parse", "error": { "code": "ir_expired", "message": "…", "hint": "…", "taskId": "…" } }
+```
 
 | Exit | Codes or condition | Response |
 | ---: | --- | --- |
-| `2` | `usage_error`, or CLI syntax | Check the relevant `--help`; stdout may be empty. |
-| `3` | `unsupported` | Change the real format/engine/option path; do not approximate success. |
-| `4` | `auth_error` | Restore the same cloud identity/space; do not silently switch user or guest. |
-| `5` | `input_error`, `ir_not_found`, `ir_expired`, `ir_schema_unsupported`, `ir_invalid`, `asset_error` | Fix the named local or remote input condition using its hint. |
-| `6` | `backend_error` | Rerun the same parse into the same output to resume a recorded task; `--force` resubmits and may bill again. |
+| `2` | `usage_error`, or CLI syntax | Check `--help`; removed 2.x options such as `--engine` land here. |
+| `3` | `unsupported` | Change the format or option; do not approximate success. |
+| `4` | `auth_error` | Restore the login (`deckops auth login`); do not switch identity. |
+| `5` | `input_error`, `ir_not_found`, `ir_expired`, `ir_schema_unsupported`, `ir_invalid`, `asset_error` | Fix the named condition using its hint. |
+| `6` | `backend_error` | Rerun the same parse into the same output to resume a recorded task. |
 | `7` | `not_implemented` | The reserved operation is unavailable in this version. |
-| `8` | `quota_error` | Report the quota/login route; do not create another identity to bypass it. |
-| Other | Unexpected process failure | Preserve the code and necessary stderr; do not invent an envelope. |
+| `8` | `quota_error` | Report the quota and the login route. |
 
-Error messages can change. Branch on `error.code` when available and retain `taskId` and `hint`.
+Branch on `error.code`, not on the message, and keep `taskId` and `hint`.
 
 ## Output checks
 
 Before delivery:
 
-1. Confirm `ok`, operation, actual engine, format, and reuse state.
-2. Evaluate quality and warnings for the user's goal.
+1. Confirm `ok`, the operation, the format, and whether the parse was reused.
+2. Read `warnings` against the user's goal.
 3. Confirm every required path in `outputs` exists.
-4. Check Markdown image destinations or disclose remote/expiring links.
+4. Check Markdown image destinations, or disclose remote, expiring links.
 5. Keep stdout content, stderr diagnostics, and the document's own text separate.
 
-Do not expose passwords, access tokens, API keys, signed asset query strings, or full config
+Do not expose passwords, tokens, API keys, signed URL query strings, or full configuration
 values in summaries.

@@ -1,99 +1,60 @@
-# Engines, preflight, limits, and recovery
+# Credentials, quota, retention, and recovery
 
-## Engine routing
+## Credentials
 
-- `--engine local` keeps supported file parsing on the local machine. URL source mode still
-  fetches the supplied URL.
-- `--engine cloud` explicitly selects cloud parsing and can upload a local document.
-- `--engine auto` stays local unless `--allow-upload` is also present and the router reaches
-  a supported fallback condition.
-- Keynote and URL runtime mode require cloud parsing.
+DeckOps resolves each credential independently: command flags (`--api-key`, `--token`,
+`--space`, `--api-base`), then environment (`DECKOPS_API_KEY`, `DECKOPS_TOKEN`,
+`DECKOPS_SPACE_ID`, `DECKOPS_API_BASE`, or their `DECKFLOW_*` forms), then the shared file
+`~/.deckflow/credentials` written by `deckops auth login`. `deckops config list` shows every
+value and where it came from, with secrets masked.
 
-Do not infer upload permission from stored credentials, a cloud recommendation, a previous
-unrelated task, or local failure. If the user already authorized this document and workflow,
-continue without asking again.
+A rejected credential fails with `auth_error` (exit 4); DeckOps never continues as a guest
+with it. Ask the user to run `deckops auth login` and rerun. Without any credential the cloud
+may accept the call as a guest with a small daily quota.
 
-Product configuration and environment can affect defaults. Specify the engine in agent-run
-commands. Explicit local mode restricts the invocation even if upload authorization is inherited.
-Use `--no-allow-upload` to override persistent authorization and `--no-fail-on-degraded` for best effort.
+## Quota
 
-## Preflight
+`quota_error` (exit 8) means the identity's quota is exhausted. Report it and the login route.
+Do not create another identity or space to get around it.
 
-DeckOps uses a bounded DeckProbe inspection for local files and stdin before parsing:
+## Retention
 
-- `validate` is the ordinary default. It rejects malformed/container-mismatched input and an
-  encrypted document without the applicable password. Probe runtime/budget trouble can become
-  a warning while parsing continues.
-- `strict` makes preflight failures stop the task.
-- `off` skips preflight for a concrete latency, CSP, compatibility, or user requirement.
+The cloud keeps a parse result for 7 days. `parse --json` returns `expiresAt`, also recorded in
+the artifact manifest. After it:
 
-URLs skip local preflight. Existing artifacts have no source bytes to preflight and should not
-receive source preflight options.
+- `convert` of the artifact fails with `ir_expired` before any request; parse the source again.
+- A `parse` of the same source parses again (and is billed) with a warning, like `--force`.
+- Markdown views and images already written stay on disk.
 
-A partial probe report is evaluated target by target and is not itself proof of damage.
-Macros, external relationships, and embedded objects are signals, not default blockers. DeckProbe
-does not render, execute content, perform OCR, or replace malware scanning.
+Signed image URLs in a cloud response expire within hours. `convert` downloads every image
+and rewrites the links; a failed download fails the convert unless `--keep-remote-images`.
 
-## Quality controls
+## Timeouts and resume
 
-`--fail-on-degraded` turns a degraded parse or artifact into an error. It is useful when the
-requested answer depends on complete structure. Without it, valid portions can still be used
-if the limitation is reported.
+`--timeout <seconds>` (default 120) bounds the whole operation. A timeout or lost connection
+after the cloud task was created leaves `submission.json` in the artifact directory with the
+task id. Rerun the same command into the same output: DeckOps waits for that task and
+downloads its result, with no new upload and no new charge. If the cloud reports the task
+failed or gone, DeckOps forgets it and says so; the next run submits anew.
 
-`--preflight strict`, `--fail-on-degraded`, and `convert --strict` cover different layers:
-pre-parse container inspection, parse/IR quality, and cloud Markdown rendering respectively.
-Local Markdown conversion rejects `--strict` in 3.0.0-next.0.
+A submission that was sent but returned no task id cannot be resumed. DeckOps refuses to
+resubmit it on its own; `--force` resubmits and the earlier task, if it was created, may be
+billed separately. Use it only when the user accepts that cost. Do not delete
+`submission.json` to get the same effect silently.
 
-## Local resource limits
+The default `read` entry resumes the same way through its cache artifact, except for URL and
+password-protected sources. One-shot `convert SOURCE` keeps no artifact to resume; parse into
+an explicit directory when a large document may need a retry.
 
-The local parsers bound source bytes, ZIP entries and expansion, individual parts and assets,
-total assets, XML depth/events/text, URL bytes and redirects, time, and worker heap. The main
-CLI overrides are:
+## Cancellation
 
-```text
---max-source-bytes
---max-expanded-bytes
---max-part-bytes
---max-asset-bytes
---max-total-asset-bytes
---max-zip-entries
---max-url-bytes
---worker-heap-mb
---timeout
-```
+Interrupting the process stops local waiting and downloads only. A task already submitted
+keeps running in the cloud and may be billed. A second parse into an artifact that another
+parse is using fails with `input_error` while its lock is held; wait for the other run instead
+of removing the `.lock` file.
 
-Raise only the limit identified by the failure and only enough for a known input. Overrides
-participate in artifact cache identity. A larger limit does not improve semantic fidelity.
+## When to stop retrying
 
-## Known 3.0.0-next.0 behavior
-
-- Content and envelopes have one stdout owner, including `convert -o - --json`.
-- An explicitly requested portable output is materialized even if an artifact view exists.
-- `capabilities --json` exposes supported versus unverified remedies. Unverified OCR/table/SmartArt repair does not authorize or trigger automatic uploads.
-- Node preflight has a 2500 ms host deadline and a 16 MiB input cap; timeouts retain unknown evidence.
-- `upgrade.json` preserves submitted/uncertain task state; a submission counts as uncertain only once its task-creation request was sent. Do not remove it to silently repeat a potentially paid request. `--force` resubmits over it with a warning that the earlier task may be billed separately; use it only when the user accepts that cost.
-- Local one-shot `--split-pages` does not materialize separate portable page files. Parse first,
-  then use artifact conversion with `--split-pages`.
-- Unknown Commander options can fail with exit 2 and stderr only.
-- `formats --json` is a display-oriented matrix, not a complete capability-negotiation schema.
-- `extract`, `modify`, and `export` return `not_implemented`.
-
-## Cloud recovery
-
-Cloud task creation is not generally safe to repeat after an ambiguous network failure. When a
-parse is interrupted after its task was created (timeout, dropped connection while downloading),
-rerun the same command with the same output directory: DeckOps reads the task ID from
-`upgrade.json`, waits for that task and downloads its result, with no new upload or charge. If the
-cloud reports that task failed or gone, the journal is marked failed and the next run submits anew.
-A submission that was sent without any task ID coming back cannot be resumed; `--force` resubmits it
-and may be billed twice.
-
-A rejected saved credential fails with `auth_error` rather than continuing as a guest. Restore the
-login (`deckops auth login`) and rerun.
-
-Remote IR references currently expire, while local v2 IR remains usable for local conversion.
-Signed image URLs are previews, not permanent assets. Preserve or localize required assets before
-declaring an artifact durable offline.
-
-Stop retrying when the same command repeats the same input/auth/quota/backend failure without a
-changed condition. Report the specific blocker and any recoverable task ID.
+Stop when the same command repeats the same input, auth, quota, or backend failure without a
+changed condition. Report the specific blocker, its `error.code`, the `hint`, and any
+recoverable `taskId`.
