@@ -1,8 +1,13 @@
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 /** A wire-protocol fixture, not a mocked SDK. Every operation uses real HTTP. */
+/** The one image every fixture conversion references; served with its real md5. */
+export const FIXTURE_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const FIXTURE_PNG_MD5 = createHash('md5').update(FIXTURE_PNG).digest('hex');
+
 export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
   const cases = new Map();
   let origin;
@@ -47,10 +52,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
     try {
       const body = await fs.readFile(path.join(staticRoot, file));
       res.writeHead(200, {
-        'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8'
-          : file.endsWith('.wasm') ? 'application/wasm'
-            : file.endsWith('.pdf') ? 'application/pdf'
-              : 'text/javascript; charset=utf-8',
+        'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8',
         'Cache-Control': 'no-store',
       });
       res.end(body);
@@ -91,6 +93,10 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         json(res, 401, { code: 'auth_error', message: 'Expired browser token' }); return;
       }
       if (route === '/user') { json(res, 200, { id: 'fixture-space' }); return; }
+      if (route === '/image.png') {
+        if (kind('dead-image')) { json(res, 404, { message: 'gone' }); return; }
+        res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(FIXTURE_PNG); return;
+      }
       if (route.endsWith('/file/auth') && req.method === 'POST') {
         const id = `file-${state.uploads.length + 1}`;
         state.uploads.push({ ...body, id });
@@ -156,7 +162,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
               markdown: `# Page one\n\n![](${ref})\n\n---\n\n# Page two`,
               ...(task.params.markdownPages && ['pptx', 'keynote'].includes(format) ? { markdownPages: ['# Page one', '# Page two'] } : {}),
               ...(kind('bad-markdown') ? { markdownError: 'Renderer failed' } : {}),
-              images: [{ ref, key: 'fixture/image.png', suggestedPath: 'assets/image.png', bytes: 42, hash: 'fixture-md5' }],
+              images: [{ ref, key: 'fixture/image.png', suggestedPath: 'assets/image.png', bytes: FIXTURE_PNG.length, hash: FIXTURE_PNG_MD5 }],
             });
           } else {
             json(res, 200, {

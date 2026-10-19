@@ -21,4 +21,5 @@ export interface FakeCloud {
   state(name: string): FakeState;
   close(): Promise<void>;
 }
+export const FIXTURE_PNG: Buffer;
 export function createFakeCloud(options?: { staticRoot?: string; port?: number }): Promise<FakeCloud>;

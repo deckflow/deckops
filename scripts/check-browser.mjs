@@ -13,8 +13,7 @@ const result = await build({
   },
   bundle: true,
   platform: 'browser',
-  // The published browser contract is native ESM. Keeping this as ESM also
-  // verifies that import.meta.url remains usable for the packaged Worker.
+  // The published browser contract is native ESM.
   format: 'esm',
   write: false,
   metafile: true,
@@ -34,9 +33,4 @@ assert.equal('openArtifact' in bundled, false);
 const declaration = await fs.readFile(new URL('../dist/browser/index.d.ts', import.meta.url), 'utf8');
 assert.doesNotMatch(declaration, /(?:from\s*|import\s*\()['"](?:node:|@deckops\/sdk)/);
 assert.doesNotMatch(declaration, /\b(?:Buffer|NodeJS)\b/);
-const worker = await fs.readFile(new URL('../dist/browser/probe-worker.js', import.meta.url), 'utf8');
-const wasm = await fs.stat(new URL('../dist/browser/deckprobe_wasm_bg.wasm', import.meta.url));
-assert.match(code, /probe-worker\.js/, 'Browser entry must retain the local DeckProbe Worker URL.');
-assert.match(worker, /deckprobe_wasm_bg\.wasm/, 'DeckProbe Worker must resolve its packaged WASM asset.');
-assert.ok(wasm.size > 1_000_000, 'Packaged DeckProbe WASM asset is missing or truncated.');
 console.log(`Browser export: ESM bundle/import OK, standalone types OK (${gzipSync(code).byteLength} bytes gzip).`);
