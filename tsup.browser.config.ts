@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: { index: 'src/browser/index.ts', 'probe-worker': 'src/browser/probe-worker.ts' },
+  entry: { index: 'src/browser/index.ts' },
   outDir: 'dist/browser',
   tsconfig: 'tsconfig.browser.json',
   format: ['esm'],
@@ -12,8 +12,6 @@ export default defineConfig({
   bundle: true,
   splitting: false,
   dts: { entry: { index: 'src/browser/index.ts' } },
-  // Runs after every watch rebuild too, so dev:browser cannot lose the lazy WASM asset after a clean.
-  onSuccess: 'node scripts/copy-deckprobe-wasm.mjs',
   sourcemap: true,
   clean: true,
 });

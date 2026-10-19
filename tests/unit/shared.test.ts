@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateConvertFlags, validateParseFlags } from '../../src/core/validation.js';
+import { validateConvertFlags, validateParseFlags } from '../../src/node/validation.js';
 import { DeckOpsError } from '../../src/errors/index.js';
 import { PRE_UPLOAD_THRESHOLD } from '../../src/shared/constants.js';
 import { translateError } from '../../src/shared/errors.js';
@@ -10,31 +10,7 @@ import {
   validateConvertFlagsForFormat,
   validateParseFlagsForFormat,
 } from '../../src/shared/validation.js';
-import type { ResolvedInput } from '../../src/core/input.js';
-import { preflightModeForConvert, preflightModeOf } from '../../src/cli/commands/run-ops.js';
-
-describe('shared preflight default', () => {
-  it('defaults CLI operations to validate while preserving explicit off and strict', () => {
-    expect(preflightModeOf({})).toBe('validate');
-    expect(preflightModeOf({ preflight: 'off' })).toBe('off');
-    expect(preflightModeOf({ preflight: 'strict' })).toBe('strict');
-  });
-
-  it('does not apply the implicit source default to an existing artifact', () => {
-    const artifact: ResolvedInput = {
-      kind: 'artifact',
-      dir: 'example',
-      manifest: {
-        manifestVersion: 1,
-        source: { name: 'slides.pptx' },
-        parse: { type: 'pptx.parse', taskId: 'parse-task', irKey: 'ir-key', irSchemaVersion: 'pptx.v1', params: {}, createdAt: '2026-01-01' },
-        views: {}, assets: {}, producer: { deckparse: 'test', sdk: 'test' },
-      },
-    };
-    expect(preflightModeForConvert(artifact, {})).toBeUndefined();
-    expect(preflightModeForConvert(artifact, { preflight: 'validate' })).toBe('validate');
-  });
-});
+import type { ResolvedInput } from '../../src/node/input.js';
 
 describe('shared input routing', () => {
   it('routes the supported formats without requiring a filesystem input', () => {
@@ -102,12 +78,12 @@ describe('shared format validation', () => {
       kind: 'artifact',
       dir: 'example',
       manifest: {
-        manifestVersion: 1,
-        source: { name: 'slides.pptx' },
-        parse: { type: 'pptx.parse', taskId: 'parse-task', irKey: 'ir-key', irSchemaVersion: 'pptx.v1', params: {}, createdAt: '2026-01-01' },
+        manifestVersion: 3,
+        source: { name: 'slides.pptx', sha256: 'abc', bytes: 1 },
+        parse: { type: 'pptx.parse', taskId: 'parse-task', irKey: 'ir-key', irSchemaVersion: 'result.v3', params: {}, createdAt: '2026-01-01', expiresAt: '2026-01-08' },
         views: {},
         assets: {},
-        producer: { deckparse: 'test', sdk: 'test' },
+        producer: { deckops: 'test' },
       },
     };
     expect(() => validateParseFlags(artifact, {})).not.toThrow();

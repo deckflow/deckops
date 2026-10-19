@@ -1,6 +1,6 @@
 import { APIError } from '../../src/cloud/errors.js';
 import { describe, expect, it } from 'vitest';
-import { translate } from '../../src/cloud/client.js';
+import { translateError as translate } from '../../src/shared/errors.js';
 import { EXIT_CODES } from '../../src/errors/index.js';
 
 describe('error translation', () => {

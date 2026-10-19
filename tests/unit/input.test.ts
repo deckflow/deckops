@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { extensionOf, resolveInput, routeExtension } from '../../src/core/input.js';
+import { extensionOf, resolveInput, routeExtension } from '../../src/node/input.js';
 import { DeckOpsError } from '../../src/errors/index.js';
 
 const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-input-'));
@@ -48,7 +48,7 @@ describe('resolveInput', () => {
     fs.mkdirSync(artifact);
     fs.writeFileSync(
       path.join(artifact, 'manifest.json'),
-      JSON.stringify({ manifestVersion: 1, parse: { irKey: 'k', type: 'pptx.parse', irSchemaVersion: 'pptx.v1', taskId: 't', params: {}, createdAt: new Date().toISOString() }, source: { name: 'a' }, views: {}, assets: {}, producer: { deckparse: '0', sdk: '0' } })
+      JSON.stringify({ manifestVersion: 3, parse: { irKey: 'k', type: 'pptx.parse', irSchemaVersion: 'result.v3', taskId: 't', params: {}, createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() }, source: { name: 'a', sha256: 'abc', bytes: 1 }, views: {}, assets: {}, producer: { deckops: '3.0.0' } })
     );
     expect((await resolveInput(artifact)).kind).toBe('artifact');
   });

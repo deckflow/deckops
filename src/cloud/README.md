@@ -1,9 +1,11 @@
 # Product-owned cloud implementation
 
-These are ordinary private source modules, not an embedded SDK package. Node
-loads them lazily only for cloud work; the browser bundles the browser runtime.
-There is no source synchronization, sibling checkout, shared client package or
-dependency on either the legacy tool SDK or DeckTools.
+These are ordinary private source modules, not an embedded SDK package. Node and
+the browser share them through the isomorphic client in `src/client/`; the runtime
+differences (auth UUID storage, file reads, fetch streams) are injected as a
+`DeckRuntime` from `src/node/runtime.ts` or `browser.ts`. This directory never
+imports `node:*`. There is no source synchronization, sibling checkout, shared
+client package or dependency on either the legacy tool SDK or DeckTools.
 
 ## Provenance and migration baseline (2026-09-05)
 
@@ -33,8 +35,8 @@ authentication and disables mutation retries by default.
 ## Scope
 
 `contracts.ts` owns the transport DTOs. `parse/types.ts` owns the cloud IR reference
-and conversion result contracts; they are distinct from local DeckIR. Only parse
-task names and `parse.convert` are represented. The transport assembles upload,
+and conversion result contracts; the IR itself is the server's and passes through
+untouched. Only parse task names and `parse.convert` are represented. The transport assembles upload,
 create/get/wait/download and the parse/convert primitives. General tool shortcuts,
 task list/delete/start, generation and translation are deliberately absent.
 

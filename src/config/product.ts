@@ -4,21 +4,13 @@ import { DeckOpsError } from '../errors/index.js';
 import { configPath, DIR_MODE, SECRET_FILE_MODE } from './paths.js';
 
 export interface ProductConfig {
-  engine?: 'local' | 'auto' | 'cloud';
-  allowUpload?: boolean;
-  failOnDegraded?: boolean;
   timeout?: number;
-  preflight?: 'off' | 'validate' | 'strict';
 }
 
-/** Only understood, valid settings cross the one-time migration boundary. */
-export function sanitizeProductConfig(raw: Record<string, unknown>): ProductConfig {
+/** Only understood, valid settings are read; anything else in the file is ignored. */
+function sanitizeProductConfig(raw: Record<string, unknown>): ProductConfig {
   const out: ProductConfig = {};
-  if (raw.engine === 'local' || raw.engine === 'auto' || raw.engine === 'cloud') out.engine = raw.engine;
-  if (typeof raw.allowUpload === 'boolean') out.allowUpload = raw.allowUpload;
-  if (typeof raw.failOnDegraded === 'boolean') out.failOnDegraded = raw.failOnDegraded;
   if (typeof raw.timeout === 'number' && Number.isSafeInteger(raw.timeout) && raw.timeout > 0) out.timeout = raw.timeout;
-  if (raw.preflight === 'off' || raw.preflight === 'validate' || raw.preflight === 'strict') out.preflight = raw.preflight;
   return out;
 }
 
@@ -36,13 +28,9 @@ export function readProductConfig(): ProductConfig {
 }
 
 export function writeProductOption(key: string, value: string): string {
-  const fields = { engine: 'engine', 'allow-upload': 'allowUpload', 'fail-on-degraded': 'failOnDegraded', timeout: 'timeout', preflight: 'preflight' } as const;
-  const field = fields[key as keyof typeof fields];
-  if (!field) throw DeckOpsError.usage(`Unknown product option: ${key}`);
-  const parsed: unknown = field === 'timeout' ? Number(value)
-    : field === 'allowUpload' || field === 'failOnDegraded' ? (value === 'true' ? true : value === 'false' ? false : undefined) : value;
-  const valid = sanitizeProductConfig({ [field]: parsed });
-  if (!(field in valid)) throw DeckOpsError.usage(`Invalid value for ${key}.`);
+  if (key !== 'timeout') throw DeckOpsError.usage(`Unknown product option: ${key}`);
+  const valid = sanitizeProductConfig({ timeout: Number(value) });
+  if (!('timeout' in valid)) throw DeckOpsError.usage(`Invalid value for ${key}.`);
   const file = configPath();
   // Validate an existing file first instead of replacing malformed user configuration.
   readProductConfig();

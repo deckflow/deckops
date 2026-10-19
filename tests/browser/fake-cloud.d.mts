@@ -14,6 +14,8 @@ export interface FakeState {
   activeStreams: number;
   closedStreams: number;
   abortedCreates: number;
+  /** Fail this many result downloads with 503 (set by a test). */
+  failDownloads?: number;
 }
 export interface FakeCloud {
   origin: string;
@@ -21,4 +23,5 @@ export interface FakeCloud {
   state(name: string): FakeState;
   close(): Promise<void>;
 }
+export const FIXTURE_PNG: Buffer;
 export function createFakeCloud(options?: { staticRoot?: string; port?: number }): Promise<FakeCloud>;

@@ -1,19 +1,14 @@
-/** Public artifact, option and machine-readable envelope contracts. */
+/** Public artifact, option and machine-readable envelope contracts (3.0). */
 
 import type { IrFormat } from './cloud/parse/types.js';
-export type { ConvertImage } from './cloud/parse/types.js';
-import type { DeckIR, DocumentFormat, QualityReport } from './ir/schema.js';
-import type { LocalLimits } from './local/limits.js';
-import type { PreflightMode, PreflightSummary } from './shared/preflight.js';
+export type { ConvertImage, IrFormat } from './cloud/parse/types.js';
 
 export type ParseTaskType = 'pdf.pdfParse' | 'pptx.parse' | 'docx.parseTextAndImage' | 'keynote.parseTextAndImage';
-export type EngineMode = 'local' | 'cloud' | 'auto';
-export type OutputEngine = 'local' | 'cloud' | 'artifact-cache';
+export type ParseType = ParseTaskType | 'html.getByURL';
 
 export interface ManifestView {
-  engine: 'local' | 'cloud';
-  rendererVersion: string;
-  taskId?: string;
+  taskId: string;
+  schemaVersion: string;
   params: Record<string, unknown>;
   files: string[];
   createdAt: string;
@@ -21,52 +16,25 @@ export interface ManifestView {
 
 export interface ManifestAsset { key: string; hash: string; bytes: number; mediaType?: string }
 
-export interface ManifestInspection {
-  file: string; schemaVersion: 2; toolVersion: string; requestVersion: number;
-  status: 'ok' | 'partial'; summary: PreflightSummary; createdAt: string;
-}
-
-export interface ManifestV1View {
-  taskId: string; params: Record<string, unknown>; files: string[]; createdAt: string;
-}
-
-export interface ManifestV1 {
-  manifestVersion: 1;
-  source: { sha256?: string; name: string; bytes?: number };
-  parse: {
-    taskId: string; type: ParseTaskType | 'html.getByURL'; irKey: string; irSchemaVersion: string;
-    params: Record<string, unknown>; createdAt: string;
-  };
-  inspection?: ManifestInspection;
-  views: Partial<Record<string, ManifestV1View>>;
-  assets: Record<string, ManifestAsset>;
-  producer: { deckparse: string; sdk: string };
-}
-
-export interface ManifestV2 {
-  manifestVersion: 2;
+export interface ManifestV3 {
+  manifestVersion: 3;
+  /** URL sources record sha256(url) and bytes 0. */
   source: { sha256: string; name: string; bytes: number };
   parse: {
-    engine: 'local' | 'cloud'; format: DocumentFormat; schemaVersion: 'deckir.v1';
-    parser: { name: string; version: string }; params: Record<string, unknown>; createdAt: string;
-    remote: { taskId: string; irKey: string; expiresAt?: string | undefined } | null;
+    taskId: string; type: ParseType; irKey: string; irSchemaVersion: string;
+    params: Record<string, unknown>; createdAt: string; expiresAt: string;
   };
-  inspection?: ManifestInspection;
-  quality: QualityReport;
-  views: Partial<Record<string, ManifestView>>;
+  views: Partial<Record<'markdown', ManifestView>>;
   assets: Record<string, ManifestAsset>;
-  producer: { deckparse: string; sdk?: string };
+  producer: { deckops: string };
 }
 
-export type Manifest = ManifestV1 | ManifestV2;
+export type Manifest = ManifestV3;
 
 export interface ParseFlags {
   profile?: 'fast' | 'balanced' | 'quality';
   password?: string;
   includeImages?: boolean;
-  pageFurniture?: 'off' | 'drop' | 'extract';
-  overlaidText?: 'auto' | 'keep' | 'drop';
-  trackedChanges?: 'final' | 'original' | 'all';
   stayImageAreaRate?: number;
   mode?: 'source' | 'runtime';
 }
@@ -76,32 +44,24 @@ export interface ConvertFlags {
 }
 
 export interface CommonFlags {
-  signal?: AbortSignal;
-  policySource?: Record<string, string>;
-  cloudLimits?: { maxSourceBytes?: number; maxSourcePages?: number; maxCost?: { amount: string; currency: string } };
-  spaceId?: string; timeout?: number; force?: boolean;
-  engine?: EngineMode; allowUpload?: boolean; failOnDegraded?: boolean;
-  limits?: Partial<LocalLimits>;
+  signal?: AbortSignal; spaceId?: string; timeout?: number; force?: boolean;
 }
 
 export interface OutputFile { file: string; bytes: number }
 
 export interface ParseEnvelope {
-  assessment?: import('./shared/assessment-types.js').Assessment;
-  decision?: import('./shared/policy-types.js').RouteDecision;
-  ok: true; op: 'parse'; input: string; engine: OutputEngine; type: ParseTaskType | 'html.getByURL';
-  format: DocumentFormat; quality: QualityReport; taskId: string | null; reusedParse: boolean;
-  irKey?: string; irSchemaVersion: 'deckir.v1'; artifact: string; inspection?: PreflightSummary;
-  outputs: OutputFile[]; warnings: string[]; durationMs: number;
+  ok: true; op: 'parse'; input: string; type: ParseType; format: IrFormat;
+  taskId: string; irKey: string; irSchemaVersion: string; expiresAt: string;
+  reusedParse: boolean; artifact: string; outputs: OutputFile[]; warnings: string[]; durationMs: number;
 }
 
 export interface ConvertEnvelope {
-  assessment?: import('./shared/assessment-types.js').Assessment;
-  decision?: import('./shared/policy-types.js').RouteDecision;
+  ok: true; op: 'convert'; input: string; to: 'markdown'; format: IrFormat;
+  /** The convert task; null when a cached view was returned. */
+  taskId: string | null; parseTaskId: string; reusedParse: boolean;
+  /** Markdown, only for `-o -`. */
   content?: string;
-  ok: true; op: 'convert'; input: string; to: 'markdown'; engine: OutputEngine; format: IrFormat;
-  taskId: string | null; parseTaskId?: string; inspection?: PreflightSummary; reusedParse: boolean;
-  quality?: QualityReport; outputs: OutputFile[]; warnings: string[]; durationMs: number;
+  outputs: OutputFile[]; warnings: string[]; durationMs: number;
 }
 
 export interface ErrorEnvelope {
@@ -109,5 +69,3 @@ export interface ErrorEnvelope {
 }
 
 export type Envelope = ParseEnvelope | ConvertEnvelope | ErrorEnvelope;
-
-export type { DeckIR, DocumentFormat, IrFormat, LocalLimits, PreflightMode, PreflightSummary, QualityReport };

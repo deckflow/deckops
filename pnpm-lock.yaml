@@ -8,12 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@deckflow/deckprobe':
-        specifier: 2.6.0
-        version: 2.6.0
-      '@deckflow/pdf-lite-parse':
-        specifier: 0.2.1
-        version: 0.2.1
       axios:
         specifier: 1.19.0
         version: 1.19.0
@@ -26,21 +20,12 @@ importers:
       eventsource-parser:
         specifier: 1.1.2
         version: 1.1.2
-      fflate:
-        specifier: ^0.8.2
-        version: 0.8.3
       open:
         specifier: ^10.1.0
         version: 10.2.0
       p-limit:
         specifier: ^5.0.0
         version: 5.0.0
-      parse5:
-        specifier: ^7.3.0
-        version: 7.3.0
-      saxes:
-        specifier: ^6.0.0
-        version: 6.0.0
     devDependencies:
       '@types/node':
         specifier: ^20.10.0
@@ -62,62 +47,6 @@ importers:
         version: 2.1.9(@types/node@20.19.43)
 
 packages:
-
-  '@deckflow/deckprobe-darwin-arm64@2.6.0':
-    resolution: {integrity: sha512-03u/yd77mUObeGYuAcrwB9PXDh+6f/gA44JtKvtwh/gQmvF8D1mpKqaPv7nNXHDMIcsBmZzN9GJSYyRx1LR8Hw==, tarball: https://registry.npmjs.org/@deckflow/deckprobe-darwin-arm64/-/deckprobe-darwin-arm64-2.6.0.tgz}
-    engines: {node: '>=20'}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@deckflow/deckprobe-darwin-x64@2.6.0':
-    resolution: {integrity: sha512-nuv96oCc8R8vjLzKqxNZvCTYcDJjk5H9GtZFzLWuuytnpCh7/BHestbLIFzHk6fCutZijy5/8vHrMY0zl7lLUA==, tarball: https://registry.npmjs.org/@deckflow/deckprobe-darwin-x64/-/deckprobe-darwin-x64-2.6.0.tgz}
-    engines: {node: '>=20'}
-    cpu: [x64]
-    os: [darwin]
-
-  '@deckflow/deckprobe-linux-arm64-gnu@2.6.0':
-    resolution: {integrity: sha512-PWZhmSyjDej8DoH+EU63TqNH8K//7uShqsym/9OoXKMBa9mnz1DZx4jRBFo1cdYJZaC745ENKuNSpV44mJ1z5g==, tarball: https://registry.npmjs.org/@deckflow/deckprobe-linux-arm64-gnu/-/deckprobe-linux-arm64-gnu-2.6.0.tgz}
-    engines: {node: '>=20'}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@deckflow/deckprobe-linux-arm64-musl@2.6.0':
-    resolution: {integrity: sha512-nDAqhgqgKHE9eF1drD/IHLzO8CWaRe2TQeEpU/Ptu5Th3FWmtFpZAXZ0s4icBBwstNNNIRmR4VajlMimFN3hlA==, tarball: https://registry.npmjs.org/@deckflow/deckprobe-linux-arm64-musl/-/deckprobe-linux-arm64-musl-2.6.0.tgz}
-    engines: {node: '>=20'}
-    cpu: [arm64]
-    os: [linux]
-    libc: [musl]
-
-  '@deckflow/deckprobe-linux-x64-gnu@2.6.0':
-    resolution: {integrity: sha512-RsVNHrGF6NN7sdCnjsK9cU3As6TVxx5oftpXHSyzaSLxhu9UxdqnUOAvjhmXW46SxPGLgdKsfYNpdafn3bWI/Q==, tarball: https://registry.npmjs.org/@deckflow/deckprobe-linux-x64-gnu/-/deckprobe-linux-x64-gnu-2.6.0.tgz}
-    engines: {node: '>=20'}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@deckflow/deckprobe-linux-x64-musl@2.6.0':
-    resolution: {integrity: sha512-Qgpb3mFVJO5S7G1Zdy/oAGLJXjbd5yXbr7kq+RaO+GaxEDzeWa/TKWLqoCJwBDjnnpsTTsWCQpAQSFxhidjVdg==, tarball: https://registry.npmjs.org/@deckflow/deckprobe-linux-x64-musl/-/deckprobe-linux-x64-musl-2.6.0.tgz}
-    engines: {node: '>=20'}
-    cpu: [x64]
-    os: [linux]
-    libc: [musl]
-
-  '@deckflow/deckprobe-win32-x64-msvc@2.6.0':
-    resolution: {integrity: sha512-3EeNootPYwADO7zASupxgBbQMLPCniKEKuPt4Pyj11ZwC4WVPOWCuAHZW6EJEMXu4McXCU4+4bTNnzU7TI+v4A==, tarball: https://registry.npmjs.org/@deckflow/deckprobe-win32-x64-msvc/-/deckprobe-win32-x64-msvc-2.6.0.tgz}
-    engines: {node: '>=20'}
-    cpu: [x64]
-    os: [win32]
-
-  '@deckflow/deckprobe@2.6.0':
-    resolution: {integrity: sha512-rkgv1kYlPyn6dAUf67oDU0zK6p51Wq3bpjF3dMKe+t+RJWBUwRuDyiBKTlPojN3rfjx5r1gt7ZY4S+iHOg+nkw==, tarball: https://registry.npmjs.org/@deckflow/deckprobe/-/deckprobe-2.6.0.tgz}
-    engines: {node: '>=20'}
-    hasBin: true
-
-  '@deckflow/pdf-lite-parse@0.2.1':
-    resolution: {integrity: sha512-rrZGZ/EyYAtg/5mGrr0Y9FowjujcQNJJu6gScpUsaKNvNw1p/8s1ZnTJfoJPoZIFDaTE2526f6zr2hO90iGoOw==, tarball: https://registry.npmjs.org/@deckflow/pdf-lite-parse/-/pdf-lite-parse-0.2.1.tgz}
-    engines: {node: '>=22.18'}
-    hasBin: true
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==, tarball: https://registry.npmmirror.com/@esbuild/aix-ppc64/-/aix-ppc64-0.21.5.tgz}
@@ -719,10 +648,6 @@ packages:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==, tarball: https://registry.npmmirror.com/dunder-proto/-/dunder-proto-1.0.1.tgz}
     engines: {node: '>= 0.4'}
 
-  entities@6.0.1:
-    resolution: {integrity: sha512-aN97NXWF6AWBTahfVOIrB/NShkzi5H7F9r1s9mD3cDj4Ko5f2qhhVoYMibXF7GlLveb/D2ioWay8lxI97Ven3g==, tarball: https://registry.npmmirror.com/entities/-/entities-6.0.1.tgz}
-    engines: {node: '>=0.12'}
-
   es-define-property@1.0.1:
     resolution: {integrity: sha512-e3nRfgfUZ4rNGL232gUgX06QNyyez04KdjFrF+LTRoOXmrOgFKDg4BCdsjW8EnT69eqdYGmRpJwiPVYNrCaW3g==, tarball: https://registry.npmmirror.com/es-define-property/-/es-define-property-1.0.1.tgz}
     engines: {node: '>= 0.4'}
@@ -774,9 +699,6 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
-
-  fflate@0.8.3:
-    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==, tarball: https://registry.npmmirror.com/fflate/-/fflate-0.8.3.tgz}
 
   fix-dts-default-cjs-exports@1.0.1:
     resolution: {integrity: sha512-pVIECanWFC61Hzl2+oOCtoJ3F17kglZC/6N94eRWycFgBH35hHx0Li604ZIzhseh97mf2p0cv7vVrOZGoqhlEg==, tarball: https://registry.npmmirror.com/fix-dts-default-cjs-exports/-/fix-dts-default-cjs-exports-1.0.1.tgz}
@@ -907,9 +829,6 @@ packages:
     resolution: {integrity: sha512-/Eaoq+QyLSiXQ4lyYV23f14mZRQcXnxfHrN0vCai+ak9G0pp9iEQukIIZq5NccEvwRB8PUnZT0KsOoDCINS1qQ==, tarball: https://registry.npmmirror.com/p-limit/-/p-limit-5.0.0.tgz}
     engines: {node: '>=18'}
 
-  parse5@7.3.0:
-    resolution: {integrity: sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw==, tarball: https://registry.npmmirror.com/parse5/-/parse5-7.3.0.tgz}
-
   pathe@1.1.2:
     resolution: {integrity: sha512-whLdWMYL2TwI08hn8/ZqAbrVemu0LNaNNJZX73O6qaIdCTfXutsLhMkjdENX0qhsQ9uIimo4/aQOmXkoon2nDQ==, tarball: https://registry.npmmirror.com/pathe/-/pathe-1.1.2.tgz}
 
@@ -976,10 +895,6 @@ packages:
   run-applescript@7.1.0:
     resolution: {integrity: sha512-DPe5pVFaAsinSaV6QjQ6gdiedWDcRCbUuiQfQa2wmWV7+xC9bGulGI8+TdRmoFkAPaBXk8CrAbnlY2ISniJ47Q==, tarball: https://registry.npmmirror.com/run-applescript/-/run-applescript-7.1.0.tgz}
     engines: {node: '>=18'}
-
-  saxes@6.0.0:
-    resolution: {integrity: sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==, tarball: https://registry.npmmirror.com/saxes/-/saxes-6.0.0.tgz}
-    engines: {node: '>=v12.22.7'}
 
   siginfo@2.0.0:
     resolution: {integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==, tarball: https://registry.npmmirror.com/siginfo/-/siginfo-2.0.0.tgz}
@@ -1139,47 +1054,11 @@ packages:
     resolution: {integrity: sha512-h3Fbisa2nKGPxCpm89Hk33lBLsnaGBvctQopaBSOW/uIs6FTe1ATyAnKFJrzVs9vpGdsTe73WF3V4lIsk4Gacw==, tarball: https://registry.npmmirror.com/wsl-utils/-/wsl-utils-0.1.0.tgz}
     engines: {node: '>=18'}
 
-  xmlchars@2.2.0:
-    resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==, tarball: https://registry.npmmirror.com/xmlchars/-/xmlchars-2.2.0.tgz}
-
   yocto-queue@1.2.2:
     resolution: {integrity: sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ==, tarball: https://registry.npmmirror.com/yocto-queue/-/yocto-queue-1.2.2.tgz}
     engines: {node: '>=12.20'}
 
 snapshots:
-
-  '@deckflow/deckprobe-darwin-arm64@2.6.0':
-    optional: true
-
-  '@deckflow/deckprobe-darwin-x64@2.6.0':
-    optional: true
-
-  '@deckflow/deckprobe-linux-arm64-gnu@2.6.0':
-    optional: true
-
-  '@deckflow/deckprobe-linux-arm64-musl@2.6.0':
-    optional: true
-
-  '@deckflow/deckprobe-linux-x64-gnu@2.6.0':
-    optional: true
-
-  '@deckflow/deckprobe-linux-x64-musl@2.6.0':
-    optional: true
-
-  '@deckflow/deckprobe-win32-x64-msvc@2.6.0':
-    optional: true
-
-  '@deckflow/deckprobe@2.6.0':
-    optionalDependencies:
-      '@deckflow/deckprobe-darwin-arm64': 2.6.0
-      '@deckflow/deckprobe-darwin-x64': 2.6.0
-      '@deckflow/deckprobe-linux-arm64-gnu': 2.6.0
-      '@deckflow/deckprobe-linux-arm64-musl': 2.6.0
-      '@deckflow/deckprobe-linux-x64-gnu': 2.6.0
-      '@deckflow/deckprobe-linux-x64-musl': 2.6.0
-      '@deckflow/deckprobe-win32-x64-msvc': 2.6.0
-
-  '@deckflow/pdf-lite-parse@0.2.1': {}
 
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
@@ -1563,8 +1442,6 @@ snapshots:
       es-errors: 1.3.0
       gopd: 1.2.0
 
-  entities@6.0.1: {}
-
   es-define-property@1.0.1: {}
 
   es-errors@1.3.0: {}
@@ -1650,8 +1527,6 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
       picomatch: 4.0.5
-
-  fflate@0.8.3: {}
 
   fix-dts-default-cjs-exports@1.0.1:
     dependencies:
@@ -1775,10 +1650,6 @@ snapshots:
     dependencies:
       yocto-queue: 1.2.2
 
-  parse5@7.3.0:
-    dependencies:
-      entities: 6.0.1
-
   pathe@1.1.2: {}
 
   pathe@2.0.3: {}
@@ -1848,10 +1719,6 @@ snapshots:
       fsevents: 2.3.3
 
   run-applescript@7.1.0: {}
-
-  saxes@6.0.0:
-    dependencies:
-      xmlchars: 2.2.0
 
   siginfo@2.0.0: {}
 
@@ -2004,7 +1871,5 @@ snapshots:
   wsl-utils@0.1.0:
     dependencies:
       is-wsl: 3.1.1
-
-  xmlchars@2.2.0: {}
 
   yocto-queue@1.2.2: {}

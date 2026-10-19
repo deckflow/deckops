@@ -1,7 +1,6 @@
 import { File as NodeFile } from 'node:buffer';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createClient, DeckOpsError } from '../../src/browser/index.js';
-import type { ProbeReport } from '@deckflow/deckprobe';
 import { createFakeCloud, type FakeCloud } from './fake-cloud.mjs';
 
 let cloud: FakeCloud;
@@ -10,38 +9,7 @@ afterAll(async () => { await cloud.close(); });
 
 const submissions = (name: string) => cloud.state(name).requests.filter((req) => req.path === '/tools/tasks' && req.method === 'POST');
 
-const browserProbeReport = (format: 'pdf' | 'pptx' | 'docx' | 'keynote' = 'pdf'): ProbeReport => {
-  const profile = { pdf: 'pdf', pptx: 'pptx', docx: 'docx', keynote: 'key' }[format];
-  const formatFacts = {
-    pdf: [['pdf.page_count', 2]],
-    pptx: [['powerpoint.slide_count', 2], ['powerpoint.slide_size', { width: 10, height: 7.5 }]],
-    docx: [['word.page_count', 2]],
-    keynote: [['keynote.slide_count', 2]],
-  }[format] as Array<[string, unknown]>;
-  return ({
-  schema_version: 2, tool_version: '2.4.0', status: 'ok',
-  input: { display_name: `fixture.${format}`, source_kind: 'browser_bytes', file_size: 12 },
-  driver: { id: profile, profile },
-  results: Object.fromEntries([
-    ['document.format_profile', profile], ['document.extension_matches', true], ['security.encrypted', false],
-    ['security.has_macros', false], ['security.has_external_relationships', false],
-    ['security.has_embedded_files', true], ...formatFacts,
-  ].map(([target, value]) => [target, {
-    target, status: 'resolved', value, confidence: 'exact', confidence_score: 1,
-    path: 'fixture.path', source: 'fixture',
-  }])),
-  execution: {
-    probe_level: 'metadata', paths: ['fixture.path'], estimated_cost: 1,
-    actual_cost: { physical_bytes_read: 12, expanded_bytes: 0, random_reads: 0 }, unresolved_targets: [],
-  },
-  diagnostics: [],
-  });
-};
-
-const fixtureInspector = { inspect: async (input: { format: 'pdf' | 'pptx' | 'docx' | 'keynote' }) => browserProbeReport(input.format) };
-const clientFor = (name: string) => createClient({
-  apiBase: cloud.apiBase(name), token: 'test-token', spaceId: 'test-space', inspector: fixtureInspector,
-});
+const clientFor = (name: string) => createClient({ apiBase: cloud.apiBase(name), token: 'test-token', spaceId: 'test-space' });
 
 describe('browser SDK over real HTTP', () => {
   it('accepts a File, maps PDF options, and returns in-memory IR', async () => {
@@ -58,43 +26,10 @@ describe('browser SDK over real HTTP', () => {
       params: { parseProfile: 'quality', includeImages: false, password: 'document-password' },
       files: [{ name: 'report.pdf', bytes: 12 }],
     });
-    expect(progress).toContainEqual({ phase: 'parse', taskId: 'task-1', status: 'completed' });
+    expect(progress).toContainEqual({ phase: 'parse', taskId: 'task-1', spaceId: 'test-space', status: 'completed' });
     expect(cloud.state('file').requests.every((req) => req.headers['x-auth-token'] === 'test-token')).toBe(true);
     await doc.convert({ anchors: true });
     expect(cloud.state('file').tasks[1]?.params.markdownMeta).toBe(true);
-  });
-
-  it('runs the default validate preflight before upload and exposes its facts', async () => {
-    const inspect = vi.fn(async () => browserProbeReport());
-    const client = createClient({
-      apiBase: cloud.apiBase('preflight'), token: 'test-token', spaceId: 'test-space', inspector: { inspect },
-    });
-    const progress: unknown[] = [];
-    const file = new NodeFile(['%PDF fixture'], 'report.pdf') as unknown as File;
-    const doc = await client.parse(file, { onProgress: (event) => progress.push(event) });
-    expect(inspect).toHaveBeenCalledTimes(1);
-    expect(doc.inspection).toMatchObject({ profile: 'pdf', pageCount: 2, hasEmbeddedFiles: true });
-    expect(doc.warnings).toContainEqual(expect.stringContaining('embedded files'));
-    expect(await doc.inspectionReport()).toMatchObject({ schema_version: 2, tool_version: '2.4.0' });
-    expect(progress).toEqual(expect.arrayContaining([
-      { phase: 'preflight', status: 'running' }, { phase: 'preflight', status: 'completed' },
-    ]));
-    expect(submissions('preflight')).toHaveLength(1);
-  });
-
-  it('rejects a malformed local document before a browser request', async () => {
-    const client = createClient({
-      apiBase: cloud.apiBase('preflight-malformed'), token: 'test-token', spaceId: 'test-space',
-      inspector: { inspect: async () => ({
-        schema_version: 2 as const, tool_version: '2.4.0', status: 'error' as const,
-        error: { code: 'MALFORMED_INPUT', message: 'wrong container', exit_code: 4 },
-      }) },
-    });
-    await expect(client.parse(
-      new NodeFile(['not a PDF'], 'report.pdf') as unknown as File,
-      {}
-    )).rejects.toMatchObject({ code: 'input_error' });
-    expect(cloud.state('preflight-malformed').requests).toHaveLength(0);
   });
 
   it('preserves the explicit filename for a Blob and routes keynote options', async () => {
@@ -117,19 +52,6 @@ describe('browser SDK over real HTTP', () => {
     expect(doc.type).toBe('html.getByURL');
     expect(submissions('url')[0]?.body).toMatchObject({ type: 'html.getByURL', params: { url: 'https://example.com/article', mode: 'source' }, fileIds: [] });
     expect(cloud.state('url').uploads).toHaveLength(0);
-    expect(doc.warnings).toContainEqual(expect.stringContaining('skipped for the URL input'));
-  });
-
-  it('keeps off as an explicit Worker/WASM escape hatch', async () => {
-    const inspect = vi.fn(async () => browserProbeReport());
-    const client = createClient({
-      apiBase: cloud.apiBase('preflight-off'), token: 'test-token', spaceId: 'test-space', inspector: { inspect },
-    });
-    const file = new NodeFile(['%PDF fixture'], 'report.pdf') as unknown as File;
-    const doc = await client.parse(file, { preflight: 'off' });
-    expect(inspect).not.toHaveBeenCalled();
-    expect(doc.inspection).toBeUndefined();
-    expect(submissions('preflight-off')).toHaveLength(1);
   });
 
   it('converts repeatedly by irKey, passes view options, and keeps pages/images in memory', async () => {
@@ -139,7 +61,7 @@ describe('browser SDK over real HTTP', () => {
     expect(view).toMatchObject({
       taskId: 'task-2', format: 'pptx', schemaVersion: 'result.v3', to: 'markdown', reusedParse: true,
       markdownPages: ['# Page one', '# Page two'],
-      images: [{ key: 'fixture/image.png', suggestedPath: 'assets/image.png', bytes: 42, hash: 'fixture-md5' }],
+      images: [{ key: 'fixture/image.png', suggestedPath: 'assets/image.png', bytes: 8, hash: expect.stringMatching(/^[0-9a-f]{32}$/) }],
     });
     expect(view.markdown).toContain(view.images[0]?.ref);
     expect(cloud.state('convert').tasks[1]?.params).toEqual({
@@ -153,9 +75,7 @@ describe('browser SDK over real HTTP', () => {
   });
 
   it('keeps per-operation spaces isolated during concurrent parse, wait, download, and conversion', async () => {
-    const client = createClient({
-      apiBase: cloud.apiBase('sse_spaces'), token: 'test-token', spaceId: 'space-A', inspector: fixtureInspector,
-    });
+    const client = createClient({ apiBase: cloud.apiBase('sse_spaces'), token: 'test-token', spaceId: 'space-A' });
     const [docA, docB] = await Promise.all([
       client.parse({ file: new Blob(['pdf']), name: 'a.pdf' }),
       client.parse({ url: 'https://example.com/b' }, { spaceId: 'space-B' }),
@@ -201,8 +121,8 @@ describe('browser SDK over real HTTP', () => {
   it('reports SSE progress and closes the stream on completion', async () => {
     const events: unknown[] = [];
     await clientFor('sse').parse({ url: 'https://example.com/' }, { onProgress: (event) => events.push(event) });
-    expect(events).toContainEqual({ phase: 'parse', taskId: 'task-1', status: 'running' });
-    expect(events).toContainEqual({ phase: 'parse', taskId: 'task-1', status: 'completed' });
+    expect(events).toContainEqual({ phase: 'parse', taskId: 'task-1', spaceId: 'test-space', status: 'running' });
+    expect(events).toContainEqual({ phase: 'parse', taskId: 'task-1', spaceId: 'test-space', status: 'completed' });
     await vi.waitFor(() => expect(cloud.state('sse').activeStreams).toBe(0));
     expect(cloud.state('sse').closedStreams).toBe(1);
   });
@@ -213,7 +133,7 @@ describe('browser SDK over real HTTP', () => {
       pollInterval: 10, timeout: 2, onProgress: (event) => events.push(event),
     });
     expect(doc.irKey).toBe('fixture/task-1/ir.json');
-    expect(events).toContainEqual({ phase: 'parse', taskId: 'task-1', status: 'completed' });
+    expect(events).toContainEqual({ phase: 'parse', taskId: 'task-1', spaceId: 'test-space', status: 'completed' });
     const details = cloud.state('json-stream').requests.filter((req) => req.path === '/tools/tasks/task-1');
     expect(details.filter((req) => req.headers['response-event-stream'] === 'yes')).toHaveLength(1);
     expect(details.filter((req) => req.headers['response-event-stream'] !== 'yes').length).toBeGreaterThanOrEqual(2);
@@ -372,6 +292,16 @@ describe('browser SDK over real HTTP', () => {
     expect(submissions('pending_poll')).toHaveLength(1);
   });
 
+  it('resumes a submitted parse by task id without uploading or creating another task', async () => {
+    const client = clientFor('resume');
+    const doc = await client.parse({ url: 'https://example.com/' });
+    const resumed = await client.resume(doc.taskId, 'html.getByURL');
+    expect(resumed).toMatchObject({ taskId: doc.taskId, spaceId: 'test-space', irKey: doc.irKey });
+    expect(await resumed.ir()).toEqual(await doc.ir());
+    expect(submissions('resume')).toHaveLength(1);
+    await expect(client.resume(doc.taskId, 'nope.parse' as never)).rejects.toMatchObject({ code: 'usage_error' });
+  });
+
   it('rejects invalid browser inputs and format-specific options before network work', async () => {
     const client = clientFor('invalid');
     for (const input of ['/tmp/report.pdf', new Blob(['pdf']), { file: new Blob(['pdf']), name: '' },
@@ -382,7 +312,10 @@ describe('browser SDK over real HTTP', () => {
     await expect(client.parse({ file: new Blob(['slides']), name: 'slides.pptx' }, { profile: 'quality' })).rejects.toMatchObject({ code: 'usage_error' });
     await expect(client.convert({ irKey: 'a', taskId: 'b' } as never)).rejects.toBeInstanceOf(DeckOpsError);
     await expect(client.convert({ irKey: 'a' }, { to: 'html' } as never)).rejects.toMatchObject({ code: 'unsupported' });
-    expect(() => createClient({ apiKey: 'server-secret' } as never)).toThrow(DeckOpsError);
+    expect(() => createClient({ apiKey: 'server-secret' } as never)).toThrow(expect.objectContaining({
+      code: 'usage_error', hint: expect.stringContaining('Keep server API keys on your backend'),
+    }));
+    await expect(client.parse({ file: new Blob(['pdf']), name: 'a.pdf' }, { preflight: 'off' } as never)).rejects.toMatchObject({ code: 'usage_error' });
     expect(cloud.state('invalid').requests).toHaveLength(0);
   });
 });

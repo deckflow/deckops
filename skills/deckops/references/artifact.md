@@ -1,83 +1,64 @@
 # Artifact and provenance
 
-## Version 2 layout
+## Layout
 
 ```text
 artifact/
-├── ir.json
-├── manifest.json
-├── probe.json              optional successful preflight report
-├── assets/
+├── ir.json            the server parse response, verbatim
+├── manifest.json      written last
+├── submission.json    only while a cloud task has no result yet
+├── assets/            images downloaded by convert
 └── views/markdown/
     ├── index.md
-    └── 001.md ...          when split-page output applies
+    └── 001.md ...     with --split-pages
 ```
 
-Keep the directory together. `ir.json` alone does not carry every asset, view, cache, and
-inspection contract.
+Keep the directory together. `ir.json` alone does not carry the views, images, and the cloud
+reference needed for later conversion.
 
-`manifest.json` records the source identity, parser and parameters, parse engine, quality,
-assets, views, and an optional cloud remote reference. The manifest is written last, so a
-registered output should exist; still verify files before delivery.
+`manifest.json` (version 3) records:
 
-Version 1 artifacts contain cloud-native IR references and generally need their cloud path.
-When the source exists, parse it again to create a v2 artifact rather than treating v1 as a
-durable offline format.
+- `source`: `sha256`, `name`, `bytes` of the uploaded source (a URL records the hash of the
+  URL and 0 bytes).
+- `parse`: `taskId`, `type`, `irKey`, `irSchemaVersion`, the normalized `params`, `createdAt`,
+  and `expiresAt` (7 days later).
+- `views.markdown`: the convert `taskId`, `schemaVersion`, view `params`, and `files`.
+- `assets`: each downloaded image's persistent `key`, `hash`, `bytes`, and `mediaType`.
 
-## Parse and view reuse
+The manifest is written last, so a registered file should exist; still verify files before
+delivery.
 
-A v2 parse can be reused when the artifact matches source bytes, engine, normalized parse
-parameters, and a compatible parser version. This is artifact-local reuse, not a global cache.
-Pre-1.0 PDF parsers also use minor-version compatibility. URL parses do not use the same
-source-byte hash shortcut.
+## Reuse
 
-Views are cached by renderer and view parameters. DeckOps currently registers one Markdown
-view configuration. Regenerating another configuration replaces `views/markdown/`; copy a
-finished delivery elsewhere when several variants must be retained.
+A parse reuses the artifact when the source bytes and normalized parse options match and the
+IR has not expired: `reusedParse: true`, no upload, no charge. URLs are never reused by
+identity, since the page may have changed. `--force` parses again.
 
-On a cache hit, `outputs[].bytes` can be zero even when the existing file is non-empty. Check
-the file itself. In 2.6.1, a cached artifact view can also bypass materialization of a new
-portable `-o` destination; use artifact conversion with `--force` and verify the target.
+A convert reuses `views/markdown/` when the view options match and every registered file
+exists: `taskId: null`. A different option set, `--force`, or an explicit `-o` renders again
+from the stored IR reference and replaces `views/markdown/`; copy a finished delivery
+elsewhere when several variants must be kept.
 
-The public v2 `deckir.v1` can be rendered locally after the remote reference expires. A cloud
-conversion requires a remote reference that exists and has not expired. Converting with
-`--engine cloud` does not upload a purely local artifact or add a remote reference.
+## The IR
 
-## Public IR fields
-
-At the top level, use:
-
-- `schemaVersion`, `format`, and `source` for identity.
-- `producer` for actual parser engine/name/version.
-- `document.metadata`, `pages`, `nodes`, and `assets` for content.
-- `quality` for checks and coverage.
-
-Nodes provide stable identity within this parsed source, hierarchy, order, text or runs,
-optional page/bounds/z-order, `sourceRef`, extensions, issues, and optional opaque data.
-Asset records preserve path, hash, size, media type, and sometimes source references.
-
-Node IDs are derived from the source and parser locators, but do not promise stability after
-the source changes or parser behavior changes.
+`ir.json` is the server's response. Its top level carries `irKey` and `irSchemaVersion`; the
+rest of the structure belongs to the cloud and the stated schema version, not to the CLI.
+Read the fields that are present for the task; do not assume a field from another schema
+version. DeckOps does not validate, normalize, or grade the IR on the client.
 
 ## Preparing traceable material for retrieval
 
-DeckOps does not create embeddings, a vector index, a retrieval service, or `chunks.jsonl` in
-2.6.1. If the task needs downstream chunks, derive them from the artifact and retain this
-minimum evidence:
+DeckOps does not create embeddings, a vector index, or chunk files. If the task needs
+downstream chunks, derive them from the artifact and keep at least:
 
 | Evidence | Source |
 | --- | --- |
-| Source identity | `source.sha256`, `source.name`, artifact path |
-| Schema and format | `schemaVersion`, `format`, manifest version |
-| Node identity | `id`, `parentId`, `children`, `order` |
-| Original location | `sourceRef`, plus `page` and `bbox` when present |
-| Semantic relationships | Runs, hierarchy, table children, extensions, asset IDs/paths |
-| Reliability | Document quality plus relevant node issues or opaque reason |
+| Source identity | `manifest.source.sha256`, `manifest.source.name`, artifact path |
+| Parse identity | `manifest.parse.taskId`, `irKey`, `irSchemaVersion` |
+| Location | page or slide numbers and element identifiers present in the IR or `--anchors` output |
+| Assets | image paths under `assets/` and their manifest keys |
+| Limits | warnings and any content you observed to be missing or reduced |
 
-Group along node order and hierarchy, keep tables intact where practical, and carry heading
-context into child chunks. Load only the nodes needed for the task rather than putting a
-large complete IR into model context.
-
-Never invent missing pages, coordinates, chart values, formula semantics, or asset content.
-Remote/expiring image links and missing assets must remain visible as limitations of an
-offline deliverable.
+Follow the document's order and hierarchy, keep tables intact where practical, and carry
+heading context into child chunks. Load only the parts of a large IR the task needs. Never
+invent missing pages, coordinates, chart values, formula semantics, or image content.

@@ -41,7 +41,7 @@ for (const forbidden of ['/Volumes/workspace/', '/Users/fei/', 'TODO', 'PLACEHOL
 if (!combined.includes(`@deckflow/deckops@${pkg.version}`)) throw new Error('Skill npx examples and package version have drifted.');
 if (!pkg.files?.includes('skills')) throw new Error('package.json files must include skills.');
 const license = fs.readFileSync(path.join(skill, 'LICENSE'), 'utf8');
-if (!license.includes('GNU AFFERO GENERAL PUBLIC LICENSE')) throw new Error('Skill LICENSE is not the AGPL-3.0 text.');
+if (!license.includes('Apache License') || !license.includes('Version 2.0, January 2004')) throw new Error('Skill LICENSE is not the Apache-2.0 text.');
 
 process.stdout.write(`DeckOps skill: ${found.length} files, ${Buffer.byteLength(combined)} Markdown bytes\n`);
 

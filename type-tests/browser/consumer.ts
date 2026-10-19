@@ -4,15 +4,12 @@ const client = createClient({ apiBase: '/api/deckops' });
 const signal = new AbortController().signal;
 const onProgress = (event: BrowserProgress): void => {
   if (event.phase === 'upload') event.progress satisfies number;
-  else if (event.phase === 'preflight') event.status satisfies 'running' | 'completed';
-  else event.taskId satisfies string;
+  else { event.taskId satisfies string; event.spaceId satisfies string; }
 };
 
 async function browserConsumer(): Promise<BrowserConvertResult> {
   const doc = await client.parse<{ document: unknown }>(new File(['bytes'], 'report.pdf'), { signal, onProgress });
   (await doc.ir()).document satisfies unknown;
-  doc.inspection?.profile satisfies string | undefined;
-  await doc.inspectionReport();
   await client.parse({ file: new Blob(['bytes']), name: 'slides.pptx' });
   await client.parse({ file: new Uint8Array([1]), name: 'document.docx' });
   await client.parse({ file: new ArrayBuffer(1), name: 'slides.key' });
@@ -22,8 +19,20 @@ async function browserConsumer(): Promise<BrowserConvertResult> {
 }
 void browserConsumer;
 
+// platform-slide-editor: parse with progress, read the IR, derive Markdown.
+async function slideEditor(file: File): Promise<string> {
+  const doc = await client.parse(file, { onProgress });
+  const ir = await doc.ir();
+  void ir;
+  const view = await doc.convert();
+  return view.markdown;
+}
+void slideEditor;
+
 // @ts-expect-error Server API keys are not part of the browser API.
 createClient({ apiKey: 'not-a-browser-credential' });
+// @ts-expect-error Local preflight no longer exists.
+client.parse(new File(['bytes'], 'report.pdf'), { preflight: 'off' });
 // @ts-expect-error Refresh cannot implicitly switch an in-flight operation's space.
 createClient({ onUnauthorized: async () => ({ token: 'token', spaceId: 'other' }) });
 // @ts-expect-error Bare filesystem paths are Node-only.

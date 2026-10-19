@@ -25,15 +25,14 @@ button.addEventListener('click', async () => {
       assert(typeof window.process === 'undefined' && typeof window.Buffer === 'undefined', 'Unexpected Node polyfills');
       assert(typeof createClient === 'function', 'Missing browser SDK export');
     }],
-    ['DeckProbe Worker validates a real PDF before upload', async () => {
+    ['A real PDF File parses to in-memory IR with task progress', async () => {
       const bytes = await fetch('/tests/generated/test.pdf').then((response) => response.blob());
       const events = [];
-      const doc = await client('preflight').parse(new File([bytes], 'test.pdf'), {
+      const doc = await client('pdf').parse(new File([bytes], 'test.pdf'), {
         onProgress: (event) => events.push(event),
       });
-      const report = await doc.inspectionReport();
-      assert(doc.inspection?.profile === 'pdf' && report?.schema_version === 2, 'Missing DeckProbe facts');
-      assert(events.some((event) => event.phase === 'preflight' && event.status === 'completed'), 'Missing preflight progress');
+      assert(doc.type === 'pdf.pdfParse' && (await doc.ir()).document, 'Missing in-memory IR');
+      assert(events.some((event) => event.phase === 'parse' && event.status === 'completed'), 'Missing parse progress');
     }],
     ['Same-origin proxy accepts a relative API root without a browser token', async () => {
       await createClient({ apiBase: `/api/proxy_${runNumber}/v1` }).parse({ url: 'https://example.com/' });
@@ -42,7 +41,7 @@ button.addEventListener('click', async () => {
     }],
     ['File → IR → repeated conversion, pages and image descriptors', async () => {
       const api = client('file');
-      const doc = await api.parse(new File(['PPTX local fixture'], 'browser.pptx'), { preflight: 'off' });
+      const doc = await api.parse(new File(['PPTX local fixture'], 'browser.pptx'));
       assert(doc.irKey && (await doc.ir()).document, 'Missing in-memory IR');
       const view = await doc.convert({ splitPages: true, strict: true });
       assert(view.reusedParse === true && view.markdownPages.length === 2 && view.images.length === 1, 'Missing view metadata');
@@ -52,8 +51,8 @@ button.addEventListener('click', async () => {
       assert(recorded.tasks[1].params.markdownStrict === true && recorded.tasks[1].params.markdownPages === true, 'View options missing');
     }],
     ['Named Blob and typed-array input', async () => {
-      await client('blob').parse({ file: new Blob(['keynote']), name: 'slides.key' }, { stayImageAreaRate: 0.2, preflight: 'off' });
-      await client('binary').parse({ file: new Uint8Array([1, 2, 3]), name: 'notes.docx' }, { preflight: 'off' });
+      await client('blob').parse({ file: new Blob(['keynote']), name: 'slides.key' }, { stayImageAreaRate: 0.2 });
+      await client('binary').parse({ file: new Uint8Array([1, 2, 3]), name: 'notes.docx' });
       const recorded = await state('blob');
       const submission = recorded.requests.find((req) => req.path === '/tools/tasks');
       assert(submission.body.files[0].name === 'slides.key' && recorded.tasks[0].params.stayImageAreaRate === 0.2, 'Blob filename/options lost');
@@ -86,13 +85,13 @@ button.addEventListener('click', async () => {
       assert(recorded.tasks.length === 1, 'Fallback resubmitted the task');
     }],
     ['≥4 MiB Blob uses signed pre-upload, not inline task body', async () => {
-      await client('large').parse({ file: new Blob([new Uint8Array(4 * 1024 * 1024)]), name: 'large.pdf' }, { preflight: 'off' });
+      await client('large').parse({ file: new Blob([new Uint8Array(4 * 1024 * 1024)]), name: 'large.pdf' });
       const recorded = await state('large');
       assert(recorded.uploads.length === 1 && recorded.tasks[0].fileIds[0] === 'file-1', 'Large file was submitted inline');
       assert(recorded.requests.find((req) => req.path === '/storage/file-1').bytes === 4 * 1024 * 1024, 'Upload bytes differ');
     }],
     ['Multipart pre-upload reads exposed ETag headers', async () => {
-      await client('multipart').parse({ file: new Blob([new Uint8Array(4 * 1024 * 1024 + 1)]), name: 'large.pptx' }, { preflight: 'off' });
+      await client('multipart').parse({ file: new Blob([new Uint8Array(4 * 1024 * 1024 + 1)]), name: 'large.pptx' });
       const recorded = await state('multipart');
       assert(recorded.requests.filter((req) => req.path.includes('/part-')).length === 3, 'Missing multipart requests');
       assert(recorded.requests.find((req) => req.path.endsWith('/complete')).body.includes('<ETag>fixture-etag</ETag>'), 'ETag missing');

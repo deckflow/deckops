@@ -21,7 +21,6 @@ export function printEnvelope(envelope: Envelope, ctx: OutputContext): void {
   if (!envelope.ok) {
     return;
   }
-  printAssessment(envelope);
   if (envelope.op === 'convert' && envelope.content !== undefined) { process.stdout.write(envelope.content); printWarnings(envelope.warnings); return; }
   if (ctx.quiet) {
     return;
@@ -39,20 +38,17 @@ function printParse(envelope: ParseEnvelope): void {
     : chalk.green('✓ parsed');
   process.stdout.write(`${head}  ${chalk.dim(`[${envelope.type}]`)}\n`);
   process.stdout.write(`  artifact  ${envelope.artifact}\n`);
-  process.stdout.write(`  engine    ${envelope.engine}\n`);
-  process.stdout.write(`  quality   ${envelope.quality.status}\n`);
   process.stdout.write(`  schema    ${envelope.irSchemaVersion}\n`);
-  if (envelope.irKey) process.stdout.write(`  irKey     ${envelope.irKey}\n`);
-  if (envelope.taskId) {
-    process.stdout.write(`  task      ${envelope.taskId}\n`);
-  }
+  process.stdout.write(`  irKey     ${envelope.irKey}\n`);
+  process.stdout.write(`  task      ${envelope.taskId}\n`);
+  process.stdout.write(`  expires   ${envelope.expiresAt}\n`);
   process.stdout.write(chalk.dim(`  ${envelope.durationMs} ms\n`));
   printWarnings(envelope.warnings);
 }
 
 function printConvert(envelope: ConvertEnvelope): void {
   const head =
-    envelope.engine === 'artifact-cache'
+    envelope.taskId === null
       ? chalk.green('✓ reused existing view')
       : chalk.green(`✓ converted to ${envelope.to}`);
   process.stdout.write(`${head}  ${chalk.dim(`[${envelope.format}]`)}\n`);
@@ -67,7 +63,7 @@ function printConvert(envelope: ConvertEnvelope): void {
   printWarnings(envelope.warnings);
 }
 
-function printWarnings(warnings: string[]): void {
+export function printWarnings(warnings: string[]): void {
   for (const warning of warnings) {
     process.stderr.write(`${chalk.yellow('warning:')} ${warning}\n`);
   }
@@ -78,7 +74,7 @@ export function printError(error: DeckOpsError, op: 'parse' | 'convert' | 'insta
     process.stdout.write(
       `${JSON.stringify(
         {
-          ...(op === 'read' ? { schemaVersion: 'deckops.read.v1' } : {}),
+          ...(op === 'read' ? { schemaVersion: 'deckops.read.v2' } : {}),
           ok: false,
           op,
           error: {
@@ -98,16 +94,4 @@ export function printError(error: DeckOpsError, op: 'parse' | 'convert' | 'insta
   if (error.hint) {
     process.stderr.write(`${chalk.dim('hint:')} ${error.hint}\n`);
   }
-}
-
-function printAssessment(envelope: ParseEnvelope | ConvertEnvelope): void {
-  const assessment = envelope.assessment;
-  if (assessment?.status === 'needs_attention') {
-    const s = assessment.summary;
-    if (s) process.stderr.write(`quality: ${s.parsedPages}/${s.sourcePages ?? '?'} pages/slides; missing=${s.missingPageCount}; failed=${s.failedPages.length}; searchableTextCharacters=${s.searchableTextCharacters}\n`);
-    const first = assessment.issues.find(i => i.severity !== 'info' && i.impact !== 'informational');
-    if (first) process.stderr.write(`quality: ${first.message}\n`);
-  }
-  if (assessment?.recommendation) process.stderr.write(`recommendation: ${assessment.recommendation.message}\n`);
-  if (envelope.decision?.next) process.stderr.write(`next: ${envelope.decision.next.argv.map(arg => "'" + arg.replaceAll("'", "'\\''") + "'").join(' ')}\n`);
 }
