@@ -1,5 +1,5 @@
 import { resolveAuthUuid } from './auth-uuid.js';
-import type { DeckRuntime } from './runtime.js';
+import type { DeckRuntime } from '../cloud/runtime.js';
 
 export const nodeRuntime: DeckRuntime = {
   resolveAuthUuid,

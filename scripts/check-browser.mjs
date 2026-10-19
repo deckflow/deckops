@@ -3,6 +3,9 @@ import fs from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 
+// Measured 34,016 bytes (minified + gzip) at 3.0.0, plus 10 %. axios stays in the bundle.
+const GZIP_BUDGET = 37_418;
+
 // Bundle the *public package export*, not an internal source path. No aliases,
 // externals, polyfills, Node types, or browser globals may hide a broken build.
 const result = await build({
@@ -33,4 +36,6 @@ assert.equal('openArtifact' in bundled, false);
 const declaration = await fs.readFile(new URL('../dist/browser/index.d.ts', import.meta.url), 'utf8');
 assert.doesNotMatch(declaration, /(?:from\s*|import\s*\()['"](?:node:|@deckops\/sdk)/);
 assert.doesNotMatch(declaration, /\b(?:Buffer|NodeJS)\b/);
-console.log(`Browser export: ESM bundle/import OK, standalone types OK (${gzipSync(code).byteLength} bytes gzip).`);
+const gzipBytes = gzipSync(code).byteLength;
+assert.ok(gzipBytes <= GZIP_BUDGET, `Browser bundle is ${gzipBytes} bytes gzip; budget is ${GZIP_BUDGET}.`);
+console.log(`Browser export: ESM bundle/import OK, standalone types OK (${gzipBytes} bytes gzip, budget ${GZIP_BUDGET}).`);

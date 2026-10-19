@@ -2,14 +2,16 @@ import { Readable } from 'node:stream';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
-import { resetAuthUuidCacheForTests } from '../../src/cloud/auth-uuid.js';
+import { resetAuthUuidCacheForTests } from '../../src/node/auth-uuid.js';
 import { resetRetryDelaysForTests, setRetryDelaysForTests } from '../../src/cloud/errors.js';
-import { createNodeTransport as createDeck } from '../../src/cloud/node.js';
 import { createClientWith } from '../../src/client/index.js';
-import { nodeRuntime } from '../../src/cloud/node-runtime.js';
-import { DEFAULT_ROOT } from '../../src/cloud/contracts.js';
-import { isValidAuthUuid } from '../../src/cloud/auth-uuid.js';
+import { nodeRuntime } from '../../src/node/runtime.js';
+import { DEFAULT_ROOT, type CreateDeckOptions } from '../../src/cloud/contracts.js';
+import { createTransport } from '../../src/cloud/transport.js';
+import { isValidAuthUuid } from '../../src/node/auth-uuid.js';
 import { APIError } from '../../src/cloud/errors.js';
+
+const createDeck = (options: CreateDeckOptions = {}) => createTransport(options, nodeRuntime);
 
 const TEST_AUTH_UUID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

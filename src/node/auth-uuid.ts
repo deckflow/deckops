@@ -1,4 +1,4 @@
-import type { CreateDeckOptions } from './contracts.js';
+import type { CreateDeckOptions } from '../cloud/contracts.js';
 
 export const AUTH_UUID_STORAGE_KEY = 'df_uuid';
 export const AUTH_UUID_FILENAME = 'auth-uuid';

@@ -1,5 +1,5 @@
 import { createClientWith, type DeckClient } from '../client/index.js';
-import { nodeRuntime } from '../cloud/node-runtime.js';
+import { nodeRuntime } from './runtime.js';
 import { resolveCredentials, type CredentialOverrides } from '../config/index.js';
 
 /** The isomorphic client bound to the Node runtime and the shared credential chain. */
