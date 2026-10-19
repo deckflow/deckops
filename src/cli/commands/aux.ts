@@ -12,14 +12,14 @@ import {
 import { DeckOpsError } from '../../errors/index.js';
 import { readProductConfig, writeProductOption } from '../../config/product.js';
 
-/** `deckops formats` — the support matrix, honest about what fails. */
+/** `deckops formats` — the cloud support matrix, honest about what fails. */
 export function runFormats(options: { json?: boolean }): void {
   const rows = [
-    { input: '.pdf', parse: '✅ local', markdown: '✅ local', notes: 'no OCR; --page-furniture --overlaid-text' },
-    { input: '.pptx', parse: '✅ local', markdown: '✅ local', notes: 'Chart/SmartArt may degrade; --split-pages' },
-    { input: '.docx', parse: '✅ local', markdown: '✅ local', notes: '--tracked-changes final|original|all' },
-    { input: '.key', parse: '☁ cloud', markdown: '☁ cloud', notes: 'local IWA parsing unsupported' },
-    { input: 'http(s) URL', parse: '✅ source / ☁ runtime', markdown: '✅', notes: '--mode source|runtime' },
+    { input: '.pdf', parse: '☁ pdf.pdfParse', markdown: '✅', notes: '--profile --password --no-images; --anchors' },
+    { input: '.pptx', parse: '☁ pptx.parse', markdown: '✅', notes: '--split-pages' },
+    { input: '.docx', parse: '☁ docx.parseTextAndImage', markdown: '✅', notes: '' },
+    { input: '.key', parse: '☁ keynote.parseTextAndImage', markdown: '✅', notes: '--stay-image-area-rate; --split-pages' },
+    { input: 'http(s) URL', parse: '☁ html.getByURL', markdown: '✅', notes: '--mode source|runtime (default runtime)' },
     { input: '.doc .ppt .xls(x) .pages .numbers', parse: '❌ unsupported', markdown: '❌', notes: 'clear error + hint' },
   ];
   if (options.json) {
@@ -28,7 +28,7 @@ export function runFormats(options: { json?: boolean }): void {
   }
   for (const row of rows) {
     process.stdout.write(
-      `${row.input.padEnd(36)} parse ${row.parse.padEnd(18)} markdown ${row.markdown.padEnd(4)} ${chalk.dim(row.notes)}\n`
+      `${row.input.padEnd(36)} parse ${row.parse.padEnd(30)} markdown ${row.markdown.padEnd(4)} ${chalk.dim(row.notes)}\n`
     );
   }
 }
@@ -104,13 +104,13 @@ export async function runConfigList(options: { json?: boolean }): Promise<void> 
   process.stdout.write(`\nProduct defaults\n  ${JSON.stringify(data.defaults)}\n`);
 }
 
-const CONFIG_KEYS = new Set(['api-key', 'token', 'space-id', 'api-base', 'engine', 'allow-upload', 'fail-on-degraded', 'timeout', 'preflight']);
+const CONFIG_KEYS = new Set(['api-key', 'token', 'space-id', 'api-base', 'timeout']);
 
 export async function runConfigSet(key: string, value: string): Promise<void> {
   if (!CONFIG_KEYS.has(key)) {
     throw DeckOpsError.usage(`Unknown config key "${key}". Known: ${[...CONFIG_KEYS].join(', ')}.`);
   }
-  if (['engine', 'allow-upload', 'fail-on-degraded', 'timeout', 'preflight'].includes(key)) {
+  if (key === 'timeout') {
     const file = writeProductOption(key, value);
     process.stdout.write(`${key} saved to ${displayPath(file)}.\n`);
     return;

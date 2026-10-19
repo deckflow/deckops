@@ -35,9 +35,6 @@ export interface ParseFlags {
   profile?: 'fast' | 'balanced' | 'quality';
   password?: string;
   includeImages?: boolean;
-  pageFurniture?: 'off' | 'drop' | 'extract';
-  overlaidText?: 'auto' | 'keep' | 'drop';
-  trackedChanges?: 'final' | 'original' | 'all';
   stayImageAreaRate?: number;
   mode?: 'source' | 'runtime';
 }
