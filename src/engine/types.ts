@@ -1,6 +1,6 @@
 import type { ResolvedInput } from '../core/input.js';
 import type { ParseCandidate } from '../ir/schema.js';
-import type { CommonFlags, ParseFlags } from '../types.js';
+import type { CommonFlags, ParseFlags } from '../types-legacy.js';
 import type { SourceIdentity } from '../local/common.js';
 
 export interface SupportDecision {

@@ -14,6 +14,8 @@ export interface FakeState {
   activeStreams: number;
   closedStreams: number;
   abortedCreates: number;
+  /** Fail this many result downloads with 503 (set by a test). */
+  failDownloads?: number;
 }
 export interface FakeCloud {
   origin: string;

@@ -12,7 +12,7 @@ import { validateConvertFlags, validateParseFlags } from './core/validation.js';
 import { DeckOpsError } from './errors/index.js';
 import { validateDeckIR } from './ir/validate.js';
 import type { DeckProbeReport, PreflightMode, PreflightSummary } from './shared/preflight.js';
-import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, ParseEnvelope, ParseFlags } from './types.js';
+import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, ParseEnvelope, ParseFlags } from './types-legacy.js';
 
 export { DeckOpsError, ERROR_CODES, EXIT_CODES, type ErrorCode } from './errors/index.js';
 export { resolveCredentials, writeSharedCredentials, type ResolvedCredentials } from './config/index.js';
@@ -23,7 +23,7 @@ export type {
   CommonFlags, ConvertEnvelope, ConvertFlags, EngineMode, Envelope, LocalLimits, Manifest, ManifestAsset,
   ManifestInspection, ManifestV1, ManifestV2, ManifestView, OutputFile, ParseEnvelope, ParseFlags, ParseTaskType,
   PreflightMode, PreflightSummary,
-} from './types.js';
+} from './types-legacy.js';
 export type { DeckProbeReport } from './shared/preflight.js';
 export { createNodeDocumentInspector, type NodeDocumentInspector } from './core/inspector.js';
 

@@ -6,7 +6,7 @@ import { runParse } from '../../core/parse-op.js';
 import { validateConvertFlags, validateParseFlags } from '../../core/validation.js';
 import { DeckOpsError } from '../../errors/index.js';
 import { readProductConfig } from '../../config/product.js';
-import type { CommonFlags, ConvertFlags, ParseFlags } from '../../types.js';
+import type { CommonFlags, ConvertFlags, ParseFlags } from '../../types-legacy.js';
 import { DEFAULT_PREFLIGHT_MODE, type PreflightMode } from '../../shared/preflight.js';
 import { printEnvelope, printError, type OutputContext } from '../output.js';
 

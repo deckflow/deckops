@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { DeckOpsError } from '../errors/index.js';
-import type { EngineMode, Manifest, ManifestV1, ManifestV1View, ManifestV2, ManifestView } from '../types.js';
+import type { EngineMode, Manifest, ManifestV1, ManifestV1View, ManifestV2, ManifestView } from '../types-legacy.js';
 import { irPath, manifestPath } from './layout.js';
 import { validateDeckIR } from '../ir/validate.js';
 

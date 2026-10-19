@@ -11,7 +11,7 @@ import { assessCandidate, type Assessment } from '../quality/assessment.js';
 import { finalQualityGate } from '../engine/router.js';
 import type { RouteDecision } from '../engine/policy.js';
 import type { DeckIR } from '../ir/schema.js';
-import type { OutputFile } from '../types.js';
+import type { OutputFile } from '../types-legacy.js';
 import { DeckOpsError } from '../errors/index.js';
 
 export interface ReadReport {

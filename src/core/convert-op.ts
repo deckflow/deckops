@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ConvertResult } from '../cloud/parse-facade.js';
 import type { IrFormat } from '../cloud/parse/types.js';
-import { localizeImages, rewriteLinks } from '../assets/localize.js';
+import { localizeImages, rewriteLinks } from '../node/localize.js';
 import { assetsDir, irPath, viewDir, probePath } from '../artifact/layout.js';
 import { locallyExpired, viewHit, writeManifest } from '../artifact/manifest.js';
 import type { CloudClient } from '../cloud/client.js';
@@ -19,12 +19,12 @@ import type { SourceIdentity } from '../local/common.js';
 import { DEFAULT_LOCAL_LIMITS } from '../local/limits.js';
 import type { PreflightMode } from '../shared/preflight.js';
 import { convertParams } from '../shared/params.js';
-import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, ManifestV2, OutputFile, ParseFlags } from '../types.js';
+import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, ManifestV2, OutputFile, ParseFlags } from '../types-legacy.js';
 import { MARKDOWN_RENDERER_VERSION, renderMarkdown } from '../views/markdown.js';
 import type { NodeDocumentInspector } from './inspector.js';
 import type { ResolvedInput } from './input.js';
 import { runSourcePreflight } from './parse-op.js';
-import { withinOperationTimeout } from './timeout.js';
+import { withinOperationTimeout } from '../node/timeout.js';
 
 export interface ConvertOpOptions {
   assessment?: Assessment;

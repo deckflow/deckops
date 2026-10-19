@@ -1,5 +1,5 @@
 import { DeckOpsError } from '../errors/index.js';
-import type { CommonFlags, ParseFlags } from '../types.js';
+import type { CommonFlags, ParseFlags } from '../types-legacy.js';
 import type { Assessment } from '../quality/assessment.js';
 import type { EngineParseInput } from './types.js';
 import type { DeckProbeReport } from '../shared/preflight.js';

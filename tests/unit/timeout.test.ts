@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { withinOperationTimeout } from '../../src/core/timeout.js';
+import { withinOperationTimeout } from '../../src/node/timeout.js';
 
 /** 一个只在信号中止时才结束的操作，像一次连不上的请求。 */
 const waitForAbort = (signal: AbortSignal): Promise<never> => new Promise((_, reject) => {

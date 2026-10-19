@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DeckOpsError } from '../errors/index.js';
-import type { Manifest, ParseTaskType } from '../types.js';
+import type { Manifest, ParseTaskType } from '../types-legacy.js';
 import { readManifest } from '../artifact/manifest.js';
 import { routeExtension } from '../shared/input.js';
 

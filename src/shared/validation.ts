@@ -3,6 +3,12 @@ import type { ConvertFlags, ParseFlags } from '../types.js';
 
 export type FormatKey = 'pdf' | 'pptx' | 'docx' | 'keynote' | 'link';
 
+/** IR format names as the convert result reports them. */
+export function irFormatForTaskType(type: string): 'pdf' | 'pptx' | 'docx' | 'keynote' | 'html' {
+  const format = formatForTaskType(type);
+  return format === 'link' || format === undefined ? 'html' : format;
+}
+
 export function formatForTaskType(type: string): FormatKey | undefined {
   switch (type) {
     case 'pdf.pdfParse':

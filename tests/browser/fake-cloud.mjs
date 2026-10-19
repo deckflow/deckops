@@ -151,6 +151,11 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         if (taskMatch[3] === 'start') { json(res, 200, { ...task, status: 'running' }); return; }
         if (taskMatch[3] === 'download') {
           if (kind('hanging-download')) return;
+          // A test sets failDownloads to lose that many results after the task completed.
+          if (state.failDownloads > 0) {
+            state.failDownloads -= 1;
+            json(res, 503, { message: 'Result download unavailable' }); return;
+          }
           if (task.type === 'parse.convert') {
             const ref = `${origin}/api/${caseName}/v1/image.png?expires=fixture`;
             const parsed = state.tasks.find((item) => item.type !== 'parse.convert' &&

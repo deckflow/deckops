@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { assignFileNames, localizeImages, rewriteLinks } from '../../src/assets/localize.js';
+import { assignFileNames, localizeImages, rewriteLinks } from '../../src/node/localize.js';
 
 const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-assets-'));
 
@@ -46,8 +46,17 @@ describe('localizeImages', () => {
     });
     expect(fs.readFileSync(path.join(dir, 'one.png'))).toEqual(png);
     expect(result.rewrites.get('https://signed.example/img?sig=1')).toBe('../../assets/one.png');
-    expect(result.saved['one.png']).toMatchObject({ key: '2026-08/aa/one.png', bytes: png.length });
+    expect(result.saved['one.png']).toMatchObject({ key: '2026-08/aa/one.png', bytes: png.length, mediaType: 'image/png' });
     expect(result.warnings).toEqual([]);
+  });
+
+  it('records the media type from the response header, falling back to the extension', async () => {
+    const typed = (async () => new Response(new Uint8Array(png), { headers: { 'Content-Type': 'image/webp; q=1' } })) as unknown as typeof fetch;
+    const result = await localizeImages({ images: [image()], destDir: tmp(), linkPrefix: 'a/', fetchImpl: typed });
+    expect(result.saved['one.png']?.mediaType).toBe('image/webp');
+    const untyped = (async () => new Response(new Uint8Array(png), { headers: { 'Content-Type': 'application/octet-stream' } })) as unknown as typeof fetch;
+    const other = await localizeImages({ images: [image({ suggestedPath: 'assets/one.bin' })], destDir: tmp(), linkPrefix: 'a/', fetchImpl: untyped });
+    expect(other.saved['one.bin']).not.toHaveProperty('mediaType');
   });
 
   it('a corrupted download fails the run — a wrong image is worse than a missing one', async () => {

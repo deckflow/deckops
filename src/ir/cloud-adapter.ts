@@ -12,7 +12,7 @@ import { result3ToDeckIr } from './result3-adapter.js';
 import type { CandidateAsset, DeckIrNode, DeckIrPage, DeckIrRun, DocumentFormat, ParseCandidate, QualityCheck } from './schema.js';
 import { orderSlideNodes } from './slide-order.js';
 import { makeIr, qualityOf, type SourceIdentity } from '../local/common.js';
-import type { ParseTaskType } from '../types.js';
+import type { ParseTaskType } from '../types-legacy.js';
 
 export async function cloudResultToCandidate(parsed: ParseResult, source: SourceIdentity, signal?: AbortSignal): Promise<ParseCandidate> {
   const result3 = findResult3(parsed.ir);

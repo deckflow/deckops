@@ -1,5 +1,5 @@
 import { DeckOpsError } from '../errors/index.js';
-import type { ConvertFlags, ParseFlags } from '../types.js';
+import type { ConvertFlags, ParseFlags } from '../types-legacy.js';
 import type { ResolvedInput } from './input.js';
 import {
   formatForTaskType,

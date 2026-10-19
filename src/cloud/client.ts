@@ -6,7 +6,7 @@ import type {
   ConvertOptions as SdkConvertOptions, ConvertRef, ConvertResult,
   ParseOptions as SdkParseOptions, ParseResult, ParseSource, ResumeOptions,
 } from './parse-facade.js';
-import type { ParseTaskType } from '../types.js';
+import type { ParseTaskType } from '../types-legacy.js';
 import type { ResolvedCredentials } from '../config/index.js';
 import { PRE_UPLOAD_THRESHOLD } from '../shared/constants.js';
 import { translateError } from '../shared/errors.js';

@@ -22,10 +22,10 @@ import {
 } from '../shared/preflight.js';
 import { parseParams } from '../shared/params.js';
 import { formatForTaskType } from '../shared/validation.js';
-import type { CommonFlags, Manifest, ManifestInspection, ManifestV2, OutputFile, ParseEnvelope, ParseFlags } from '../types.js';
+import type { CommonFlags, Manifest, ManifestInspection, ManifestV2, OutputFile, ParseEnvelope, ParseFlags } from '../types-legacy.js';
 import { PDF_PARSER_VERSION, VERSION } from '../version.js';
 import { createNodeDocumentInspector, type NodeDocumentInspector } from './inspector.js';
-import { withinOperationTimeout } from './timeout.js';
+import { withinOperationTimeout } from '../node/timeout.js';
 import type { ResolvedInput } from './input.js';
 
 export interface ParseOpOptions {

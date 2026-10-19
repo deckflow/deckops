@@ -7,7 +7,7 @@ import { DeckOpsError } from '../errors/index.js';
 import type { ManifestAsset } from '../types.js';
 
 /**
- * Image localization (docs/rfc.md §4.4). The markdown a convert returns embeds
+ * Image localization. The markdown a convert returns embeds
  * signed URLs that expire in hours; a durable markdown needs the bytes on disk
  * and the links rewritten. Download failures FAIL the run by default — silently
  * shipping links that will rot is the worst outcome — with `keepRemote` as the
@@ -36,6 +36,9 @@ export interface LocalizedAssets {
 }
 
 const RETRIES = 3;
+const EXTENSION_MEDIA_TYPES: Record<string, string> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+};
 
 /**
  * Pick unique on-disk names. `suggestedPath` basenames are unique in practice
@@ -84,7 +87,7 @@ export async function localizeImages(options: LocalizeOptions): Promise<Localize
 
   const fetchOne = async (image: ConvertImage, fileName: string): Promise<void> => {
     const target = path.join(destDir, fileName);
-    const data = await downloadWithRetry(fetchImpl, image.ref, image.key);
+    const { data, mediaType } = await downloadWithRetry(fetchImpl, image.ref, image.key);
     // A wrong image is worse than a missing one: verify when the identity is known.
     if (image.hash) {
       const md5 = createHash('md5').update(data).digest('hex');
@@ -95,7 +98,8 @@ export async function localizeImages(options: LocalizeOptions): Promise<Localize
       }
     }
     await fs.writeFile(target, data);
-    saved[fileName] = { file: fileName, key: image.key, hash: image.hash ?? '', bytes: data.length };
+    const type = mediaType ?? EXTENSION_MEDIA_TYPES[path.extname(fileName).toLowerCase()];
+    saved[fileName] = { file: fileName, key: image.key, hash: image.hash ?? '', bytes: data.length, ...(type ? { mediaType: type } : {}) };
   };
 
   const results = await Promise.allSettled(
@@ -112,7 +116,7 @@ export async function localizeImages(options: LocalizeOptions): Promise<Localize
           downloaded.set(image.key, pending);
         }
         await pending;
-        rewrites.set(image.ref, `${linkPrefix}${fileName}`);
+        rewrites.set(image.ref, markdownLink(`${linkPrefix}${fileName}`));
       })
     )
   );
@@ -134,6 +138,11 @@ export async function localizeImages(options: LocalizeOptions): Promise<Localize
   return { rewrites, saved, warnings };
 }
 
+/** A local path as a Markdown link destination: whitespace and parentheses would end it early. */
+export function markdownLink(target: string): string {
+  return target.replace(/[()\s]/g, (character) => encodeURIComponent(character));
+}
+
 /**
  * Rewrite links by exact string match. `ref` is the very string the server
  * rendered into the text (upstream contract C3) — no URL normalization.
@@ -146,7 +155,8 @@ export function rewriteLinks(text: string, rewrites: Map<string, string>): strin
   return result;
 }
 
-async function downloadWithRetry(fetchImpl: typeof fetch, url: string, key: string): Promise<Buffer> {
+/** The media type comes from the response header (else the file extension), never from sniffing bytes. */
+async function downloadWithRetry(fetchImpl: typeof fetch, url: string, key: string): Promise<{ data: Buffer; mediaType: string | undefined }> {
   let lastError: unknown;
   for (let attempt = 0; attempt < RETRIES; attempt += 1) {
     try {
@@ -154,7 +164,9 @@ async function downloadWithRetry(fetchImpl: typeof fetch, url: string, key: stri
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      return Buffer.from(await response.arrayBuffer());
+      const header = response.headers.get('content-type')?.split(';')[0]?.trim();
+      const mediaType = header && header !== 'application/octet-stream' ? header : undefined;
+      return { data: Buffer.from(await response.arrayBuffer()), mediaType };
     } catch (error) {
       lastError = error;
       if (attempt < RETRIES - 1) {

@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { DeckOpsError } from '../errors/index.js';
-import type { ConvertEnvelope, Envelope, ParseEnvelope } from '../types.js';
+import type { ConvertEnvelope, Envelope, ParseEnvelope } from '../types-legacy.js';
 
 /**
  * Result rendering. `--json` prints the envelope verbatim (public contract);
