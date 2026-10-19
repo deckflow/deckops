@@ -201,8 +201,9 @@ Tests run the SDK and the built CLI over real HTTP against a local wire-protocol
 ## License
 
 Copyright (c) 2026 DeckFlow. DeckOps-owned code is licensed under the
-[GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
+[Apache License 2.0](LICENSE) (`Apache-2.0`) from 3.0.0 onward.
 
-Previously published versions, including 1.1.1, retain the license they were published under.
+Previously published versions keep the license they were published under: 2.x under
+`AGPL-3.0-only`, 1.x under MIT.
 Third-party components retain their own licenses and notices; see
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

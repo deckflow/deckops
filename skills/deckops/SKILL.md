@@ -6,7 +6,7 @@ description: >-
   Keynote, web URLs, and reuse of existing DeckOps artifacts. DeckOps uploads the
   document to DeckFlow's cloud. This version does not edit documents or export them
   back to their source format.
-license: AGPL-3.0-only
+license: Apache-2.0
 compatibility: >-
   Requires a shell, local file access, network access to DeckOps Cloud, a DeckFlow
   login or API key, and Node.js 22.18 or newer with the DeckOps CLI installed or

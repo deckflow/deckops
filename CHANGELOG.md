@@ -24,6 +24,8 @@ Markdown; the client uploads, waits, stores the server's answer and downloads im
   phase. Node and browser share one SDK core. The browser bundle measures 34,016 bytes minified +
   gzip and no longer loads a Worker or WebAssembly; CI holds it to that plus 10 %.
 - Dependencies `@deckflow/deckprobe`, `@deckflow/pdf-lite-parse`, `parse5`, `saxes` and `fflate` are gone.
+- DeckOps-owned code is licensed under Apache-2.0 instead of AGPL-3.0-only. Published 2.x releases keep
+  the license they shipped with.
 
 ## 2.6.1 — 2026-09-24 — Empty task status grace
 

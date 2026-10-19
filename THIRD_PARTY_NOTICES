@@ -1,34 +1,48 @@
 DeckOps includes and depends on third-party open-source software.
 
-DeckOps-owned code is licensed under AGPL-3.0-only; see the root LICENSE.
-That license does not relicense the third-party components listed below.
-Their applicable original licenses, copyright statements and attribution
-notices must be retained when redistributing those components.
+DeckOps-owned code is licensed under the Apache License 2.0; see the root
+LICENSE. That license does not relicense the third-party components below.
+Their original licenses, copyright statements and attribution notices must be
+retained when redistributing them.
 
-@deckflow/pdf-lite-parse
-Copyright its contributors. Licensed under the Apache License 2.0.
-https://github.com/deckflow/pdf-lite-parse
+The browser build (dist/browser/index.js) bundles these MIT-licensed packages:
 
-PDF.js / pdfjs-dist
-Copyright Mozilla Foundation and contributors. Licensed under the Apache License 2.0.
-https://github.com/mozilla/pdf.js
-An allowlisted runtime and resource subset is embedded in @deckflow/pdf-lite-parse.
-See its dist/vendor/pdfjs/PROVENANCE.json, LICENSE, and resource license notices.
+axios
+Copyright (c) 2014-present Matt Zabriskie & Collaborators
+https://github.com/axios/axios
 
-@napi-rs/canvas (only if explicitly installed by a consumer; not a dependency)
-Copyright its contributors. Licensed under the MIT License.
-https://github.com/Brooooooklyn/canvas
+eventsource-parser
+Copyright (c) 2024 Espen Hovlandsdal <espen@hovlandsdal.com>
+https://github.com/rexxars/eventsource-parser
 
-fflate
-Copyright 2020 Arjun Barrett. Licensed under the MIT License.
-https://github.com/101arrowz/fflate
+p-limit
+Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+https://github.com/sindresorhus/p-limit
 
-saxes
-Copyright its contributors. Licensed under the ISC License.
-https://github.com/lddubeau/saxes
+yocto-queue
+Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+https://github.com/sindresorhus/yocto-queue
 
-parse5
-Copyright its contributors. Licensed under the MIT License.
-https://github.com/inikulin/parse5
+MIT License
 
-See each installed package for its complete license text and notices.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+The Node entry and CLI load their runtime dependencies (axios, chalk, commander,
+eventsource-parser, open, p-limit) from node_modules; see each installed package
+for its complete license text and notices.
