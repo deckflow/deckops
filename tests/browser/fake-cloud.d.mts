@@ -16,6 +16,10 @@ export interface FakeState {
   abortedCreates: number;
   /** Fail this many result downloads with 503 (set by a test). */
   failDownloads?: number;
+  /** File ids the server has forgotten: tasks naming them get 404 (set by a test). */
+  expiredFiles?: string[];
+  /** Frames a multi-frame render returns (default 3; set by a test). */
+  frames?: number;
 }
 export interface FakeCloud {
   origin: string;
@@ -24,4 +28,8 @@ export interface FakeCloud {
   close(): Promise<void>;
 }
 export const FIXTURE_PNG: Buffer;
+export const FIXTURE_MARKDOWN: string;
+export const FIXTURE_MARKDOWN_PAGES: string[];
+export const FIXTURE_DOCUMENT: Record<string, unknown>;
+export const FIXTURE_CAPABILITIES: { tasks: Record<string, { to: string[] }> } & Record<string, unknown>;
 export function createFakeCloud(options?: { staticRoot?: string; port?: number }): Promise<FakeCloud>;

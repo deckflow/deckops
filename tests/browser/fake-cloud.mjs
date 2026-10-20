@@ -7,6 +7,26 @@ import path from 'node:path';
 /** The one image every fixture conversion references; served with its real md5. */
 export const FIXTURE_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const FIXTURE_PNG_MD5 = createHash('md5').update(FIXTURE_PNG).digest('hex');
+const md5 = (data) => createHash('md5').update(data).digest('hex');
+
+/** document.* results per RFC §5.6: delivered Markdown links images by relative path. */
+export const FIXTURE_MARKDOWN = '# Page one\n\n![](assets/image.png)\n\n---\n\n# Page two';
+export const FIXTURE_MARKDOWN_PAGES = ['# Page one\n\n![](assets/image.png)', '# Page two'];
+export const FIXTURE_DOCUMENT = {
+  format: 'pdf', schemaVersion: 'result.v3', pages: 2,
+  document: { elements: [{ type: 'text', text: 'Hello ops' }, { type: 'image', path: 'assets/image.png' }] },
+  resources: [{ path: 'assets/image.png', bytes: FIXTURE_PNG.length, hash: FIXTURE_PNG_MD5, mediaType: 'image/png' }],
+};
+const RESULT_BYTES = { '.pdf': Buffer.from('%PDF-1.7 fixture'), '.jpg': Buffer.from([0xff, 0xd8, 0xff, 0xe0]), '.webp': Buffer.from('RIFFxxxxWEBP'), '.mp4': Buffer.from('fixture-video') };
+const DOCUMENT_FORMATS = { '.pdf': 'pdf', '.pptx': 'pptx', '.docx': 'docx', '.key': 'keynote' };
+const ASSETS_EXPIRE_AT = '2026-10-27T08:00:00.000Z';
+
+/** The capabilities a 4.0 server lists; `legacy-server` cases answer 404 instead. */
+export const FIXTURE_CAPABILITIES = {
+  server: { name: 'fake-cloud', capabilitiesVersion: 1 },
+  tasks: { 'document.convert': { to: ['markdown'] }, 'document.extract': { to: ['json', 'assets'] } },
+  parseRetentionDays: 7,
+};
 
 export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
   const cases = new Map();
@@ -93,6 +113,23 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         json(res, 401, { code: 'auth_error', message: 'Expired browser token' }); return;
       }
       if (route === '/user') { json(res, 200, { id: 'fixture-space' }); return; }
+      if (route === '/tools/capabilities') {
+        if (kind('legacy-server')) { json(res, 404, { message: 'Unknown route' }); return; }
+        const tasks = kind('render-url') ? { ...FIXTURE_CAPABILITIES.tasks, 'convertor.html2png': { to: ['image'] } } : FIXTURE_CAPABILITIES.tasks;
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        json(res, 200, { ...FIXTURE_CAPABILITIES, tasks }); return;
+      }
+      if (route.startsWith('/files/')) {
+        // Signed result URLs: they authorize themselves and must not carry credentials.
+        if (kind('dead-result')) { json(res, 404, { message: 'gone' }); return; }
+        const name = route.split('/').pop();
+        if (name.endsWith('.md')) { res.writeHead(200, { 'Content-Type': 'text/markdown' }); res.end(FIXTURE_MARKDOWN); return; }
+        if (name === 'pages.json') { json(res, 200, FIXTURE_MARKDOWN_PAGES); return; }
+        if (name === 'document.json') { json(res, 200, FIXTURE_DOCUMENT); return; }
+        const extension = name.slice(name.lastIndexOf('.'));
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+        res.end(RESULT_BYTES[extension] ?? FIXTURE_PNG); return;
+      }
       if (route === '/image.png') {
         if (kind('dead-image')) { json(res, 404, { message: 'gone' }); return; }
         if (kind('hanging-image')) return;
@@ -131,6 +168,14 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         if (kind('create-error')) { json(res, 502, { message: 'Transient gateway failure after submission' }); return; }
         if (kind('quota')) { json(res, 429, { code: 'quota_error', message: 'Quota reached' }); return; }
         if (kind('expired')) { json(res, 410, { code: 'ir_expired', message: 'IR expired' }); return; }
+        if (kind('insufficient')) {
+          json(res, 402, { code: 'insufficientPackage', message: 'Insufficient package balance', data: ['Insufficient package balance', { need: 3, remain: 1 }] });
+          return;
+        }
+        // A test lists ids the server has forgotten (uploaded files expire).
+        if ((body.fileIds ?? []).some((id) => state.expiredFiles?.includes(id))) {
+          json(res, 404, { code: 'notFound', message: 'File not found or not owned by user' }); return;
+        }
         const task = {
           id: `task-${state.tasks.length + 1}`, spaceId: body.spaceId ?? 'fixture-space',
           type: body.type, status: 'pending', params: body.params ?? {}, fileIds: body.fileIds ?? [],
@@ -156,6 +201,9 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
           if (state.failDownloads > 0) {
             state.failDownloads -= 1;
             json(res, 503, { message: 'Result download unavailable' }); return;
+          }
+          if (task.type.startsWith('document.') || task.type.startsWith('convertor.') || task.type === 'image.convertWebp') {
+            json(res, 200, deliver(task, caseName, state)); return;
           }
           if (task.type === 'parse.convert') {
             const ref = `${origin}/api/${caseName}/v1/image.png?expires=fixture`;
@@ -197,7 +245,11 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         }
         const jsonStreamPending = kind('json-stream') && !state.requests.some((item) => item.headers['response-event-stream'] === 'yes');
         const status = kind('failed-task') ? 'failed' : kind('pending') || kind('sse') || kind('sse-unauthorized') || jsonStreamPending ? 'running' : 'completed';
-        json(res, 200, { ...task, status, ...(status === 'failed' ? { error: 'Fixture parser failure' } : {}) });
+        json(res, 200, {
+          ...task, status, ...(status === 'failed' ? { error: 'Fixture parser failure' } : {}),
+          // detail carries only the summary of a document result; the full one comes from download
+          ...(status === 'completed' && task.type.startsWith('document.') ? { result: summary(task, state, caseName) } : {}),
+        });
         return;
       }
       json(res, 404, { message: `Unhandled ${req.method} ${route}` });
@@ -206,6 +258,77 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
       else res.destroy(error);
     });
   });
+  const filesBase = (caseName, task) => `${origin}/api/${caseName}/v1/files/${task.id}`;
+  const sourceOf = (task, state) => state.uploads.find((upload) => upload.id === task.fileIds?.[0]);
+  const formatOf = (task, state) => {
+    if (task.params.url) return 'html';
+    const name = sourceOf(task, state)?.name ?? '';
+    return DOCUMENT_FORMATS[name.slice(name.lastIndexOf('.')).toLowerCase()] ?? 'pdf';
+  };
+  /** The server reuses a parse when the same space parsed the same bytes with the same options. */
+  const reusedParse = (task, state) => {
+    if (task.params.url) return false;
+    const source = sourceOf(task, state);
+    const parseKey = JSON.stringify(task.params.parse ?? {});
+    return state.tasks.some((other) => other !== task && other.type.startsWith('document.') && other.spaceId === task.spaceId &&
+      state.tasks.indexOf(other) < state.tasks.indexOf(task) && sourceOf(other, state)?.hash === source?.hash &&
+      JSON.stringify(other.params.parse ?? {}) === parseKey);
+  };
+  const isKind = (caseName, name) => caseName === name || caseName.startsWith(`${name}_`);
+  const warningsOf = (task, state, caseName) => {
+    const format = formatOf(task, state);
+    const warnings = [];
+    if (task.params.anchors !== undefined && format !== 'pdf') warnings.push(`anchors is ignored for ${format} sources`);
+    if (isKind(caseName, 'soft-render-error')) warnings.push('markdownError: renderer failed');
+    return warnings;
+  };
+  const summary = (task, state, caseName) => ({
+    to: task.params.to ?? 'markdown', format: formatOf(task, state), pages: 2, reusedParse: reusedParse(task, state),
+    warnings: warningsOf(task, state, caseName),
+  });
+  const image = (caseName) => ({
+    url: `${origin}/api/${caseName}/v1/files/image.png?sig=fixture`, path: 'assets/image.png',
+    bytes: FIXTURE_PNG.length, hash: FIXTURE_PNG_MD5, mediaType: 'image/png',
+  });
+  function deliver(task, caseName, state) {
+    const base = filesBase(caseName, task);
+    const tuple = (name, bounds) => [`${base}/${name}?sig=fixture`, (RESULT_BYTES[name.slice(name.lastIndexOf('.'))] ?? FIXTURE_PNG).length,
+      md5(RESULT_BYTES[name.slice(name.lastIndexOf('.'))] ?? FIXTURE_PNG), ...(bounds ? [bounds] : [])];
+    const frames = state.frames ?? 3;
+    const format = task.params.format === 'jpg' ? 'jpg' : 'png';
+    switch (task.type) {
+      case 'convertor.ppt2image':
+      case 'convertor.pdf2image':
+        return Array.from({ length: frames }, (_, index) => tuple(`${index + 1}.${format}`, { w: 1920, h: 1080, total: frames }));
+      case 'convertor.keynote2image':
+        return Array.from({ length: frames }, (_, index) => tuple(`${index + 1}.png`));
+      case 'convertor.doc2pdf': return [tuple('document.pdf')];
+      case 'convertor.ppt2video': return [tuple('video.mp4')];
+      case 'convertor.html2png':
+      case 'convertor.markdown2png': return tuple('page.png');
+      case 'image.convertWebp': return tuple('frame.webp');
+    }
+    const head = summary(task, state, caseName);
+    const tail = { assetsExpireAt: ASSETS_EXPIRE_AT, warnings: head.warnings };
+    const shared = { to: head.to, format: head.format, pages: head.pages, reusedParse: head.reusedParse };
+    if (task.type === 'document.convert') {
+      const paged = task.params.splitPages && ['pptx', 'keynote'].includes(head.format);
+      return {
+        ...shared, markdownURL: `${base}/document.md?sig=fixture`, bytes: Buffer.byteLength(FIXTURE_MARKDOWN), hash: md5(FIXTURE_MARKDOWN),
+        ...(paged ? { markdownPagesURL: `${base}/pages.json?sig=fixture` } : {}),
+        images: [image(caseName)], ...tail,
+      };
+    }
+    if (task.params.to === 'json') {
+      const body = JSON.stringify(FIXTURE_DOCUMENT);
+      return {
+        ...shared, schemaVersion: 'result.v3', documentURL: `${base}/document.json?sig=fixture`,
+        bytes: Buffer.byteLength(body), hash: md5(body), assets: [image(caseName)], ...tail,
+      };
+    }
+    return { ...shared, assets: [image(caseName)], ...tail };
+  }
+
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   origin = `http://127.0.0.1:${server.address().port}`;
   return {
