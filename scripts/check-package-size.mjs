@@ -1,9 +1,14 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-/** Release budget: tarball ≤ 1 MiB, clean production install ≤ 12 MiB, `formats --json` cold start P95 ≤ 300 ms. */
+/**
+ * Release budget: tarball ≤ 1 MiB; `--omit=optional` production install ≤ 12 MiB with no native
+ * binaries and no install scripts; `formats --json` cold start P95 ≤ 300 ms. The default install
+ * adds the optional probe engine (WebAssembly plus one native platform package): its size is
+ * recorded and `deckops probe` must work from it.
+ */
 const MiB = 1024 * 1024;
 const root = path.resolve(import.meta.dirname, '..');
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'deckops-package-check-'));
@@ -15,21 +20,34 @@ try {
   if (!item?.filename) throw new Error('npm pack returned no tarball.');
   if (item.size > MiB) throw new Error(`npm tarball is ${(item.size / MiB).toFixed(2)} MiB; limit is 1 MiB.`);
   tarball = path.join(root, item.filename);
-  const installDir = path.join(workspace, 'install'); fs.mkdirSync(installDir);
-  fs.writeFileSync(path.join(installDir, 'package.json'), '{"private":true}');
-  execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-online', '--omit=dev', tarball], { cwd: installDir, stdio: 'inherit' });
-  const modules = path.join(installDir, 'node_modules');
-  const installedBytes = sizeOf(modules);
-  if (installedBytes > 12 * MiB) throw new Error(`Production install is ${(installedBytes / MiB).toFixed(2)} MiB; limit is 12 MiB.`);
-  const native = filesUnder(modules).filter((file) => file.endsWith('.node'));
+  const install = (name, flags) => {
+    const installDir = path.join(workspace, name); fs.mkdirSync(installDir);
+    fs.writeFileSync(path.join(installDir, 'package.json'), '{"private":true}');
+    execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-online', ...flags, tarball], { cwd: installDir, stdio: 'inherit' });
+    const modules = path.join(installDir, 'node_modules');
+    const installScripts = filesUnder(modules).filter((file) => file.endsWith('package.json')).flatMap((file) => {
+      const scripts = JSON.parse(fs.readFileSync(file, 'utf8')).scripts ?? {};
+      const names = ['preinstall', 'install', 'postinstall'].filter((script) => typeof scripts[script] === 'string');
+      return names.map((script) => `${path.relative(installDir, file)}: ${script}`);
+    });
+    if (installScripts.length) throw new Error(`Production install declares install scripts:\n${installScripts.join('\n')}`);
+    return { modules, bytes: sizeOf(modules), cli: path.join(modules, '.bin', 'deckops') };
+  };
+
+  const strict = install('strict', ['--omit=dev', '--omit=optional']);
+  if (strict.bytes > 12 * MiB) throw new Error(`Production install without optional dependencies is ${(strict.bytes / MiB).toFixed(2)} MiB; limit is 12 MiB.`);
+  const native = filesUnder(strict.modules).filter((file) => file.endsWith('.node'));
   if (native.length) throw new Error(`Production install contains native binaries:\n${native.join('\n')}`);
-  const installScripts = filesUnder(modules).filter((file) => file.endsWith('package.json')).flatMap((file) => {
-    const scripts = JSON.parse(fs.readFileSync(file, 'utf8')).scripts ?? {};
-    const names = ['preinstall', 'install', 'postinstall'].filter((name) => typeof scripts[name] === 'string');
-    return names.map((name) => `${path.relative(installDir, file)}: ${name}`);
-  });
-  if (installScripts.length) throw new Error(`Production install declares install scripts:\n${installScripts.join('\n')}`);
-  const cli = path.join(modules, '.bin', 'deckops');
+  const missing = spawnSync(strict.cli, ['probe', path.join(root, 'package.json'), '--json'], { encoding: 'utf8' });
+  if (missing.status !== 3 || JSON.parse(missing.stdout).error?.code !== 'unsupported') {
+    throw new Error(`Without optional dependencies, probe must fail as unsupported:\n${missing.stdout}${missing.stderr}`);
+  }
+
+  const full = install('default', ['--omit=dev']);
+  const report = JSON.parse(execFileSync(full.cli, ['probe', path.join(root, 'tests/test-data/test.pdf'), '--json'], { encoding: 'utf8' }));
+  if (report.schema_version !== 2 || report.status !== 'ok') throw new Error(`probe failed in the default install:\n${JSON.stringify(report)}`);
+
+  const cli = strict.cli;
   const skillsContainer = path.join(workspace, 'agent-skills');
   const skillReceipt = JSON.parse(execFileSync(cli, ['install', '--skills', '--dir', skillsContainer, '--json'], { encoding: 'utf8' }));
   const installedSkill = path.join(skillsContainer, 'deckops');
@@ -44,7 +62,8 @@ try {
   }).sort((a, b) => a - b);
   const p95 = coldStarts[Math.ceil(coldStarts.length * 0.95) - 1];
   if (p95 > 300) throw new Error(`formats cold-start P95 is ${p95.toFixed(0)} ms; limit is 300 ms.`);
-  process.stdout.write(`tarball ${(item.size / 1024).toFixed(0)} KiB; production install ${(installedBytes / MiB).toFixed(2)} MiB; cold-start P95 ${p95.toFixed(0)} ms\n`);
+  process.stdout.write(`tarball ${(item.size / 1024).toFixed(0)} KiB; production install ${(strict.bytes / MiB).toFixed(2)} MiB (--omit=optional), ` +
+    `${(full.bytes / MiB).toFixed(2)} MiB with the probe engine; cold-start P95 ${p95.toFixed(0)} ms\n`);
 } finally {
   if (tarball) fs.rmSync(tarball, { force: true });
   fs.rmSync(workspace, { recursive: true, force: true });
