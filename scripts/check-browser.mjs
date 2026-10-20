@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 
-// Measured 38,960 bytes (minified + gzip) once 4.0 added render, extract and the route table
+// Measured 39,025 bytes (minified + gzip) at 4.0.0 with render, extract and the route table
 // (3.0.0 was 34,049), plus 10 %. axios stays in the bundle; the probe engine never does.
-const GZIP_BUDGET = 42_856;
+const GZIP_BUDGET = 42_928;
 
 // Bundle the *public package export*, not an internal source path. No aliases,
 // externals, polyfills, Node types, or browser globals may hide a broken build.

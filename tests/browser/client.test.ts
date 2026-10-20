@@ -287,4 +287,56 @@ describe('browser SDK over real HTTP', () => {
     }));
     expect(cloud.state('invalid').requests).toHaveLength(0);
   });
+
+  it('shares one token refresh between concurrent 401s', async () => {
+    let refreshes = 0;
+    const refresh = async () => { refreshes += 1; await new Promise((resolve) => setTimeout(resolve, 50)); return 'fresh-token'; };
+    const client = createClient({ apiBase: cloud.apiBase('refresh_concurrent'), token: 'stale-token', spaceId: 'test-space', onUnauthorized: refresh });
+    await Promise.all([client.convert(url), client.extract(url, { to: 'assets' })]);
+    expect(refreshes).toBe(1);
+    expect(submissions('refresh_concurrent').map((req) => req.headers['x-auth-token']).sort()).toEqual(['fresh-token', 'fresh-token', 'stale-token', 'stale-token']);
+    expect(cloud.state('refresh_concurrent').tasks).toHaveLength(2);
+  });
+
+  it('sends an explicit authUuid as X-Auth-UUID and rejects one that is not a UUID v4', async () => {
+    const authUuid = '0f8d1f8e-3c2b-4a6f-9e1d-2b3c4d5e6f70';
+    await createClient({ apiBase: cloud.apiBase('auth-uuid'), token: 'test-token', spaceId: 'test-space', authUuid }).convert(url);
+    expect(apiRequests('auth-uuid').every((req) => req.headers['x-auth-uuid'] === authUuid)).toBe(true);
+    expect(() => createClient({ authUuid: 'device-1' })).toThrow(expect.objectContaining({ code: 'usage_error', message: 'authUuid must be a UUID v4.' }));
+  });
+
+  it('rejects with the caller’s own abort reason, or an AbortError DOMException without one', async () => {
+    const reason = new Error('user left the page');
+    const controller = new AbortController();
+    const pending = clientFor('pending_reason').convert(url, { signal: controller.signal });
+    await vi.waitFor(() => expect(submissions('pending_reason')).toHaveLength(1));
+    controller.abort(reason);
+    await expect(pending).rejects.toBe(reason);
+    const bare = new AbortController(); bare.abort();
+    const error = await clientFor('pending_bare').convert(url, { signal: bare.signal }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(DOMException);
+    expect(error).toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('browser entry without a browser', () => {
+  it('imports without side effects, works during SSR, and reads the device id from localStorage df_uuid', async () => {
+    const stored = '5a6b7c8d-1e2f-4a3b-8c4d-9e0f1a2b3c4d';
+    const reads: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    vi.resetModules();
+    vi.stubGlobal('localStorage', { getItem: (key: string) => { reads.push(key); return stored; }, setItem: () => {} });
+    try {
+      const entry = await import('../../src/browser/index.js');
+      expect(reads).toEqual([]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      await entry.createClient({ apiBase: cloud.apiBase('df-uuid'), token: 'test-token', spaceId: 'test-space' }).convert(url);
+      expect(reads).toEqual(['df_uuid']);
+      expect(apiRequests('df-uuid').every((req) => req.headers['x-auth-uuid'] === stored)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      fetchSpy.mockRestore();
+      vi.resetModules();
+    }
+  });
 });

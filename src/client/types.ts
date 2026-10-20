@@ -29,6 +29,11 @@ export interface ClientOptions {
   spaceId?: string;
   /** Refresh the same user's token once after a 401; changing accounts/spaces requires a new client. */
   onUnauthorized?: () => Promise<string>;
+  /**
+   * Device id sent as X-Auth-UUID (a UUID v4). Without it the browser reuses localStorage `df_uuid`
+   * and Node the id saved under ~/.deckflow.
+   */
+  authUuid?: string;
 }
 
 export interface OperationOptions {
