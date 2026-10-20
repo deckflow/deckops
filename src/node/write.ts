@@ -13,11 +13,6 @@ const DOWNLOADS_AT_ONCE = 4;
 export interface DownloadItem {
   file: RemoteFile;
   target: string;
-  /**
-   * The target sits in a directory other documents write to as well (`assets/`): an existing file
-   * with the same content is kept, a different one is never overwritten.
-   */
-  shared?: boolean;
 }
 
 /** Write text through a temporary file, so a reader never sees half of it. */
@@ -32,15 +27,6 @@ export async function download(items: readonly DownloadItem[], signal: AbortSign
   return await Promise.all(items.map((item) => limit(async () => {
     signal.throwIfAborted();
     const expected = /^[0-9a-f]{32}$/i.test(item.file.hash) ? item.file.hash.toLowerCase() : undefined;
-    if (item.shared) {
-      const existing = await fs.readFile(item.target).catch(() => undefined);
-      if (existing) {
-        if (expected !== undefined && md5(existing) === expected) return describe(item, existing.byteLength);
-        throw DeckOpsError.asset(`${item.target} already exists with different content.`, {
-          hint: 'Another document wrote an asset with the same name. Write each document into its own directory.',
-        });
-      }
-    }
     let data: Buffer;
     try {
       data = Buffer.from(await (await fetchSigned(item.file.url, signal)).arrayBuffer());
@@ -54,6 +40,33 @@ export async function download(items: readonly DownloadItem[], signal: AbortSign
     await writeAtomic(item.target, data);
     return describe(item, data.byteLength);
   })));
+}
+
+/**
+ * A document's own assets directory (`<stem>.assets/`): files are fetched into a temporary sibling
+ * that then takes the directory's place, so a failed run leaves the previous one intact and two
+ * documents never share a directory. With no files, a stale directory from an earlier run goes.
+ */
+export async function replaceDirectory(
+  target: string, files: readonly { file: RemoteFile; relative: string }[], signal: AbortSignal,
+): Promise<OutputFile[]> {
+  const parent = path.dirname(path.resolve(target));
+  if (!files.length) {
+    await fs.rm(target, { recursive: true, force: true });
+    return [];
+  }
+  await fs.mkdir(parent, { recursive: true });
+  const staging = await fs.mkdtemp(path.join(parent, `.${path.basename(target)}.`));
+  const previous = `${staging}.previous`;
+  try {
+    const written = await download(files.map((item) => ({ file: item.file, target: inside(staging, item.relative) })), signal);
+    const hadPrevious = await fs.rename(target, previous).then(() => true, () => false);
+    await fs.rename(staging, target);
+    if (hadPrevious) await fs.rm(previous, { recursive: true, force: true });
+    return written.map((output) => ({ ...output, file: path.join(target, path.relative(staging, output.file)) }));
+  } finally {
+    await fs.rm(staging, { recursive: true, force: true });
+  }
 }
 
 /** A server-suggested relative path, kept inside `dir`. */

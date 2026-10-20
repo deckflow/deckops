@@ -9,7 +9,7 @@ import { DeckOpsError } from '../errors/index.js';
 import { familyOf, planRoute } from '../ops/plan.js';
 import { probeFile, type ProbeOptions, type ProbeReport } from '../ops/probe.js';
 import type {
-  ConvertOptions, ConvertResult, ExtractOptions, ExtractResult, OpsOptions, ProgressEvent, RenderOptions, RenderResult, Verb,
+  ConvertOptions, ConvertResult, ExtractOptions, ExtractResult, OpsOptions, ProgressEvent, RemoteFile, RenderOptions, RenderResult, Verb,
 } from '../ops/types.js';
 import { MAX_SOURCE_BYTES } from '../shared/constants.js';
 import type { CommonFlags, OpsEnvelope, OutputFile } from '../types.js';
@@ -17,7 +17,8 @@ import { cacheKey, submissions } from './cache.js';
 import type { CloudClient } from './cloud.js';
 import { defaultStem, isUrl, readSource, statFile, stdinName, type NodeSource } from './source.js';
 import { withinOperationTimeout } from './timeout.js';
-import { download, inside, writeText, type DownloadItem } from './write.js';
+import { download, inside, replaceDirectory, writeText, type DownloadItem } from './write.js';
+import { rewriteImageRefs } from '../ops/results.js';
 
 /**
  * The command-line operations: run a verb through the cloud client, then write what it returned.
@@ -78,15 +79,13 @@ export async function runConvert(request: ConvertRequest): Promise<OpsEnvelope> 
   const settings: ConvertOptions & { imageRefs: 'url' | 'path' } = { ...options, imageRefs: local ? 'path' : 'url' };
   return await runCloud('convert', { ...request, out }, settings, async (result: ConvertResult, signal) => {
     if (out === '-') return { outputs: [], content: result.content, ...(result.contentPages ? { contentPages: result.contentPages } : {}) };
-    const dir = path.dirname(out);
-    const outputs = local
-      ? await download(result.images.map((file) => ({ file, target: inside(dir, file.path), shared: true })), signal)
-      : [];
-    // Images first: a Markdown file never points at images that failed to arrive.
-    outputs.unshift(await writeText(out, result.content));
     const stem = out.slice(0, out.length - path.extname(out).length);
+    // Images first: a Markdown file never points at images that failed to arrive.
+    const assets = local ? await writeAssets(stem, result.images, signal) : { outputs: [], links: new Map<string, string>() };
+    const relink = (text: string): string => local ? rewriteImageRefs(text, result.images.map((image) => ({ ...image, url: markdownLink(assets.links.get(image.path)!) }))) : text;
+    const outputs = [await writeText(out, relink(result.content)), ...assets.outputs];
     for (const [index, page] of (result.contentPages ?? []).entries()) {
-      outputs.push(await writeText(`${stem}-${String(index + 1).padStart(3, '0')}.md`, page));
+      outputs.push(await writeText(`${stem}-${String(index + 1).padStart(3, '0')}.md`, relink(page)));
     }
     return { outputs };
   });
@@ -100,11 +99,11 @@ export async function runExtract(request: ExtractRequest): Promise<OpsEnvelope> 
   return await runCloud('extract', { ...request, out }, request.options, async (result: ExtractResult, signal) => {
     if (result.to === 'json') {
       if (out === '-') return { outputs: [], content: result.content };
-      const outputs = await download(result.assets.map((file) => ({ file, target: inside(path.dirname(out), file.path), shared: true })), signal);
-      outputs.unshift(await writeText(out, `${JSON.stringify(result.content, null, 2)}\n`));
-      return { outputs };
+      const assets = await writeAssets(out.slice(0, out.length - path.extname(out).length), result.assets, signal);
+      const document = relinkJson(result.content, assets.links);
+      return { outputs: [await writeText(out, `${JSON.stringify(document, null, 2)}\n`), ...assets.outputs] };
     }
-    return { outputs: await download(result.assets.map((file) => ({ file, target: inside(out, file.path), shared: true })), signal) };
+    return { outputs: await download(result.assets.map((file) => ({ file, target: inside(out, file.path) })), signal) };
   });
 }
 
@@ -134,6 +133,32 @@ export async function runProbe(request: { input: string; from?: string; options:
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * A document's images in its own `<stem>.assets/` directory, so documents written to one
+ * directory never collide. Returns each server path's link relative to the written file.
+ */
+async function writeAssets(stem: string, files: readonly RemoteFile[], signal: AbortSignal): Promise<{ outputs: OutputFile[]; links: Map<string, string> }> {
+  const name = `${path.basename(stem)}.assets`;
+  const placed = files.map((file) => ({ file, relative: file.path.replace(/^assets\//, '') }));
+  const outputs = await replaceDirectory(path.join(path.dirname(stem), name), placed, signal);
+  return { outputs, links: new Map(placed.map((item) => [item.file.path, `${name}/${item.relative}`])) };
+}
+
+/** JSON asset references are relative paths: point each one at the downloaded copy. */
+function relinkJson(value: unknown, links: ReadonlyMap<string, string>): unknown {
+  if (typeof value === 'string') return links.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((item) => relinkJson(item, links));
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, relinkJson(item, links)]));
+  }
+  return value;
+}
+
+/** A Markdown link target: spaces and parentheses would end it early. */
+function markdownLink(relative: string): string {
+  return relative.replace(/[\s()]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
 }
 
 /** Plan before reading, run under one budget, continue an interrupted task, then write. */

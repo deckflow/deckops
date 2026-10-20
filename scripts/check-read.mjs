@@ -40,8 +40,8 @@ try {
   // convert -o: Markdown with relative links and its images beside it.
   const out = path.join(temp, 'work dir', 'report.md');
   const written = await json(['convert', pdf, '-o', out, '--json']);
-  assert.equal(fs.readFileSync(out, 'utf8'), FIXTURE_MARKDOWN);
-  assert.deepEqual(fs.readFileSync(path.join(temp, 'work dir', 'assets', 'image.png')), FIXTURE_PNG);
+  assert.equal(fs.readFileSync(out, 'utf8'), FIXTURE_MARKDOWN.replace('assets/image.png', 'report.assets/image.png'));
+  assert.deepEqual(fs.readFileSync(path.join(temp, 'work dir', 'report.assets', 'image.png')), FIXTURE_PNG);
   assert.deepEqual(written.outputs.map((output) => path.basename(output.file)), ['report.md', 'image.png']);
   assert.equal((await run(['convert', pdf, '-o', out, '--quiet'])).stdout, '');
 

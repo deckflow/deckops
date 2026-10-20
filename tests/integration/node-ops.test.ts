@@ -41,19 +41,34 @@ const request = (caseName: string, input: string, extra: { out?: string; force?:
 const created = (name: string) => cloud.state(name).requests.filter((req) => req.path === '/tools/tasks' && req.method === 'POST');
 
 describe('convert writes Markdown with its images beside it', () => {
-  it('links images by relative path and downloads them into assets/', async () => {
+  it('links images by relative path into the document’s own <stem>.assets/', async () => {
     const folder = dir('convert');
     const out = path.join(folder, 'out', 'report.md');
     const envelope = await runConvert({ ...request('n-convert', source(folder, 'report.pdf'), { out }), options: {} });
-    expect(fs.readFileSync(out, 'utf8')).toBe(FIXTURE_MARKDOWN);
-    expect(fs.readFileSync(path.join(folder, 'out', 'assets', 'image.png'))).toEqual(FIXTURE_PNG);
+    expect(fs.readFileSync(out, 'utf8')).toBe(FIXTURE_MARKDOWN.replace('assets/image.png', 'report.assets/image.png'));
+    expect(fs.readFileSync(path.join(folder, 'out', 'report.assets', 'image.png'))).toEqual(FIXTURE_PNG);
     expect(envelope).toMatchObject({
       ok: true, op: 'convert', to: 'markdown', format: 'pdf', pages: 2, reusedParse: false,
       tasks: [{ type: 'document.convert', id: 'task-1' }],
-      outputs: [{ file: out, bytes: FIXTURE_MARKDOWN.length }, { file: path.join(folder, 'out', 'assets', 'image.png'), bytes: 8 }],
+      outputs: [{ file: out }, { file: path.join(folder, 'out', 'report.assets', 'image.png'), bytes: 8 }],
       warnings: [],
     });
     expect(envelope).not.toHaveProperty('content');
+  });
+
+  it('converts many PDFs into one directory, each with its own assets, and replaces only its own on a rerun', async () => {
+    const folder = dir('batch');
+    const names = ['a.pdf', 'b.pdf', 'c d.pdf'];
+    for (const name of names) {
+      await runConvert({ ...request('n-batch', source(folder, name, `${name} batch`), { out: path.join(folder, 'md', name.replace('.pdf', '.md')) }), options: {} });
+    }
+    expect(fs.readdirSync(path.join(folder, 'md')).sort()).toEqual(['a.assets', 'a.md', 'b.assets', 'b.md', 'c d.assets', 'c d.md']);
+    expect(fs.readFileSync(path.join(folder, 'md', 'c d.md'), 'utf8')).toContain('![](c%20d.assets/image.png)');
+    fs.writeFileSync(path.join(folder, 'md', 'a.assets', 'stale.png'), 'from an earlier run');
+    await runConvert({ ...request('n-batch', path.join(folder, 'a.pdf'), { out: path.join(folder, 'md', 'a.md') }), options: {} });
+    expect(fs.readdirSync(path.join(folder, 'md', 'a.assets'))).toEqual(['image.png']);
+    expect(fs.readdirSync(path.join(folder, 'md', 'b.assets'))).toEqual(['image.png']);
+    expect(fs.readdirSync(path.join(folder, 'md')).filter((name) => name.startsWith('.'))).toEqual([]);
   });
 
   it('prints signed links on stdout, keeps remote links on request, and defaults to <stem>.md beside the source', async () => {
@@ -65,31 +80,24 @@ describe('convert writes Markdown with its images beside it', () => {
 
     const remote = await runConvert({ ...request('n-remote', input, { out: path.join(folder, 'remote.md') }), options: { keepRemoteImages: true } });
     expect(fs.readFileSync(path.join(folder, 'remote.md'), 'utf8')).toContain('?sig=fixture');
-    expect(fs.existsSync(path.join(folder, 'assets'))).toBe(false);
+    expect(fs.existsSync(path.join(folder, 'remote.assets'))).toBe(false);
     expect(remote.outputs).toHaveLength(1);
 
     const fallback = await runConvert({ ...request('n-default', input), options: { splitPages: true } });
-    expect(fallback.outputs.map((output) => path.basename(output.file))).toEqual(['deck.md', 'image.png', 'deck-001.md', 'deck-002.md']);
-    expect(fs.readFileSync(path.join(folder, 'deck-001.md'), 'utf8')).toBe('# Page one\n\n![](assets/image.png)');
+    expect(fallback.outputs.map((output) => path.relative(folder, output.file))).toEqual([
+      'deck.md', path.join('deck.assets', 'image.png'), 'deck-001.md', 'deck-002.md',
+    ]);
+    expect(fs.readFileSync(path.join(folder, 'deck-001.md'), 'utf8')).toBe('# Page one\n\n![](deck.assets/image.png)');
   });
 
-  it('refuses to overwrite another document’s asset, reuses an identical one, and rejects a corrupted download', async () => {
-    const folder = dir('assets');
-    const input = source(folder, 'a.pdf');
-    fs.mkdirSync(path.join(folder, 'assets'));
-    fs.writeFileSync(path.join(folder, 'assets', 'image.png'), 'another document');
-    await expect(runConvert({ ...request('n-conflict', input, { out: path.join(folder, 'a.md') }), options: {} })).rejects.toMatchObject({
-      code: 'asset_error', hint: expect.stringContaining('its own directory'),
-    });
-    expect(fs.existsSync(path.join(folder, 'a.md'))).toBe(false);
-
-    fs.writeFileSync(path.join(folder, 'assets', 'image.png'), FIXTURE_PNG);
-    await runConvert({ ...request('n-identical', input, { out: path.join(folder, 'a.md') }), options: {} });
-    expect(cloud.state('n-identical').requests.some((req) => req.path === '/results/image.png')).toBe(false);
-
+  it('rejects a corrupted download and keeps the previous assets', async () => {
     const fresh = dir('corrupt');
+    fs.mkdirSync(path.join(fresh, 'b.assets'));
+    fs.writeFileSync(path.join(fresh, 'b.assets', 'image.png'), 'previous run');
     await expect(runConvert({ ...request('corrupt-result', source(fresh, 'b.pdf'), { out: path.join(fresh, 'b.md') }), options: {} }))
       .rejects.toMatchObject({ code: 'asset_error', message: expect.stringContaining('checksum') });
+    expect(fs.readFileSync(path.join(fresh, 'b.assets', 'image.png'), 'utf8')).toBe('previous run');
+    expect(fs.existsSync(path.join(fresh, 'b.md'))).toBe(false);
   });
 
   it('refuses an output that would overwrite the source', async () => {
@@ -106,8 +114,8 @@ describe('extract and render write their files', () => {
     const input = source(folder, 'report.pdf');
     const out = path.join(folder, 'report.json');
     const written = await runExtract({ ...request('n-extract', input, { out }), options: { to: 'json' } });
-    expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual(FIXTURE_DOCUMENT);
-    expect(fs.existsSync(path.join(folder, 'assets', 'image.png'))).toBe(true);
+    expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual(JSON.parse(JSON.stringify(FIXTURE_DOCUMENT).replaceAll('"assets/image.png"', '"report.assets/image.png"')));
+    expect(fs.existsSync(path.join(folder, 'report.assets', 'image.png'))).toBe(true);
     expect(written).toMatchObject({ op: 'extract', to: 'json', schemaVersion: 'result.v3', format: 'pdf' });
 
     const printed = await runExtract({ ...request('n-extract-stdout', input, { out: '-' }), options: { to: 'json' } });
