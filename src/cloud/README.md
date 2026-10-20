@@ -34,11 +34,13 @@ authentication and disables mutation retries by default.
 
 ## Scope
 
-`contracts.ts` owns the transport DTOs. `parse/types.ts` owns the cloud IR reference
-and conversion result contracts; the IR itself is the server's and passes through
-untouched. Only parse task names and `parse.convert` are represented. The transport assembles upload,
-create/get/wait/download and the parse/convert primitives. General tool shortcuts,
-task list/delete/start, generation and translation are deliberately absent.
+`contracts.ts` owns the transport DTOs and the task types the route table submits
+(`OPS_TASK_TYPES`). The transport assembles upload, create/get/wait/download/start and the
+`/tools/capabilities` lookup (`capabilities.ts`, cached per API root); `download.ts` fetches
+signed result URLs without credentials. Task waits fail with `TaskFailedError` or
+`TaskTimeoutError`, both carrying the task id. Routing and result shapes belong to `src/ops/`.
+`parse-facade.ts`, `parse/` and `legacy-transport.ts` keep the 3.0 parse primitives for the
+legacy client only. Generation, translation and task list/delete stay deliberately absent.
 
 Axios 1.19.0 and eventsource-parser 1.1.2 are direct dependencies matching the
 previous lock. This migration does not replace HTTP libraries. Strict optional
