@@ -1,4 +1,4 @@
-import type { DeckClient } from '../../client/index.js';
+import type { DeckClient } from '../../client/legacy.js';
 import { translateError as translate } from '../../shared/errors.js';
 import { cloudClient } from '../../node/cloud.js';
 import { runConvert } from '../../node/convert-op.js';

@@ -235,11 +235,28 @@ export class APIError extends Error {
     return new APIError(formatAPIErrorMessage(401, message, requestId), 401, undefined, requestId);
   }
 
+  /** Keeps the body: a top-up dialog reads the package details the server put in it. */
   static paymentRequired(error: AxiosError): APIError {
-    const requestId =
-      extractRequestIdFromHeaders(error.response?.headers) ?? extractRequestIdFromBody(error.response?.data);
+    const data = error.response?.data;
+    const requestId = extractRequestIdFromHeaders(error.response?.headers) ?? extractRequestIdFromBody(data);
     const message = 'Payment is required. Please complete checkout and try again.';
-    return new APIError(formatAPIErrorMessage(402, message, requestId), 402, undefined, requestId);
+    return new APIError(formatAPIErrorMessage(402, message, requestId), 402, data as MetadataValue | undefined, requestId);
+  }
+}
+
+/** The task reached `failed`. The message keeps the 3.0 wording callers match on. */
+export class TaskFailedError extends Error {
+  constructor(readonly taskId: string, readonly taskError: string | undefined) {
+    super(`Task failed: ${taskError || 'Unknown error'}`);
+    this.name = 'TaskFailedError';
+  }
+}
+
+/** The wait deadline passed while the task was still running; the task itself keeps running. */
+export class TaskTimeoutError extends Error {
+  constructor(readonly taskId: string, readonly timeoutSeconds: number) {
+    super(`Task ${taskId} did not complete within ${timeoutSeconds}s`);
+    this.name = 'TaskTimeoutError';
   }
 }
 

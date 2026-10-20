@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createClientWith } from '../../src/client/index.js';
+import { createClientWith } from '../../src/client/legacy.js';
 import { nodeRuntime } from '../../src/node/runtime.js';
 import { runConvert } from '../../src/node/convert-op.js';
 import { resolveInput } from '../../src/node/input.js';

@@ -5,8 +5,19 @@ export const DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024;
 /** When creating a task with files under this total size, attach them inline as `files` instead of async upload + `fileIds`. */
 export const INLINE_TASK_FILES_MAX_BYTES = 10 * 1024 * 1024;
 
-export const DECK_TASK_TYPES = ['pdf.pdfParse', 'pptx.parse', 'docx.parseTextAndImage', 'keynote.parseTextAndImage', 'html.getByURL', 'parse.convert'] as const;
+/** Every task type the route table (`src/ops/routes.ts`) can submit. */
+export const OPS_TASK_TYPES = [
+  'convertor.ppt2image', 'convertor.pdf2image', 'convertor.keynote2image', 'convertor.doc2pdf',
+  'convertor.html2png', 'convertor.markdown2png', 'convertor.ppt2video', 'image.convertWebp',
+  'document.convert', 'document.extract',
+] as const;
 
+/** 3.0 parse types, kept only for the Node CLI and browser entry until they move to the ops client. */
+export const LEGACY_TASK_TYPES = ['pdf.pdfParse', 'pptx.parse', 'docx.parseTextAndImage', 'keynote.parseTextAndImage', 'html.getByURL', 'parse.convert'] as const;
+
+export const DECK_TASK_TYPES = [...OPS_TASK_TYPES, ...LEGACY_TASK_TYPES] as const;
+
+export type OpsTaskType = (typeof OPS_TASK_TYPES)[number];
 export type DeckTaskType = (typeof DECK_TASK_TYPES)[number];
 export type DeckTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 

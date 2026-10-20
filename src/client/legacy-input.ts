@@ -2,7 +2,7 @@ import { DeckOpsError } from '../errors/index.js';
 import type { DeckRuntime } from '../cloud/runtime.js';
 import { routeExtension } from '../shared/input.js';
 import { formatForTaskType, type FormatKey } from '../shared/validation.js';
-import type { ClientInput } from './types.js';
+import type { ClientInput } from './legacy-types.js';
 
 export type ResolvedSource =
   | { kind: 'file'; data: Blob | Uint8Array | ArrayBuffer; name: string; bytes: number; format: Exclude<FormatKey, 'link'> }

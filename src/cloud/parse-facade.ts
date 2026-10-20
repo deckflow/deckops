@@ -227,6 +227,8 @@ export const createParse = (deps: ParseDeps) => {
         ...(options.onSubmit ? { onDispatch: options.onSubmit } : {}),
         type: 'html.getByURL',
         spaceId: options.spaceId,
+        // The 3.0 task API requires a file list on every non-document task, empty for a URL.
+        fileIds: [],
         params: {
           url: source.url,
           mode: source.mode ?? 'runtime',

@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import type { DeckClient } from '../client/index.js';
+import type { DeckClient } from '../client/legacy.js';
 import type { CredentialOverrides } from '../config/index.js';
 import { DeckOpsError } from '../errors/index.js';
 import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, ParseEnvelope, ParseFlags } from '../types.js';

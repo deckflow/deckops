@@ -1,5 +1,6 @@
 import { createParser, type ParsedEvent, type ReconnectInterval } from 'eventsource-parser';
 import { delay, throwIfAborted } from './abort.js';
+import { TaskFailedError, TaskTimeoutError } from './errors.js';
 import type { HttpClient, NodeReadableLike } from './http-client.js';
 import {
   DEFAULT_POLL_INTERVAL,
@@ -66,8 +67,9 @@ export class TasksApi {
     }
 
     const fileIds = await this.resolveFileIds(spaceId, params, prepared);
+    // A URL-input document task carries no files at all; other types name their files explicitly.
     const payload: Record<string, unknown> = {
-      fileIds,
+      ...(params.fileIds !== undefined || fileIds.length ? { fileIds } : {}),
       type: params.type,
       params: params.params ?? {},
     };
@@ -234,6 +236,14 @@ export class TasksApi {
     return res.data as DeckTask<T>;
   }
 
+  /** Re-dispatch a pending or failed task. New tasks start on their own, guest tasks included. */
+  async start(taskId: string, options: TaskDownloadOptions = {}): Promise<void> {
+    const params = options.spaceId ? { spaceId: options.spaceId } : undefined;
+    await this.http.put(`/tools/tasks/${encodeURIComponent(taskId)}/start`, undefined, {
+      ...(params ? { params } : {}), signal: options.signal,
+    });
+  }
+
   async down<T extends DeckTaskType = DeckTaskType>(
     taskId: string,
     options: TaskDownloadOptions = {}
@@ -257,7 +267,7 @@ export class TasksApi {
     const controller = new AbortController();
     const onAbort = () => controller.abort(options.signal?.reason);
     options.signal?.addEventListener('abort', onAbort, { once: true });
-    const timer = setTimeout(() => controller.abort(new Error(`Task ${taskId} did not complete within ${timeout}s`)), timeout * 1000);
+    const timer = setTimeout(() => controller.abort(new TaskTimeoutError(taskId, timeout)), timeout * 1000);
     try {
       return await this.waitInternal<T>(taskId, { ...options, signal: controller.signal });
     } finally {
@@ -281,7 +291,7 @@ export class TasksApi {
       return current;
     }
     if (current.status === 'failed') {
-      throw new Error(`Task failed: ${current.error || 'Unknown error'}`);
+      throw new TaskFailedError(taskId, current.error ?? undefined);
     }
 
     const remainingTimeout = Math.max(timeout - (Date.now() - startedAt) / 1000, 0);
@@ -722,7 +732,7 @@ export class TasksApi {
 
       const timer = setInterval(() => {
         if (Date.now() - start > timeout * 1000) {
-          finish(() => reject(new Error(`Task ${taskId} did not complete within ${timeout}s`)));
+          finish(() => reject(new TaskTimeoutError(taskId, timeout)));
         }
       }, 1000);
 
@@ -734,7 +744,7 @@ export class TasksApi {
           if (task.status === 'completed') {
             finish(() => resolve(task));
           } else if (task.status === 'failed') {
-            finish(() => reject(new Error(`Task failed: ${task.error || 'Unknown error'}`)));
+            finish(() => reject(new TaskFailedError(taskId, task.error ?? undefined)));
           }
         },
         onError: (error) => {
@@ -766,7 +776,7 @@ export class TasksApi {
     for (;;) {
       throwIfAborted(signal);
       if (Date.now() - start > timeout * 1000) {
-        throw new Error(`Task ${taskId} did not complete within ${timeout}s`);
+        throw new TaskTimeoutError(taskId, timeout);
       }
 
       const task = await this.getSnapshot<T>(taskId, signal, spaceId, pollInterval, emptyStatusGrace);
@@ -776,7 +786,7 @@ export class TasksApi {
         return task;
       }
       if (task.status === 'failed') {
-        throw new Error(`Task failed: ${task.error || 'Unknown error'}`);
+        throw new TaskFailedError(taskId, task.error ?? undefined);
       }
 
       await delay(pollInterval, signal);

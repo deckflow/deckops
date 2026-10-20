@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { CloudParsedDocument, DeckClient, ParseOptions } from '../client/index.js';
+import type { CloudParsedDocument, DeckClient, ParseOptions } from '../client/legacy.js';
 import { DeckOpsError } from '../errors/index.js';
 import { MAX_SOURCE_BYTES } from '../shared/constants.js';
 import { parseParams } from '../shared/params.js';

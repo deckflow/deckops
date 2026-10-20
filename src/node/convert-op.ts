@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { ConvertResult, DeckClient } from '../client/index.js';
+import type { ConvertResult, DeckClient } from '../client/legacy.js';
 import { DeckOpsError } from '../errors/index.js';
 import { irFormatForTaskType } from '../shared/validation.js';
 import type { CommonFlags, ConvertEnvelope, ConvertFlags, Manifest, OutputFile, ParseFlags } from '../types.js';

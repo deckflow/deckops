@@ -1,6 +1,6 @@
 import { browserRuntime } from '../cloud/browser.js';
-import { createClientWith, CloudParsedDocument, type DeckClient } from '../client/index.js';
-import type { ClientOptions } from '../client/types.js';
+import { createClientWith, CloudParsedDocument, type DeckClient } from '../client/legacy.js';
+import type { ClientOptions } from '../client/legacy-types.js';
 
 export { DeckOpsError, ERROR_CODES, type ErrorCode } from '../errors/index.js';
 export { CloudParsedDocument as BrowserParsedDocument };
@@ -9,7 +9,7 @@ export type {
   ConvertRef as BrowserConvertRef, ConvertResult as BrowserConvertResult, OperationOptions as BrowserOperationOptions,
   ParseOptions as BrowserParseOptions, ParseResult as BrowserParseResult, ProgressEvent as BrowserProgress,
   TaskInfo as BrowserTask, TaskStatus as BrowserTaskStatus,
-} from '../client/types.js';
+} from '../client/legacy-types.js';
 
 /** Browser inputs are values, never local filesystem paths. */
 export type BrowserInput = File | { file: Blob | Uint8Array | ArrayBuffer; name: string } | { url: string };

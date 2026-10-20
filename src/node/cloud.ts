@@ -1,4 +1,4 @@
-import { createClientWith, type DeckClient } from '../client/index.js';
+import { createClientWith, type DeckClient } from '../client/legacy.js';
 import { nodeRuntime } from './runtime.js';
 import { resolveCredentials, type CredentialOverrides } from '../config/index.js';
 

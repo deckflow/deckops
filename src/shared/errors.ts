@@ -7,13 +7,15 @@ const BODY_CODE_MAP: Record<string, ErrorCode> = {
   irSchemaUnsupported: 'ir_schema_unsupported',
   irInvalid: 'ir_invalid',
   guestTaskOverLimit: 'quota_error',
+  insufficientPackage: 'quota_error',
+  documentSourceInvalid: 'input_error',
 };
 
 const NODE_HINTS: Partial<Record<ErrorCode, string>> = {
   ir_expired: 'The IR is past its 7-day retention. Re-run `deckops parse <source> --force` and retry.',
   ir_not_found: 'The reference is wrong or belongs to another space. Re-run `deckops parse <source>`.',
   ir_schema_unsupported: 'The IR was produced by an incompatible parser version. Re-parse the source.',
-  quota_error: 'Guest quota exhausted for today. Run `deckops auth login` for higher limits.',
+  quota_error: 'The account or guest quota is exhausted. Top up the package, or run `deckops auth login` for higher limits.',
   auth_error: 'Run `deckops auth login`, or check `deckops config list` for a stale credential.',
 };
 
@@ -34,6 +36,16 @@ const BROWSER_NOT_FOUND_HINT =
 interface ApiErrorLike extends Error {
   statusCode?: number | undefined;
   responseData?: unknown;
+}
+
+interface TaskErrorLike extends Error {
+  taskId?: string | undefined;
+  timeoutSeconds?: number | undefined;
+}
+
+/** Task failures and timeouts from the transport, recognised by name like the API error. */
+function isTaskError(error: unknown, name: 'TaskFailedError' | 'TaskTimeoutError'): error is TaskErrorLike {
+  return error instanceof Error && error.name === name;
 }
 
 /** Avoid a runtime dependency on either SDK entry or its particular Error class. */
@@ -66,9 +78,12 @@ export function translateError(
         ? 'auth_error'
         : error.statusCode === 410
           ? 'ir_expired'
-          : error.statusCode === 429
+          : error.statusCode === 429 || error.statusCode === 402
             ? 'quota_error'
             : 'backend_error');
+    // A top-up dialog reads the package details from the server's own body.
+    const details = code === 'quota_error' && typeof body === 'object' && body !== null
+      ? { ...(body as Record<string, unknown>) } : undefined;
     const hints = context === 'node' ? NODE_HINTS : BROWSER_HINTS;
     const notFoundHint = context === 'node' ? NODE_NOT_FOUND_HINT : BROWSER_NOT_FOUND_HINT;
     // 没有状态码也没有响应体：请求根本没到服务端（连不上、超时），多半是网络或代理。
@@ -77,7 +92,20 @@ export function translateError(
       ? 'The request got no response. Check the network or proxy for that host; `deckops config list` shows the API root in use.'
       : 'The request got no response. Check the network connection and retry.';
     const hint = hints[code] ?? (code === 'backend_error' && error.statusCode === 404 ? notFoundHint : unreachable ? unreachableHint : undefined);
-    return new DeckOpsError(code, error.message, { ...(hint ? { hint } : {}), ...task, cause: error });
+    return new DeckOpsError(code, error.message, { ...(hint ? { hint } : {}), ...task, ...(details ? { details } : {}), cause: error });
+  }
+
+  if (isTaskError(error, 'TaskTimeoutError') || isTaskError(error, 'TaskFailedError')) {
+    const timeout = error.name === 'TaskTimeoutError';
+    const id = error.taskId ?? taskId;
+    return DeckOpsError.backend(error.message, {
+      ...(timeout ? { hint: context === 'node'
+        ? 'The task keeps running in the cloud. Raise --timeout, or check it later with its taskId.'
+        : 'The task keeps running in the cloud. Increase the timeout, or check it later with its taskId.' } : {}),
+      ...(id === undefined ? {} : { taskId: id }),
+      details: timeout ? { reason: 'timeout', ...(error.timeoutSeconds !== undefined ? { timeoutSeconds: error.timeoutSeconds } : {}) } : { reason: 'failed' },
+      cause: error,
+    });
   }
 
   if (error instanceof Error) {

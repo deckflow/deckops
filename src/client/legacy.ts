@@ -1,23 +1,25 @@
-import { createTransport, type TransportClient } from '../cloud/transport.js';
+import { createTransport } from '../cloud/transport.js';
+import { withLegacyParse } from '../cloud/legacy-transport.js';
 import type { DeckRuntime } from '../cloud/runtime.js';
 import type { ParseSource } from '../cloud/parse-facade.js';
 import type { DeckTask, WaitForTaskOptions } from '../cloud/contracts.js';
-import { DECK_TASK_TYPES } from '../cloud/contracts.js';
+import { LEGACY_TASK_TYPES } from '../cloud/contracts.js';
 import { DeckOpsError } from '../errors/index.js';
 import { PRE_UPLOAD_THRESHOLD } from '../shared/constants.js';
 import { translateError } from '../shared/errors.js';
 import { parseParams, convertParams } from '../shared/params.js';
 import { formatForTaskType, validateParseFlagsForFormat, validateConvertFlagsForFormat } from '../shared/validation.js';
 import type { ParseTaskType } from '../types.js';
-import { resolveInput } from './input.js';
+import { resolveInput } from './legacy-input.js';
 import type {
   ClientInput, ClientOptions, ConvertOptions, ConvertRef, ConvertResult, OperationOptions, ParseOptions, ParseResult, TaskInfo,
-} from './types.js';
+} from './legacy-types.js';
 
-export type * from './types.js';
+export type * from './legacy-types.js';
 
 /**
- * The isomorphic SDK facade: input normalization, large-file pre-upload, task waiting and
+ * The 3.0 isomorphic facade, kept for the Node CLI and browser entry until they move to the ops
+ * client (`./index.ts`). The isomorphic SDK facade: input normalization, large-file pre-upload, task waiting and
  * error translation. It never touches a filesystem; Node adds artifacts in `node/`.
  */
 
@@ -65,7 +67,7 @@ export interface DeckClient<Input = ClientInput> {
 }
 
 const CLIENT_OPTIONS = ['apiBase', 'token', 'apiKey', 'spaceId', 'onUnauthorized'];
-const PARSE_TYPES: readonly string[] = DECK_TASK_TYPES.filter((type) => type !== 'parse.convert');
+const PARSE_TYPES: readonly string[] = LEGACY_TASK_TYPES.filter((type) => type !== 'parse.convert');
 
 export function createClientWith<Input extends ClientInput = ClientInput>(
   options: ClientOptions, runtime: DeckRuntime, context: HintContext
@@ -82,7 +84,7 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
   if (options.onUnauthorized !== undefined && typeof options.onUnauthorized !== 'function') {
     throw DeckOpsError.usage('onUnauthorized must be a function.');
   }
-  const deck: TransportClient = createTransport({
+  const transport = createTransport({
     ...(options.apiBase !== undefined ? { root: apiRoot(options.apiBase) } : {}),
     ...(options.token !== undefined ? { token: options.token } : {}),
     ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
@@ -100,6 +102,7 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
     allowGuestFallback: false,
     retryMutations: false,
   }, runtime);
+  const deck = withLegacyParse(transport);
 
   const convert = async (ref: ConvertRef, settings: ConvertOptions = {}): Promise<ConvertResult> => {
     assertOptions(ref, ['irKey', 'taskId'], 'conversion reference', context);
