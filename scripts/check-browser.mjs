@@ -3,8 +3,9 @@ import fs from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 
-// Measured 34,049 bytes (minified + gzip) at 3.0.0, plus 10 %. axios stays in the bundle.
-const GZIP_BUDGET = 37_454;
+// Measured 38,960 bytes (minified + gzip) once 4.0 added render, extract and the route table
+// (3.0.0 was 34,049), plus 10 %. axios stays in the bundle; the probe engine never does.
+const GZIP_BUDGET = 42_856;
 
 // Bundle the *public package export*, not an internal source path. No aliases,
 // externals, polyfills, Node types, or browser globals may hide a broken build.
@@ -29,9 +30,11 @@ for (const output of Object.values(result.metafile.outputs)) {
 const code = result.outputFiles[0].text;
 const bundled = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 assert.equal(typeof bundled.createClient, 'function');
-assert.equal(typeof bundled.BrowserParsedDocument, 'function');
-assert.equal('resolveCredentials' in bundled, false);
-assert.equal('openArtifact' in bundled, false);
+assert.equal(typeof bundled.isDeckOpsError, 'function');
+assert.equal(typeof bundled.DeckOpsError, 'function');
+for (const name of ['resolveCredentials', 'probe', 'BrowserParsedDocument', 'openArtifact']) assert.equal(name in bundled, false, `${name} is not browser API`);
+const client = bundled.createClient({ apiBase: 'https://api.example.test/v1' });
+assert.deepEqual(Object.keys(client).sort(), ['convert', 'extract', 'files', 'render', 'tasks']);
 
 const declaration = await fs.readFile(new URL('../dist/browser/index.d.ts', import.meta.url), 'utf8');
 assert.doesNotMatch(declaration, /(?:from\s*|import\s*\()['"](?:node:|@deckops\/sdk)/);

@@ -90,7 +90,8 @@ export class TasksApi {
   private async beforeDispatch(params: CreateTaskParams): Promise<void> {
     await this.http.getAuthUuid();
     throwIfAborted(params.signal);
-    params.onDispatch?.();
+    await params.onDispatch?.();
+    throwIfAborted(params.signal);
   }
 
   private async createWithInlineFiles<T extends DeckTaskType>(

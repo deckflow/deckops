@@ -12,13 +12,8 @@ export const OPS_TASK_TYPES = [
   'document.convert', 'document.extract',
 ] as const;
 
-/** 3.0 parse types, kept only for the Node CLI and browser entry until they move to the ops client. */
-export const LEGACY_TASK_TYPES = ['pdf.pdfParse', 'pptx.parse', 'docx.parseTextAndImage', 'keynote.parseTextAndImage', 'html.getByURL', 'parse.convert'] as const;
-
-export const DECK_TASK_TYPES = [...OPS_TASK_TYPES, ...LEGACY_TASK_TYPES] as const;
-
 export type OpsTaskType = (typeof OPS_TASK_TYPES)[number];
-export type DeckTaskType = (typeof DECK_TASK_TYPES)[number];
+export type DeckTaskType = OpsTaskType;
 export type DeckTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export type MetadataValue =
@@ -97,7 +92,7 @@ export interface CreateTaskParams<T extends DeckTaskType = DeckTaskType> {
   signal?: (AbortSignal) | undefined;
   /** Space/workspace id. Falls back to createDeck({ spaceId }) or user.self id. */
   spaceId?: (string) | undefined;
-  /** Ordered input file ids. Required for file-based parse tasks. */
+  /** Ordered input file ids. A URL-input document task has none. */
   fileIds?: (string[]) | undefined;
   /**
    * Local files for the task. When total size is under {@link INLINE_TASK_FILES_MAX_BYTES}
@@ -116,9 +111,10 @@ export interface CreateTaskParams<T extends DeckTaskType = DeckTaskType> {
   /**
    * Invoked once, right before the task-creation request is sent. A failure before this point
    * (space lookup, file preparation, uploads) left no task behind; after it, a failure without a
-   * response cannot tell whether the cloud created the task.
+   * response cannot tell whether the cloud created the task. Awaited, so a journal entry is on disk
+   * before the request leaves.
    */
-  onDispatch?: (() => void) | undefined;
+  onDispatch?: (() => void | Promise<void>) | undefined;
 }
 
 export interface WaitForTaskOptions {
@@ -233,6 +229,11 @@ export interface UploadOptions {
   chunkSize?: (number) | undefined;
   /** Upload progress from 0 to 1. */
   onProgress?: ((percentage: number) => void) | undefined;
+  /**
+   * Ask the server to verify the stored bytes (`PUT /files/:id/status/uploaded`) before the id is
+   * used: document tasks only accept verified files. Servers with capabilities v1 offer it.
+   */
+  confirm?: (boolean) | undefined;
 }
 
 export type TaskUploadOptions = Omit<UploadOptions, 'spaceId'>;

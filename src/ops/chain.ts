@@ -23,6 +23,10 @@ export interface ChainEnv {
   uploadIntermediate(blob: Blob, name: string): Promise<string>;
   /** Continue this task instead of creating the first step's task. */
   resume?: TaskRef | undefined;
+  /** Before the first task's request leaves; a failure after it may have created the task. */
+  onDispatch?: (() => Promise<void>) | undefined;
+  /** The first task exists; awaited before waiting on it. */
+  onCreated?: ((ref: TaskRef, spaceId: string) => Promise<void>) | undefined;
 }
 
 export type ChainInput = { fileId: string } | { url: string };
@@ -70,7 +74,7 @@ export async function runChain(
       continue;
     }
     const stepInput = index === 0 ? input : { fileId: await carry(files![0]!, env) };
-    raw = await runStep(step, stepInput, options, warnings, env, index === 0 ? env.resume : undefined);
+    raw = await runStep(step, stepInput, options, warnings, env, index === 0 ? env.resume : undefined, index === 0);
     if (step.result !== 'files') continue;
     files = filesFromTuples(raw, step.type);
     const next = steps[index + 1];
@@ -83,7 +87,7 @@ export async function runChain(
 }
 
 async function runStep(
-  step: Step, input: ChainInput, options: OpsOptions, warnings: string[], env: ChainEnv, resume?: TaskRef,
+  step: Step, input: ChainInput, options: OpsOptions, warnings: string[], env: ChainEnv, resume?: TaskRef, first = false,
 ): Promise<unknown> {
   let ref: TaskRef;
   let spaceId = env.spaceId;
@@ -94,10 +98,12 @@ async function runStep(
     const created = await env.tasks.create({
       type: step.type, spaceId, params, signal: env.signal,
       ...('fileId' in input ? { fileIds: [input.fileId] } : {}),
+      ...(first && env.onDispatch ? { onDispatch: env.onDispatch } : {}),
     });
     ref = { type: step.type, id: created.id };
     spaceId = created.spaceId || spaceId;
     env.taskEvent(ref, spaceId, created.status);
+    if (first) await env.onCreated?.(ref, spaceId);
   }
   await env.tasks.wait(ref.id, {
     ...env.wait, spaceId, signal: env.signal, timeout: Math.max(env.remaining(), 0.001),

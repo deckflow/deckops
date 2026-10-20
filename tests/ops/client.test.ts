@@ -95,9 +95,10 @@ describe('render over the route table', () => {
     expect(result.outputs).toHaveLength(1);
   });
 
-  it('renders on a server without capabilities, which it never asks', async () => {
+  it('renders on a server without capabilities, skipping the upload verification it does not have', async () => {
     await clientFor('legacy-server_render').render(file('deck.pptx'), { to: 'video' });
-    expect(capabilityRequests('legacy-server_render')).toHaveLength(0);
+    expect(capabilityRequests('legacy-server_render')).toHaveLength(1);
+    expect(cloud.state('legacy-server_render').requests.some((req) => req.path.includes('/status/uploaded'))).toBe(false);
   });
 });
 
@@ -109,7 +110,7 @@ describe('convert and extract through document tasks', () => {
     ['key', 'slides.key', 'keynote'],
   ] as const)('converts %s to Markdown with signed image links', async (caseName, name, format) => {
     const result = await clientFor(`convert-${caseName}`).convert(file(name));
-    const image = `${cloud.apiBase(`convert-${caseName}`)}/files/image.png?sig=fixture`;
+    const image = `${cloud.apiBase(`convert-${caseName}`)}/results/image.png?sig=fixture`;
     expect(created(`convert-${caseName}`).map((req) => req.body)).toEqual([
       expect.objectContaining({ type: 'document.convert', params: { to: 'markdown' }, fileIds: ['file-1'] }),
     ]);
@@ -119,7 +120,7 @@ describe('convert and extract through document tasks', () => {
     expect(result.outputs.map((output) => output.path)).toEqual(['document.md', 'assets/image.png']);
     expect(result.assetsExpireAt).toBe('2026-10-27T08:00:00.000Z');
     // Signed result URLs carry no credentials.
-    const fetched = cloud.state(`convert-${caseName}`).requests.filter((req) => req.path.startsWith('/files/'));
+    const fetched = cloud.state(`convert-${caseName}`).requests.filter((req) => req.path.startsWith('/results/'));
     expect(fetched.length).toBeGreaterThan(0);
     expect(fetched.every((req) => req.headers['x-auth-token'] === undefined && req.headers['x-auth-uuid'] === undefined)).toBe(true);
   });
@@ -188,6 +189,32 @@ describe('convert and extract through document tasks', () => {
     expect(cloud.state('stale-file').uploads.map((upload) => upload.id)).toEqual(['file-1', 'file-2']);
     expect(created('stale-file').map((req) => (req.body as { fileIds: string[] }).fileIds)).toEqual([['file-1'], ['file-1'], ['file-2']]);
     expect(result.tasks).toEqual([{ type: 'document.convert', id: 'task-2' }]);
+  });
+});
+
+describe('upload verification and the persistent upload index', () => {
+  it('verifies every upload, intermediate ones included, before a task uses it', async () => {
+    await clientFor('verify').render(file('notes.docx'), { to: 'image' });
+    expect(cloud.state('verify').uploads.map((upload) => upload.status)).toEqual(['uploaded', 'uploaded']);
+    const paths = cloud.state('verify').requests.map((req) => `${req.method} ${req.path}`);
+    expect(paths.indexOf('PUT /files/file-1/status/uploaded')).toBeLessThan(paths.indexOf('POST /tools/tasks'));
+  });
+
+  it('reuses an id from the runtime store across clients, but never stores a password-protected source', async () => {
+    const stored = new Map<string, string>();
+    const store = {
+      get: async (key: string) => stored.get(key),
+      set: async (key: string, id: string) => { stored.set(key, id); },
+      delete: async (key: string) => { stored.delete(key); },
+    };
+    const persistent = () => createClientWith({ apiBase: cloud.apiBase('store'), token: 'test-token', spaceId: 'test-space' },
+      { ...runtime, fileIds: store }, 'node');
+    await persistent().convert(file('report.pdf', 'stored bytes'));
+    await persistent().extract(file('copy.pdf', 'stored bytes'), { to: 'assets' });
+    expect(cloud.state('store').uploads).toHaveLength(1);
+    expect([...stored.keys()]).toEqual([expect.stringContaining(cloud.apiBase('store'))]);
+    await persistent().convert(file('locked.pdf', 'secret bytes'), { password: 'p' });
+    expect(stored.size).toBe(1);
   });
 });
 

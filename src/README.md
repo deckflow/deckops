@@ -8,20 +8,18 @@ cloud/    transport: HTTP client, files upload, task create/wait/download/start,
 ops/      the route table (verb × input family × target → task chain), parameter mapping,
           chain execution and result normalization
 client/   isomorphic SDK: createClientWith(options, runtime) — render, convert, extract, tasks, files
-node/     Node only: artifacts (manifest v3, submission log, locks), image localization,
-          the parse/convert/read operations, the Node runtime and the Node SDK surface
+node/     Node only: source reading, the cache index (sha256 → fileId, submission journal),
+          result writing and image localization, the operations, the runtime and the Node SDK
 cli/      commander assembly, option parsing, output rendering and exit codes
 ```
 
-During the 4.0 migration `node/`, `cli/` and `browser/` still run the 3.0 parse client
-(`client/legacy*.ts` over `cloud/legacy-transport.ts` and `cloud/parse-facade.ts`); those modules
-go away once the Node and browser entries move to the ops client.
+`ops/probe.ts` is the one local verb: it loads the optional `@deckflow/deckprobe` engine and
+nothing from the cloud, credential or configuration layers.
 
 `browser/index.ts` is the client bound to the browser runtime. `config/` and `auth/` hold the
-shared credential chain and login flow the Node layer uses. `shared/` holds pure tables and
-helpers (extension routes, parameter mapping, flag validation, error translation) and
-`errors/` the error and exit code contract; both are safe in every runtime. `types.ts` holds
-the public artifact, option and envelope contracts.
+shared credential chain and login flow the Node layer uses. `shared/` holds error translation
+and limits, `errors/` the error and exit code contract; both are safe in every runtime.
+`types.ts` holds the command-line flag and `--json` envelope contracts.
 
 ## Rules
 
@@ -39,6 +37,8 @@ the public artifact, option and envelope contracts.
    adding a conversion is adding a row.
 
 `pnpm check:boundaries` (`scripts/check-boundaries.mjs`) enforces the mechanical part: no
-parser dependencies, no `local/`, `engine/`, `quality/`, `ir/` or `views/` trees, no `node:`
-imports in `client/`, `cloud/`, `shared/` or `errors/`, no worker threads, no WebAssembly in
-`dist/`.
+parser dependencies (DeckProbe only as an optional dependency, imported only by
+`ops/probe.ts`, which may not import `cloud/`, `auth/` or `config/`), a declarative
+`ops/routes.ts`, no `local/`, `engine/`, `quality/`, `ir/` or `views/` trees, no `node:` imports
+in `client/`, `cloud/`, `ops/`, `shared/` or `errors/`, no worker threads, no WebAssembly in
+`dist/` and no probe engine in the browser entry.

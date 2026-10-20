@@ -1,4 +1,5 @@
 import { resolveAuthUuid } from './auth-uuid.js';
+import { fileIdStore } from './cache.js';
 import type { DeckRuntime } from '../cloud/runtime.js';
 
 export const nodeRuntime: DeckRuntime = {
@@ -8,4 +9,5 @@ export const nodeRuntime: DeckRuntime = {
     const data = await fs.readFile(filePath, { signal });
     return { data, name: path.basename(filePath) };
   },
+  fileIds: fileIdStore,
 };

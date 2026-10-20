@@ -10,7 +10,7 @@ export interface RequestRecord {
 export interface FakeState {
   requests: RequestRecord[];
   tasks: Array<{ id: string; spaceId: string; type: string; status: string; params: Record<string, unknown>; fileIds: string[] }>;
-  uploads: Array<{ id: string; name: string; bytes: number; hash: string }>;
+  uploads: Array<{ id: string; name: string; bytes: number; hash: string; status: 'pending' | 'uploaded' | 'failed'; stored: boolean }>;
   activeStreams: number;
   closedStreams: number;
   abortedCreates: number;
@@ -20,6 +20,8 @@ export interface FakeState {
   expiredFiles?: string[];
   /** Frames a multi-frame render returns (default 3; set by a test). */
   frames?: number;
+  /** Every task reports this status until cleared (set by a test). */
+  forceStatus?: 'running' | 'failed';
 }
 export interface FakeCloud {
   origin: string;

@@ -95,5 +95,8 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
+  },
+  "optionalDependencies": {
+    "@deckflow/deckprobe": "2.7.0"
   }
 }

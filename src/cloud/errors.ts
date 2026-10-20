@@ -252,6 +252,14 @@ export class TaskFailedError extends Error {
   }
 }
 
+/** The server refused to verify an uploaded file (bytes or md5 differ, or the object is missing). */
+export class UploadUnconfirmedError extends Error {
+  constructor(readonly fileId: string, readonly fileName: string, options: { cause: unknown }) {
+    super(`DeckOps Cloud could not verify the upload of ${fileName}.`, options);
+    this.name = 'UploadUnconfirmedError';
+  }
+}
+
 /** The wait deadline passed while the task was still running; the task itself keeps running. */
 export class TaskTimeoutError extends Error {
   constructor(readonly taskId: string, readonly timeoutSeconds: number) {

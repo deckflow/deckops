@@ -1,16 +1,26 @@
+import type { FileIdStore } from '../cloud/runtime.js';
 import type { SourceBytes } from './input.js';
 
 /**
  * fileIds this client already uploaded, by space: first by the caller's object (a `File` is never
- * uploaded twice), then by SHA-256 (the same bytes in another object are not either). The ids
- * stay in memory; the server's own reuse of a parse is keyed by the file hash.
+ * uploaded twice), then by SHA-256 (the same bytes in another object are not either), then in the
+ * runtime's persistent store when it has one. The server's own reuse of a parse is keyed by the
+ * file hash; this only saves the upload.
  */
 export class UploadCache {
   private readonly byObject = new WeakMap<object, Map<string, Promise<string>>>();
   private readonly byHash = new Map<string, Promise<string>>();
 
-  /** The fileId for `source` in `spaceId`; `upload` runs only when nothing matches. */
-  async fileId(spaceId: string, source: SourceBytes, upload: () => Promise<string>): Promise<{ id: string; reused: boolean }> {
+  /** `scope` (the API root) keeps ids of different environments apart in the persistent store. */
+  constructor(private readonly store?: FileIdStore, private readonly scope = '') {}
+
+  /**
+   * The fileId for `source` in `spaceId`; `upload` runs only when nothing matches. `persist: false`
+   * keeps a sensitive upload (a password-protected source) out of the persistent store.
+   */
+  async fileId(
+    spaceId: string, source: SourceBytes, upload: () => Promise<string>, persist = true,
+  ): Promise<{ id: string; reused: boolean }> {
     const objects = source.identity ? this.objectsFor(source.identity) : undefined;
     const known = objects?.get(spaceId);
     if (known) return { id: await known, reused: true };
@@ -24,7 +34,16 @@ export class UploadCache {
         reused = true;
         return await shared;
       }
-      const uploading = upload();
+      const stored = persist && hashKey !== undefined ? await this.stored(hashKey) : undefined;
+      if (stored !== undefined) {
+        reused = true;
+        this.byHash.set(hashKey!, Promise.resolve(stored));
+        return stored;
+      }
+      const uploading = upload().then(async (id) => {
+        if (persist && hashKey !== undefined) await this.remember(hashKey, id);
+        return id;
+      });
       if (hashKey !== undefined) {
         this.byHash.set(hashKey, uploading);
         uploading.catch(() => { if (this.byHash.get(hashKey) === uploading) this.byHash.delete(hashKey); });
@@ -44,7 +63,22 @@ export class UploadCache {
   async forget(spaceId: string, source: SourceBytes): Promise<void> {
     if (source.identity) this.byObject.get(source.identity)?.delete(spaceId);
     const hashKey = await this.hashKey(spaceId, source);
-    if (hashKey !== undefined) this.byHash.delete(hashKey);
+    if (hashKey === undefined) return;
+    this.byHash.delete(hashKey);
+    await this.store?.delete(this.storeKey(hashKey)).catch(() => {});
+  }
+
+  // The persistent store is a convenience: when it cannot be read or written, upload as usual.
+  private async stored(hashKey: string): Promise<string | undefined> {
+    return await this.store?.get(this.storeKey(hashKey)).catch(() => undefined);
+  }
+
+  private async remember(hashKey: string, id: string): Promise<void> {
+    await this.store?.set(this.storeKey(hashKey), id).catch(() => {});
+  }
+
+  private storeKey(hashKey: string): string {
+    return `${this.scope}\n${hashKey}`;
   }
 
   private async hashKey(spaceId: string, source: SourceBytes): Promise<string | undefined> {

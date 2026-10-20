@@ -37,9 +37,14 @@ const VERB_OPTIONS: Record<Verb, readonly string[]> = {
 };
 const TARGETS: Record<Verb, readonly string[]> = { render: ['image', 'video'], convert: ['markdown'], extract: ['json', 'assets'] };
 
-/** Internal hooks for the Node layer: continue a submitted task instead of creating it again. */
+/** Internal hooks for the Node layer's submission journal. */
 export interface CallInternals {
+  /** Continue this submitted task instead of uploading and creating it again. */
   resume?: TaskRef;
+  /** Before the first task's request leaves. */
+  onDispatch?: () => Promise<void>;
+  /** The first task was created. */
+  onCreated?: (ref: TaskRef, spaceId: string) => Promise<void>;
 }
 
 export function createClientWith<Input extends ClientInput = ClientInput>(
@@ -74,22 +79,26 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
     allowGuestFallback: false,
     retryMutations: false,
   }, runtime);
-  const uploads = new UploadCache();
+  const uploads = new UploadCache(runtime.fileIds, transport.root);
+
+  /** Servers with capabilities v1 verify uploads; older ones have no such endpoint and no document tasks. */
+  const confirmsUploads = async (signal: AbortSignal): Promise<boolean> =>
+    ((await transport.capabilities(signal)).server?.capabilitiesVersion ?? 0) >= 1;
 
   /** One upload of the call's source, reusing an id this client already has. */
   const uploadSource = async (
-    source: SourceBytes, name: string, spaceId: string, signal: AbortSignal, emit: (event: ProgressEvent) => void,
+    source: SourceBytes, name: string, spaceId: string, signal: AbortSignal, emit: (event: ProgressEvent) => void, persist = true,
   ): Promise<{ id: string; reused: boolean }> => {
-    const send = () => transport.files.upload(source.data, {
-      name, spaceId, signal, onProgress: (progress) => emit({ phase: 'upload', progress }),
-    }).then((uploaded) => uploaded.id);
+    const send = async () => (await transport.files.upload(source.data, {
+      name, spaceId, signal, confirm: await confirmsUploads(signal), onProgress: (progress) => emit({ phase: 'upload', progress }),
+    })).id;
     let result: { id: string; reused: boolean };
     try {
-      result = await uploads.fileId(spaceId, source, send);
+      result = await uploads.fileId(spaceId, source, send, persist);
     } catch (error) {
       // Another call's upload this one joined was cancelled: upload it ourselves.
       if (signal.aborted || !(error instanceof Error && error.name === 'AbortError')) throw error;
-      result = await uploads.fileId(spaceId, source, send);
+      result = await uploads.fileId(spaceId, source, send, persist);
     }
     if (result.reused) emit({ phase: 'upload', progress: 1 });
     return result;
@@ -124,17 +133,21 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
         capabilities: (signal) => transport.capabilities(signal),
         upload: async () => {
           bytes ??= await source.read!(budget.signal);
-          const uploaded = await uploadSource(bytes, source.name, spaceId, budget.signal, emit);
+          // A password-protected source is never remembered on disk.
+          const uploaded = await uploadSource(bytes, source.name, spaceId, budget.signal, emit, call.password === undefined);
           reused = uploaded.reused;
           return uploaded.id;
         },
         uploadIntermediate: async (blob, name) => (await transport.files.upload(blob, {
-          name, spaceId, signal: budget.signal, onProgress: (progress) => emit({ phase: 'upload', progress }),
+          name, spaceId, signal: budget.signal, confirm: await confirmsUploads(budget.signal),
+          onProgress: (progress) => emit({ phase: 'upload', progress }),
         })).id,
         emit,
         imageRefs,
         created,
         resume: internals.resume,
+        onDispatch: internals.onDispatch,
+        onCreated: internals.onCreated,
       };
       try {
         return await runOps(verb, source, opsOptions, env);

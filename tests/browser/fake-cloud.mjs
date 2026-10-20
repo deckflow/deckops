@@ -108,18 +108,14 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
       state.requests.push(request);
       res.once('close', () => { request.closed = true; });
       const kind = (name) => caseName === name || caseName.startsWith(`${name}_`);
-      const token = req.headers['x-auth-token'];
-      if (kind('unauthorized') || (kind('refresh') && token !== 'fresh-token')) {
-        json(res, 401, { code: 'auth_error', message: 'Expired browser token' }); return;
-      }
-      if (route === '/user') { json(res, 200, { id: 'fixture-space' }); return; }
+      // Public routes: the capabilities list and signed result URLs need no credentials.
       if (route === '/tools/capabilities') {
         if (kind('legacy-server')) { json(res, 404, { message: 'Unknown route' }); return; }
         const tasks = kind('render-url') ? { ...FIXTURE_CAPABILITIES.tasks, 'convertor.html2png': { to: ['image'] } } : FIXTURE_CAPABILITIES.tasks;
         res.setHeader('Cache-Control', 'public, max-age=300');
         json(res, 200, { ...FIXTURE_CAPABILITIES, tasks }); return;
       }
-      if (route.startsWith('/files/')) {
+      if (route.startsWith('/results/')) {
         // Signed result URLs: they authorize themselves and must not carry credentials.
         if (kind('dead-result')) { json(res, 404, { message: 'gone' }); return; }
         const name = route.split('/').pop();
@@ -128,16 +124,17 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         if (name === 'document.json') { json(res, 200, FIXTURE_DOCUMENT); return; }
         const extension = name.slice(name.lastIndexOf('.'));
         res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
-        res.end(RESULT_BYTES[extension] ?? FIXTURE_PNG); return;
+        res.end(kind('corrupt-result') ? Buffer.from('not the reported bytes') : RESULT_BYTES[extension] ?? FIXTURE_PNG); return;
       }
-      if (route === '/image.png') {
-        if (kind('dead-image')) { json(res, 404, { message: 'gone' }); return; }
-        if (kind('hanging-image')) return;
-        res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(FIXTURE_PNG); return;
+      const token = req.headers['x-auth-token'];
+      if (kind('unauthorized') || (kind('refresh') && token !== 'fresh-token')) {
+        json(res, 401, { code: 'auth_error', message: 'Expired browser token' }); return;
       }
+      if (route === '/user') { json(res, 200, { id: 'fixture-space' }); return; }
       if (route.endsWith('/file/auth') && req.method === 'POST') {
         const id = `file-${state.uploads.length + 1}`;
-        state.uploads.push({ ...body, id });
+        // File.status: pending until the owner confirms the stored object (M12).
+        state.uploads.push({ ...body, id, status: 'pending', stored: false });
         const storageRoot = `${origin}/api/${caseName}/v1/storage/${id}`;
         if (kind('multipart')) {
           const partSize = 2 * 1024 * 1024;
@@ -161,8 +158,25 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         // Keep byte counts, not a multi-megabyte string, in test diagnostics.
         request.body = route.endsWith('/complete') ? bytes.toString() : undefined;
         if (kind('hanging-upload')) return;
+        const [, , fileId, part] = route.split('/');
+        const stored = state.uploads.find((upload) => upload.id === fileId);
+        if (stored && (!part || part === 'complete')) stored.stored = true;
         res.setHeader('ETag', '"fixture-etag"');
         json(res, 200, { ok: true }); return;
+      }
+      const statusMatch = /^\/files\/([^/]+)\/status\/uploaded$/.exec(route);
+      if (statusMatch && req.method === 'PUT') {
+        if (kind('legacy-server')) { json(res, 403, { code: 'notAllowed', message: 'No access' }); return; }
+        const upload = state.uploads.find((item) => item.id === statusMatch[1]);
+        if (!upload) { json(res, 404, { code: 'notFound', message: 'Resource not found' }); return; }
+        if (!upload.stored) { json(res, 422, { code: 'fileUploadInvalid', message: 'The uploaded object does not exist yet', data: { id: upload.id } }); return; }
+        if (kind('bad-upload')) {
+          upload.status = 'failed';
+          json(res, 422, { code: 'fileUploadInvalid', message: 'Uploaded bytes do not match the declared md5', data: { id: upload.id, expected: upload.hash } });
+          return;
+        }
+        upload.status = 'uploaded';
+        json(res, 200, { id: upload.id, status: 'uploaded' }); return;
       }
       if (route === '/tools/tasks' && req.method === 'POST') {
         if (kind('create-error')) { json(res, 502, { message: 'Transient gateway failure after submission' }); return; }
@@ -175,6 +189,13 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         // A test lists ids the server has forgotten (uploaded files expire).
         if ((body.fileIds ?? []).some((id) => state.expiredFiles?.includes(id))) {
           json(res, 404, { code: 'notFound', message: 'File not found or not owned by user' }); return;
+        }
+        // C1: document tasks only take files whose upload the server verified.
+        const unverified = String(body.type).startsWith('document.') &&
+          (body.fileIds ?? []).some((id) => state.uploads.find((upload) => upload.id === id)?.status !== 'uploaded');
+        if (unverified) {
+          json(res, 422, { code: 'documentSourceInvalid', message: 'File upload has not been verified: call PUT /files/:id/status/uploaded after uploading' });
+          return;
         }
         const task = {
           id: `task-${state.tasks.length + 1}`, spaceId: body.spaceId ?? 'fixture-space',
@@ -205,26 +226,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
           if (task.type.startsWith('document.') || task.type.startsWith('convertor.') || task.type === 'image.convertWebp') {
             json(res, 200, deliver(task, caseName, state)); return;
           }
-          if (task.type === 'parse.convert') {
-            const ref = `${origin}/api/${caseName}/v1/image.png?expires=fixture`;
-            const parsed = state.tasks.find((item) => item.type !== 'parse.convert' &&
-              (item.id === task.params.taskId || task.params.irKey === `fixture/${item.id}/ir.json`));
-            const format = ({ 'pdf.pdfParse': 'pdf', 'pptx.parse': 'pptx', 'docx.parseTextAndImage': 'docx',
-              'keynote.parseTextAndImage': 'keynote', 'html.getByURL': 'html' })[parsed?.type] ?? 'pptx';
-            json(res, 200, {
-              format, schemaVersion: 'result.v3', to: 'markdown',
-              markdown: `# Page one\n\n![](${ref})\n\n---\n\n# Page two`,
-              ...(task.params.markdownPages && ['pptx', 'keynote'].includes(format) ? { markdownPages: ['# Page one', '# Page two'] } : {}),
-              ...(kind('bad-markdown') ? { markdownError: 'Renderer failed' } : {}),
-              images: [{ ref, key: 'fixture/image.png', suggestedPath: 'assets/image.png', bytes: FIXTURE_PNG.length, hash: FIXTURE_PNG_MD5 }],
-            });
-          } else {
-            json(res, 200, {
-              irKey: `fixture/${task.id}/ir.json`, irSchemaVersion: 'result.v3',
-              document: { schemaVersion: 'result.v3', elements: [{ text: 'Hello browser' }] },
-              images: [],
-            });
-          }
+          json(res, 404, { message: `No fixture result for ${task.type}` });
           return;
         }
         if (req.headers['response-event-stream'] === 'yes') {
@@ -233,7 +235,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
           state.activeStreams += 1;
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
           res.write(`data: ${JSON.stringify({ ...task, status: 'running' })}\n\n`);
-          const timer = kind('pending') ? undefined : setTimeout(() => {
+          const timer = kind('pending') || state.forceStatus ? undefined : setTimeout(() => {
             res.end(`data: ${JSON.stringify({ ...task, status: 'completed' })}\n\n`);
           }, 15);
           res.once('close', () => {
@@ -244,7 +246,8 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
           return;
         }
         const jsonStreamPending = kind('json-stream') && !state.requests.some((item) => item.headers['response-event-stream'] === 'yes');
-        const status = kind('failed-task') ? 'failed' : kind('pending') || kind('sse') || kind('sse-unauthorized') || jsonStreamPending ? 'running' : 'completed';
+        // A test can hold every task (forceStatus: 'running') or fail it, then release it.
+        const status = state.forceStatus ?? (kind('failed-task') ? 'failed' : kind('pending') || kind('sse') || kind('sse-unauthorized') || jsonStreamPending ? 'running' : 'completed');
         json(res, 200, {
           ...task, status, ...(status === 'failed' ? { error: 'Fixture parser failure' } : {}),
           // detail carries only the summary of a document result; the full one comes from download
@@ -258,7 +261,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
       else res.destroy(error);
     });
   });
-  const filesBase = (caseName, task) => `${origin}/api/${caseName}/v1/files/${task.id}`;
+  const filesBase = (caseName, task) => `${origin}/api/${caseName}/v1/results/${task.id}`;
   const sourceOf = (task, state) => state.uploads.find((upload) => upload.id === task.fileIds?.[0]);
   const formatOf = (task, state) => {
     if (task.params.url) return 'html';
@@ -287,7 +290,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
     warnings: warningsOf(task, state, caseName),
   });
   const image = (caseName) => ({
-    url: `${origin}/api/${caseName}/v1/files/image.png?sig=fixture`, path: 'assets/image.png',
+    url: `${origin}/api/${caseName}/v1/results/image.png?sig=fixture`, path: 'assets/image.png',
     bytes: FIXTURE_PNG.length, hash: FIXTURE_PNG_MD5, mediaType: 'image/png',
   });
   function deliver(task, caseName, state) {

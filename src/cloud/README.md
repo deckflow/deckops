@@ -38,9 +38,9 @@ authentication and disables mutation retries by default.
 (`OPS_TASK_TYPES`). The transport assembles upload, create/get/wait/download/start and the
 `/tools/capabilities` lookup (`capabilities.ts`, cached per API root); `download.ts` fetches
 signed result URLs without credentials. Task waits fail with `TaskFailedError` or
-`TaskTimeoutError`, both carrying the task id. Routing and result shapes belong to `src/ops/`.
-`parse-facade.ts`, `parse/` and `legacy-transport.ts` keep the 3.0 parse primitives for the
-legacy client only. Generation, translation and task list/delete stay deliberately absent.
+`TaskTimeoutError`, both carrying the task id. Uploads can be confirmed with the server
+(`PUT /files/:id/status/uploaded`) before document tasks use them. Routing and result shapes
+belong to `src/ops/`. Generation, translation and task list/delete stay deliberately absent.
 
 Axios 1.19.0 and eventsource-parser 1.1.2 are direct dependencies matching the
 previous lock. This migration does not replace HTTP libraries. Strict optional

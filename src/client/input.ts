@@ -55,11 +55,10 @@ export function describeInput(input: ClientInput, runtime: DeckRuntime): InputSo
   throw DeckOpsError.input('Binary input needs { file: Blob | Uint8Array | ArrayBuffer, name: "document.pdf" }.');
 }
 
+/** A value's size is known up front, so an empty or oversized one fails before any request. */
 function valueSource(data: Blob | Uint8Array | ArrayBuffer, name: string): InputSource {
-  return {
-    family: familyOf(name), name,
-    read: async () => checked({ data, bytes: isBlob(data) ? data.size : data.byteLength, identity: data }),
-  };
+  const source = checked({ data, bytes: isBlob(data) ? data.size : data.byteLength, identity: data });
+  return { family: familyOf(name), name, read: async () => source };
 }
 
 function pathSource(file: string, name: string | undefined, runtime: DeckRuntime): InputSource {

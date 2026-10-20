@@ -4,15 +4,14 @@ import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { resetAuthUuidCacheForTests } from '../../src/node/auth-uuid.js';
 import { resetRetryDelaysForTests, setRetryDelaysForTests } from '../../src/cloud/errors.js';
-import { createClientWith } from '../../src/client/legacy.js';
+import { createClientWith } from '../../src/client/index.js';
 import { nodeRuntime } from '../../src/node/runtime.js';
 import { DEFAULT_ROOT, type CreateDeckOptions } from '../../src/cloud/contracts.js';
 import { createTransport } from '../../src/cloud/transport.js';
-import { withLegacyParse } from '../../src/cloud/legacy-transport.js';
 import { isValidAuthUuid } from '../../src/node/auth-uuid.js';
 import { APIError } from '../../src/cloud/errors.js';
 
-const createDeck = (options: CreateDeckOptions = {}) => withLegacyParse(createTransport(options, nodeRuntime));
+const createDeck = (options: CreateDeckOptions = {}) => createTransport(options, nodeRuntime);
 
 const TEST_AUTH_UUID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -50,7 +49,7 @@ describe('Node cloud transport', () => {
       expect(JSON.parse(String(config.data))).toMatchObject({
         spaceId: 'space-1',
         fileIds: ['file-1'],
-        type: 'pptx.parse',
+        type: 'convertor.ppt2image',
         name: 'slides',
         params: {},
       });
@@ -59,13 +58,13 @@ describe('Node cloud transport', () => {
         {
           id: 'task-1',
           spaceId: 'space-1',
-          type: 'pptx.parse',
+          type: 'convertor.ppt2image',
           status: 'pending',
         },
       ];
     });
 
-    const task = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'], name: 'slides' });
+    const task = await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'], name: 'slides' });
     expect(task.id).toBe('task-1');
   });
 
@@ -83,20 +82,20 @@ describe('Node cloud transport', () => {
       expect(JSON.parse(String(config.data))).toMatchObject({
         spaceId: 'space-from-user',
         fileIds: ['file-1'],
-        type: 'pptx.parse',
+        type: 'convertor.ppt2image',
       });
       return [
         200,
         {
           id: 'task-1',
           spaceId: 'space-from-user',
-          type: 'pptx.parse',
+          type: 'convertor.ppt2image',
           status: 'pending',
         },
       ];
     });
 
-    const task = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'] });
+    const task = await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'] });
     expect(task.id).toBe('task-1');
   });
 
@@ -119,13 +118,13 @@ describe('Node cloud transport', () => {
         {
           id: 'task-1',
           spaceId: 'space-from-api-key',
-          type: 'pptx.parse',
+          type: 'convertor.ppt2image',
           status: 'pending',
         },
       ];
     });
 
-    const task = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'] });
+    const task = await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'] });
     expect(task.spaceId).toBe('space-from-api-key');
   });
 
@@ -295,7 +294,7 @@ describe('Node cloud transport', () => {
     const raw = { irKey: 'parse/ir.json', irSchemaVersion: 'pptx.v1', slides: [] };
     mock.onGet('http://localhost:3000/api/tools/tasks/task-1/download').reply(200, raw);
 
-    await expect(deck.tasks.down<'pptx.parse'>('task-1')).resolves.toEqual(raw);
+    await expect(deck.tasks.down<'convertor.ppt2image'>('task-1')).resolves.toEqual(raw);
   });
 
 
@@ -349,21 +348,21 @@ describe('Node cloud transport', () => {
       expect(JSON.parse(String(config.data))).toMatchObject({
         spaceId: 'space-1',
         fileIds: ['existing-file', 'uploaded-file-1'],
-        type: 'pptx.parse',
+        type: 'convertor.ppt2image',
       });
       return [
         200,
         {
           id: 'task-1',
           spaceId: 'space-1',
-          type: 'pptx.parse',
+          type: 'convertor.ppt2image',
           status: 'pending',
           fileIds: ['existing-file', 'uploaded-file-1'],
         },
       ];
     });
 
-    const task = await deck.tasks.create({ type: 'pptx.parse',
+    const task = await deck.tasks.create({ type: 'convertor.ppt2image',
       fileIds: ['existing-file'],
       files: [{ input: new Uint8Array([97, 98, 99]), name: 'slides.pptx' }],
     });
@@ -381,7 +380,7 @@ describe('Node cloud transport', () => {
     mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
       expect(config.data).toBeInstanceOf(FormData);
       const form = config.data as FormData;
-      expect(form.get('type')).toBe('pptx.parse');
+      expect(form.get('type')).toBe('convertor.ppt2image');
       expect(form.get('spaceId')).toBe('space-1');
       expect(form.get('params')).toBe('{}');
       expect(form.get('fileIds')).toBeNull();
@@ -393,13 +392,13 @@ describe('Node cloud transport', () => {
         {
           id: 'task-inline',
           spaceId: 'space-1',
-          type: 'pptx.parse',
+          type: 'convertor.ppt2image',
           status: 'pending',
         },
       ];
     });
 
-    const task = await deck.tasks.create({ type: 'pptx.parse',
+    const task = await deck.tasks.create({ type: 'convertor.ppt2image',
       files: [{ input: new Uint8Array([97, 98, 99]), name: 'slides.pptx' }],
     });
 
@@ -428,21 +427,21 @@ describe('Node cloud transport', () => {
     mock.onPost('http://localhost:3000/api/tools/tasks').reply((config) => {
       expect(JSON.parse(String(config.data))).toMatchObject({
         fileIds: ['uploaded-large'],
-        type: 'pptx.parse',
+        type: 'convertor.ppt2image',
       });
       return [
         200,
         {
           id: 'task-large',
           spaceId: 'space-1',
-          type: 'pptx.parse',
+          type: 'convertor.ppt2image',
           status: 'pending',
           fileIds: ['uploaded-large'],
         },
       ];
     });
 
-    const task = await deck.tasks.create({ type: 'pptx.parse',
+    const task = await deck.tasks.create({ type: 'convertor.ppt2image',
       files: [{ input: large, name: 'large.bin' }],
     });
 
@@ -578,19 +577,19 @@ describe('Node cloud transport', () => {
       }
       return [
         200,
-        { id: 'task-1', spaceId: 'space-1', type: 'pptx.parse', status: 'pending' },
+        { id: 'task-1', spaceId: 'space-1', type: 'convertor.ppt2image', status: 'pending' },
       ];
     });
     mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply((config) => {
       expect(config.headers?.['X-Auth-Token']).toBe('new-token');
       return [
         200,
-        { id: 'task-1', spaceId: 'space-1', type: 'pptx.parse', status: 'completed' },
+        { id: 'task-1', spaceId: 'space-1', type: 'convertor.ppt2image', status: 'completed' },
         { 'content-type': 'application/json' },
       ];
     });
 
-    await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'] });
+    await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'] });
     expect(refreshCalls).toBe(1);
 
     await deck.tasks.get('task-1');
@@ -612,13 +611,13 @@ describe('Node cloud transport', () => {
         {
           id: 'task-1',
           spaceId: 'space-1',
-          type: 'pptx.parse',
+          type: 'convertor.ppt2image',
           status: 'pending',
         },
       ];
     });
 
-    await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'] });
+    await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'] });
     await expect(deck.getAuthUuid()).resolves.toBe(TEST_AUTH_UUID);
   });
 
@@ -643,13 +642,13 @@ describe('Node cloud transport', () => {
         {
           id: 'task-1',
           spaceId: 'space-1',
-          type: 'pptx.parse',
+          type: 'convertor.ppt2image',
           status: 'pending',
         },
       ];
     });
 
-    await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'] });
+    await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'] });
     expect(stored).toMatch(UUID_V4_RE);
     expect(isValidAuthUuid(stored)).toBe(true);
 
@@ -768,15 +767,15 @@ describe('Node cloud transport', () => {
       expect(config.headers?.['X-Auth-Token']).toBeUndefined();
       expect(JSON.parse(String(config.data))).toMatchObject({
         spaceId: 'guest-space',
-        type: 'pptx.parse',
+        type: 'convertor.ppt2image',
       });
       return [
         200,
-        { id: 'task-guest', spaceId: 'guest-space', type: 'pptx.parse', status: 'pending' },
+        { id: 'task-guest', spaceId: 'guest-space', type: 'convertor.ppt2image', status: 'pending' },
       ];
     });
 
-    const task = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'] });
+    const task = await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'] });
     expect(task.id).toBe('task-guest');
   });
 
@@ -930,15 +929,15 @@ describe('Node cloud transport', () => {
       expect(JSON.parse(String(config.data))).toMatchObject({
         spaceId: 'guest-space',
         fileIds: ['file-1'],
-        type: 'pptx.parse',
+        type: 'convertor.ppt2image',
       });
       return [
         200,
-        { id: 'task-guest', spaceId: 'guest-space', type: 'pptx.parse', status: 'pending' },
+        { id: 'task-guest', spaceId: 'guest-space', type: 'convertor.ppt2image', status: 'pending' },
       ];
     });
 
-    const task = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'] });
+    const task = await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'] });
     expect(task.id).toBe('task-guest');
   });
 
@@ -950,14 +949,14 @@ describe('Node cloud transport', () => {
 
     // 取默认空间就连不上：没有发出建任务的请求，也就不会有云端任务。
     mock.onGet('http://localhost:3000/api/user').networkError();
-    const lookup = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'], onDispatch }).catch((error: unknown) => error);
+    const lookup = await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'], onDispatch }).catch((error: unknown) => error);
     expect(onDispatch).not.toHaveBeenCalled();
     expect(lookup).toBeInstanceOf(APIError);
     expect((lookup as APIError).message).toBe('Cannot reach the DeckFlow API (GET http://localhost:3000/api/user): Network Error');
 
     mock.onGet('http://localhost:3000/api/user').reply(200, { id: 'guest-space' });
     mock.onPost('http://localhost:3000/api/tools/tasks').timeout();
-    const create = await deck.tasks.create({ type: 'pptx.parse', fileIds: ['file-1'], onDispatch }).catch((error: unknown) => error);
+    const create = await deck.tasks.create({ type: 'convertor.ppt2image', fileIds: ['file-1'], onDispatch }).catch((error: unknown) => error);
     expect(onDispatch).toHaveBeenCalledTimes(1);
     expect((create as APIError).message).toMatch(/^Cannot reach the DeckFlow API \(POST http:\/\/localhost:3000\/api\/tools\/tasks\): ECONNABORTED: timeout/);
   });
@@ -976,7 +975,8 @@ describe('Node cloud transport', () => {
     mock.onGet('http://localhost:3000/api/user').reply(guestLookup);
     mock.onPost('http://localhost:3000/api/tools/tasks').reply(401, { message: 'Not authentication' });
 
-    const error = await client.parse({ file: new Uint8Array([1, 2, 3]), name: 'deck.pptx' }).catch((caught: unknown) => caught);
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-1').reply(401, { message: 'Not authentication' });
+    const error = await client.tasks.get('task-1').catch((caught: unknown) => caught);
     expect(error).toMatchObject({ code: 'auth_error', hint: expect.stringContaining('deckops auth login') });
     expect(guestLookup).not.toHaveBeenCalled();
   });
@@ -996,26 +996,11 @@ describe('Node cloud transport', () => {
     // 实测（测试环境）：刚建好的任务头几秒回空响应体；2.5.1 连续三次就报错，一个正常的任务因此失败。
     const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
     const snapshots: Array<[number, unknown]> = [[200, ''], [200, ''], [200, ''], [200, ''],
-      [200, { id: 'task-new', spaceId: 'space-1', type: 'pptx.parse', status: 'completed' }]];
+      [200, { id: 'task-new', spaceId: 'space-1', type: 'convertor.ppt2image', status: 'completed' }]];
     mock.onGet('http://localhost:3000/api/tools/tasks/task-new').reply(() => snapshots.shift() ?? [200, '']);
 
     const task = await deck.tasks.wait('task-new', { timeout: 30, pollInterval: 1, useEventStream: false });
     expect(task.status).toBe('completed');
-  });
-
-  it('resumes a submitted parse task without creating another one', async () => {
-    const deck = createDeck({ root: 'http://localhost:3000/api', token: 'token-1', spaceId: 'space-1' });
-    const create = vi.fn(() => [500, {}]);
-    mock.onPost('http://localhost:3000/api/tools/tasks').reply(create);
-    mock.onGet('http://localhost:3000/api/tools/tasks/task-9').reply(200, { id: 'task-9', spaceId: 'space-2', type: 'pptx.parse', status: 'completed' });
-    mock.onGet('http://localhost:3000/api/tools/tasks/task-9/download').reply((config) => {
-      expect(config.params).toEqual({ spaceId: 'space-2' });
-      return [200, { irKey: '2026-09/ab/ir.json', irSchemaVersion: 'pptx.v1', slides: [] }];
-    });
-
-    const parsed = await deck.resume('task-9', 'pptx.parse', { spaceId: 'space-2', wait: { timeout: 5 } });
-    expect(parsed).toMatchObject({ taskId: 'task-9', type: 'pptx.parse', irKey: '2026-09/ab/ir.json' });
-    expect(create).not.toHaveBeenCalled();
   });
 
   it('uploads files in guest mode using spaceId resolved from /user', async () => {

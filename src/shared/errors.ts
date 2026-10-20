@@ -9,20 +9,24 @@ const BODY_CODE_MAP: Record<string, ErrorCode> = {
   guestTaskOverLimit: 'quota_error',
   insufficientPackage: 'quota_error',
   documentSourceInvalid: 'input_error',
+  fileUploadInvalid: 'input_error',
 };
 
+/** Body codes whose body the caller acts on: a top-up dialog, or the file that failed verification. */
+const KEEP_BODY: ReadonlySet<string> = new Set(['insufficientPackage', 'guestTaskOverLimit', 'documentSourceInvalid', 'fileUploadInvalid']);
+
 const NODE_HINTS: Partial<Record<ErrorCode, string>> = {
-  ir_expired: 'The IR is past its 7-day retention. Re-run `deckops parse <source> --force` and retry.',
-  ir_not_found: 'The reference is wrong or belongs to another space. Re-run `deckops parse <source>`.',
-  ir_schema_unsupported: 'The IR was produced by an incompatible parser version. Re-parse the source.',
+  ir_expired: 'The cloud no longer holds that parse. Run the command again.',
+  ir_not_found: 'The cloud does not know that parse in this space. Run the command again.',
+  ir_schema_unsupported: 'The cloud parse came from an incompatible parser version. Run the command again.',
   quota_error: 'The account or guest quota is exhausted. Top up the package, or run `deckops auth login` for higher limits.',
   auth_error: 'Run `deckops auth login`, or check `deckops config list` for a stale credential.',
 };
 
 const BROWSER_HINTS: Partial<Record<ErrorCode, string>> = {
-  ir_expired: 'The IR is past its cloud retention. Parse the source again and retry.',
-  ir_not_found: 'The reference is wrong or belongs to another space. Check the spaceId or parse the source again.',
-  ir_schema_unsupported: 'The IR was produced by an incompatible parser version. Parse the source again.',
+  ir_expired: 'The cloud no longer holds that parse. Retry the operation.',
+  ir_not_found: 'The cloud does not know that parse in this space. Check the spaceId and retry.',
+  ir_schema_unsupported: 'The cloud parse came from an incompatible parser version. Retry the operation.',
   quota_error: 'The current quota is exhausted. Sign in with an account that has available quota and retry.',
   auth_error: 'The access token is missing or expired. Refresh the user access token and retry.',
 };
@@ -46,6 +50,11 @@ interface TaskErrorLike extends Error {
 /** Task failures and timeouts from the transport, recognised by name like the API error. */
 function isTaskError(error: unknown, name: 'TaskFailedError' | 'TaskTimeoutError'): error is TaskErrorLike {
   return error instanceof Error && error.name === name;
+}
+
+function bodyOf(error: unknown): Record<string, unknown> | undefined {
+  const body = (error as { responseData?: unknown } | undefined)?.responseData;
+  return typeof body === 'object' && body !== null && !Array.isArray(body) ? { ...(body as Record<string, unknown>) } : undefined;
 }
 
 /** Avoid a runtime dependency on either SDK entry or its particular Error class. */
@@ -82,8 +91,7 @@ export function translateError(
             ? 'quota_error'
             : 'backend_error');
     // A top-up dialog reads the package details from the server's own body.
-    const details = code === 'quota_error' && typeof body === 'object' && body !== null
-      ? { ...(body as Record<string, unknown>) } : undefined;
+    const details = code === 'quota_error' || (bodyCode !== undefined && KEEP_BODY.has(bodyCode)) ? bodyOf(error) : undefined;
     const hints = context === 'node' ? NODE_HINTS : BROWSER_HINTS;
     const notFoundHint = context === 'node' ? NODE_NOT_FOUND_HINT : BROWSER_NOT_FOUND_HINT;
     // 没有状态码也没有响应体：请求根本没到服务端（连不上、超时），多半是网络或代理。
@@ -108,24 +116,22 @@ export function translateError(
     });
   }
 
+  if (error instanceof Error && error.name === 'UploadUnconfirmedError') {
+    // The server compared the stored object with the declared size and md5, and they differ.
+    const { fileId } = error as Error & { fileId?: string };
+    const body = bodyOf((error as { cause?: unknown }).cause);
+    return DeckOpsError.input(error.message, {
+      hint: 'Upload it again. If this repeats, the file may be changing while it uploads.',
+      details: { ...(fileId ? { fileId } : {}), ...(body ?? {}) },
+      cause: error,
+    });
+  }
+
+  if (error instanceof Error && error.name === 'DownloadError') {
+    return DeckOpsError.backend(error.message, { hint: 'The result URL could not be fetched. Retry the command.', ...task, cause: error });
+  }
+
   if (error instanceof Error) {
-    // The SDK refuses parse results without an irKey: backend older than the split.
-    if (/returned no irKey/.test(error.message)) {
-      return DeckOpsError.backend(error.message, {
-        hint: 'The backend needs @deckflow/platform-slave >= 0.22.0.',
-        ...task,
-        cause: error,
-      });
-    }
-    if (/did not complete within/.test(error.message)) {
-      return DeckOpsError.backend(error.message, {
-        hint: context === 'node'
-          ? 'Raise --timeout, or check the task later with its taskId.'
-          : 'Increase the timeout, or check the task later with its taskId.',
-        ...task,
-        cause: error,
-      });
-    }
     return DeckOpsError.backend(error.message, { ...task, cause: error });
   }
 
