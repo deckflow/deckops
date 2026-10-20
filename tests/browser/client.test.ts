@@ -87,6 +87,19 @@ describe('browser SDK over real HTTP', () => {
     }
   });
 
+  it('reports to each concurrent call only its own progress', async () => {
+    const client = clientFor('sse_events');
+    const seen: ProgressEvent[][] = [[], []];
+    const results = await Promise.all(['https://example.com/a', 'https://example.com/b'].map((url, index) =>
+      client.convert({ url }, { onProgress: (event) => seen[index]!.push(event) })));
+    results.forEach((result, index) => {
+      const ids = seen[index]!.flatMap((event) => event.phase === 'task' ? [event.id] : []);
+      expect(new Set(ids)).toEqual(new Set([result.tasks[0]!.id]));
+      expect(seen[index]!.filter((event) => event.phase === 'download').length).toBeGreaterThan(0);
+    });
+    expect(results[0]!.tasks[0]!.id).not.toBe(results[1]!.tasks[0]!.id);
+  });
+
   it('uploads to storage without credentials and reports upload progress', async () => {
     const size = 4 * 1024 * 1024 + 1;
     const progress: ProgressEvent[] = [];
