@@ -1,6 +1,6 @@
 {
   "name": "@deckflow/deckops",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Probe, render, extract and convert documents: local DeckProbe reports, and PDF, PPTX, DOCX, Keynote and URLs to images, video, structured JSON and Markdown through DeckOps Cloud.",
   "type": "module",
   "main": "./dist/index.js",

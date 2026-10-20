@@ -15,7 +15,7 @@ metadata:
   tool: deckops
   homepage: https://github.com/deckflow/deckops
   deckops-skill-format: "1"
-  tested-cli-version: "4.0.0"
+  tested-cli-version: "4.0.1"
 ---
 
 # DeckOps
@@ -42,11 +42,11 @@ deckops --version
 deckops auth status
 ```
 
-The instructions are tested with DeckOps 4.0.0. If `deckops` is missing and Node.js 22.18+
+The instructions are tested with DeckOps 4.0.1. If `deckops` is missing and Node.js 22.18+
 and network access are available, use this command prefix in the examples below:
 
 ```bash
-npx -y @deckflow/deckops@4.0.0
+npx -y @deckflow/deckops@4.0.1
 ```
 
 If a cloud verb needs a login and `auth status` reports none, ask the user to run

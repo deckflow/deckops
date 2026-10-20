@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.0.1 — 2026-10-20 — Browser runtime fixes
+
+Fixes from runtime checks of the 4.0.0 browser entry in platform-slide-editor.
+
+- A call that shared another call's upload of the same `File` (or the same bytes) no longer inherits
+  that call's end. When the other call was cancelled with its own reason, timed out or failed, this
+  call now uploads the file itself instead of failing at once with the other call's error; it ends
+  only by its own `signal` or timeout, also while it waits for the shared upload.
+- Waiting for a task falls back to polling as soon as the event stream fails at the network layer
+  (`TypeError: Failed to fetch` in browsers, `fetch failed` in Node), as it already did for a failure
+  with an HTTP status. It used to reconnect every 5 seconds for up to 100 attempts and miss a task that
+  had long finished.
+- Token refresh: a 401 for a request that left before a shared refresh finished is retried once with
+  the new token instead of calling `onUnauthorized` again. A refresh no longer moves the retried request
+  to the client's default space: a call with its own `spaceId` keeps it (it used to create the task in
+  the default space).
+- A 402 rejects with the server's message (`API Error (402): Insufficient package balance`) instead of
+  a generic checkout text; the body stays in `details`.
+- `authUuid`, localStorage `df_uuid` and the Node device id accept any 1–100 visible ASCII characters,
+  such as a nanoid, instead of only a UUID v4. A stored `df_uuid` that is not a UUID is reused instead
+  of being replaced. An empty value, whitespace or non-ASCII is still a `usage_error`.
+- The browser bundle measures 39,239 bytes minified + gzip; CI holds it to that plus 10 %.
+
+Known limitations:
+
+- axios registers a `message` listener on `window` when the browser entry is imported in a browser-like
+  environment. The entry sends no request and reads no storage at import.
+- `createClient()` reads, and when missing writes, localStorage `df_uuid` right after it is constructed,
+  not at the first request.
+- An upload sent as one signed PUT reports upload progress only at completion (`progress: 1`);
+  multipart uploads report each part.
+
 ## 4.0.0 — 2026-10-20 — Probe, render, extract and convert
 
 Breaking. DeckOps has four atomic capabilities and no parse verb or IR artifact: the cloud
