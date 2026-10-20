@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +24,16 @@ const run = (args, { env = cloudEnv('cli'), success = true } = {}) => new Promis
   });
 });
 const json = async (args, options) => JSON.parse((await run(args, options)).stdout);
+/** A reader that stops early (`deckops doc.pdf | head -c 10`): the pipe is closed before DeckOps writes. */
+const closed = (stream, args, env = cloudEnv('cli')) => new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, [path.join(root, 'dist/cli.js'), ...args], { cwd: temp, env, stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000 });
+  child[stream].destroy();
+  const other = stream === 'stdout' ? 'stderr' : 'stdout';
+  const output = { [other]: '' };
+  child[other].on('data', (chunk) => { output[other] += chunk; });
+  child.on('error', reject);
+  child.on('close', (status) => resolve({ status, ...output }));
+});
 const tasks = (name) => cloud.state(name).tasks;
 try {
   const pdf = path.join(root, 'tests/generated/test.pdf');
@@ -76,9 +86,19 @@ try {
   const unsupported = await json(['render', pdf, '--to', 'video', '--json'], { success: false });
   assert.equal(unsupported.error.code, 'unsupported'); assert.match(unsupported.error.hint, /\.pdf can render to image/);
 
+  // A closed stdout ends any verb quietly with exit 0, not with an EPIPE stack.
+  for (const args of [[pdf], ['convert', pdf, '-o', '-'], ['extract', pdf, '--to', 'json', '-o', '-'],
+    ['render', pdf, '--to', 'image', '-o', path.join(temp, 'piped-frames')], ['probe', pdf], ['formats']]) {
+    assert.deepEqual(await closed('stdout', args, args[0] === 'probe' ? baseEnv : undefined), { status: 0, stderr: '' }, args.join(' '));
+  }
+  // A closed stderr loses only the warnings: the content still arrives and a failure keeps its exit code.
+  const warned = await closed('stderr', [pdf], cloudEnv('soft-render-error'));
+  assert.deepEqual(warned, { status: 0, stdout: FIXTURE_MARKDOWN.replace('assets/image.png', signed('soft-render-error')) });
+  assert.deepEqual(await closed('stderr', ['render', pdf]), { status: 2, stdout: '' });
+
   const formats = await json(['formats', '--json']);
   assert.deepEqual(formats.map((row) => `${row.verb}:${row.to}`), ['probe:report', 'render:image', 'render:video', 'convert:markdown', 'extract:json', 'extract:assets']);
-  console.log('Built CLI content contract passed: default entry, convert/extract/render outputs, upload reuse, offline probe, removed 3.x surface, formats.');
+  console.log('Built CLI content contract passed: default entry, convert/extract/render outputs, upload reuse, offline probe, removed 3.x surface, closed pipes, formats.');
 } finally {
   await cloud.close();
   fs.rmSync(temp, { recursive: true, force: true });

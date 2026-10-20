@@ -191,6 +191,16 @@ async function main(): Promise<void> {
   }
 }
 
+// A reader that stops early (`deckops doc.pdf | head`) closes the pipe: the run is over, quietly.
+// A closed stderr only loses diagnostics; the run continues so stdout and the exit code stay right.
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code !== 'EPIPE') throw error;
+  process.exit(0);
+});
+process.stderr.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code !== 'EPIPE') throw error;
+});
+
 main().catch((error: unknown) => {
   if (error instanceof DeckOpsError) {
     printError(error, 'convert', { json: process.argv.includes('--json'), quiet: false });
