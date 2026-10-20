@@ -8,10 +8,10 @@ const expected = [
   'LICENSE',
   'NOTICE',
   'SKILL.md',
-  'references/artifact.md',
   'references/formats.md',
   'references/limits.md',
   'references/output.md',
+  'references/probe.md',
   'references/recipes.md',
 ];
 

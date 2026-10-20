@@ -37,7 +37,7 @@ describe('agent skill installation', () => {
 
     expect(first.scope).toBe('explicit');
     expect(fs.readFileSync(path.join(destination, 'SKILL.md'), 'utf8')).toContain('deckops-skill-format: "1"');
-    expect(fs.existsSync(path.join(destination, 'references/artifact.md'))).toBe(true);
+    expect(fs.existsSync(path.join(destination, 'references/probe.md'))).toBe(true);
     const state = JSON.parse(fs.readFileSync(path.join(destination, '.deckops-skill.json'), 'utf8'));
     expect(state).toMatchObject({ schemaVersion: 1, name: 'deckops' });
     expect(state.files['SKILL.md']).toMatch(/^[a-f0-9]{64}$/);

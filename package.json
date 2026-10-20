@@ -1,7 +1,7 @@
 {
   "name": "@deckflow/deckops",
-  "version": "3.0.0",
-  "description": "Parse any document into an agent-operable representation. Parse once, convert repeatedly: PDF, PPTX, DOCX, Keynote and URLs into durable IR artifacts and Markdown.",
+  "version": "4.0.0",
+  "description": "Probe, render, extract and convert documents: local DeckProbe reports, and PDF, PPTX, DOCX, Keynote and URLs to images, video, structured JSON and Markdown through DeckOps Cloud.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -53,15 +53,16 @@
   },
   "keywords": [
     "cli",
-    "parse",
     "deckflow",
     "pdf",
     "pptx",
     "docx",
     "keynote",
     "markdown",
-    "ir",
-    "document-parsing"
+    "probe",
+    "render",
+    "extract",
+    "convert"
   ],
   "license": "Apache-2.0",
   "repository": {

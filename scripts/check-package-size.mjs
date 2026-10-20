@@ -54,7 +54,7 @@ try {
   if (!skillReceipt.ok || skillReceipt.op !== 'install' || !fs.existsSync(path.join(installedSkill, 'SKILL.md'))) {
     throw new Error('The production package could not install its DeckOps agent skill.');
   }
-  for (const relative of ['LICENSE', 'NOTICE', 'references/artifact.md', 'references/formats.md', 'references/limits.md', 'references/output.md', 'references/recipes.md']) {
+  for (const relative of ['LICENSE', 'NOTICE', 'references/formats.md', 'references/limits.md', 'references/output.md', 'references/probe.md', 'references/recipes.md']) {
     if (!fs.existsSync(path.join(installedSkill, relative))) throw new Error(`Installed skill is missing ${relative}.`);
   }
   const coldStarts = Array.from({ length: 20 }, () => {

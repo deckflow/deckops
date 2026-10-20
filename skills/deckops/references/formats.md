@@ -1,48 +1,51 @@
-# Formats and operations
+# Verbs, inputs and options
 
-`deckops formats --json` prints the installed CLI's matrix; the relevant `--help` lists live
-flags. Every input below is parsed by DeckOps Cloud after it is uploaded.
+`deckops formats --json` prints the table the CLI routes by. Anything outside it fails with
+`unsupported` and names the nearest combinations that exist.
 
-| Input | Cloud parse task | Markdown | Notes |
-| --- | --- | --- | --- |
-| `.pdf` | `pdf.pdfParse` | Yes | `--profile`, `--password`, `--no-images`; `--anchors` on convert. |
-| `.pptx` | `pptx.parse` | Yes; artifact views can split by slide | `--split-pages` on convert. |
-| `.docx` | `docx.parseTextAndImage` | Yes | No DOCX-specific parse options. |
-| `.key` | `keynote.parseTextAndImage` | Yes; artifact views can split by slide | `--stay-image-area-rate`; `--split-pages` on convert. |
-| HTTP(S) URL | `html.getByURL` | Yes | `--mode source` or `runtime` (default). The cloud fetches the URL. |
-| `.doc`, `.ppt`, `.xls`, `.xlsx`, `.pages`, `.numbers` | Unsupported | Unsupported | Exit 3 with a hint, e.g. save as `.docx`/`.pptx`. |
-| Artifact directory | Already parsed | Yes, by its IR reference | Never uploads the source; fails with `ir_expired` after 7 days. |
-
-Artifacts written by DeckOps 2.x are refused with `input_error`; parse the source again with
-`--force`.
-
-## Parse options
-
-| Option | Format | Values and notes |
+| Verb and target | Inputs | Cloud task |
 | --- | --- | --- |
-| `--profile` | PDF | `fast`, `balanced` (default), or `quality`. |
-| `--password` | PDF | The PDF password. Never repeat or expose it in summaries or logs. |
-| `--no-images` | PDF | Skips image extraction; use only when images cannot affect the task. |
-| `--stay-image-area-rate` | Keynote | Number from 0 through 1. |
-| `--mode` | URL | `source` (fetched page source) or `runtime` (rendered page, default). |
+| `probe` | `.pdf` `.pptx` `.docx` `.xlsx` `.key` `.ppt` `.doc` `.pages` `.numbers` | none — local |
+| `render --to image` | `.pptx` `.ppt` `.pdf` `.key` `.docx` `.html` `.md` | `convertor.*` (DOCX through PDF) |
+| `render --to video` | `.pptx` `.ppt` | `convertor.ppt2video` |
+| `extract --to json` | `.pdf` `.pptx` `.docx` `.key`, http(s) URL | `document.extract` |
+| `extract --to assets` | `.pdf` `.pptx` `.docx` `.key`, http(s) URL | `document.extract` |
+| `convert --to markdown` | `.pdf` `.pptx` `.docx` `.key`, http(s) URL | `document.convert` |
 
-A parse option on the wrong format is a `usage_error` before anything is uploaded. Parse
-options cannot be applied to an existing artifact; parse the source into a separate artifact
-when a different parse is needed, so the previous result remains available.
+Rendering a URL needs a server that lists it; until then save the page as `.html` and render the
+file. Spreadsheets and Pages/Numbers documents are probe-only in this version.
 
-## View options
+## Render options
 
-| Option | Applies to | Notes |
-| --- | --- | --- |
-| `--to markdown` | Every input | Markdown is the only target in this version. |
-| `--anchors` | PDF | Emits provenance comments carrying element identifiers. |
-| `--split-pages` | PPTX and Keynote | Writes `001.md`, `002.md`, … beside `index.md` in an artifact view. |
-| `--strict` | Every input | Fails the cloud render instead of degrading. |
-| `--keep-remote-images` | Every input | Accepts expiring remote image links when a download fails; the result is not durable offline. |
+- `--pages 1-3,7` keeps those pages. The cloud renders and bills every page.
+- `--quality low|medium|high` picks size and encoding; `--width <px>` sets the long edge;
+  `--scale <n>` multiplies the default size. PPTX renders at 1080, 1920 or 2560 and warns when it
+  snaps a requested size.
+- `--image-format png|jpg|webp`: `jpg` for PPTX/PPT, PDF and DOCX only; `webp` everywhere.
+- Video takes none of these.
 
-## Claims about content
+## Parse options (extract and convert)
 
-Use the IR fields and Markdown that exist. Do not promise that columns, floating objects,
-cross-page tables, formulas, or charts were reconstructed when the output shows otherwise.
-Convert serializes the IR to Markdown; export (returning a modified document in its source
-format) is not implemented, so do not describe Markdown output as an exported document.
+| Option | Applies to |
+| --- | --- |
+| `--profile fast\|balanced\|quality` | PDF; `quality` costs more |
+| `--password <pwd>` | encrypted PDF |
+| `--no-images` | PDF |
+| `--stay-image-area-rate <0-1>` | Keynote |
+
+Changing parse options is a different parse: the cloud reuses a parse only for the same file
+and the same options. A password-protected source is never reused.
+
+## Convert options
+
+- `--anchors` — PDF: per-element provenance comments in the Markdown.
+- `--split-pages` — PPTX/Keynote: also one Markdown file per slide.
+- `--strict` — fail instead of warning when the Markdown cannot be rendered.
+- `--keep-remote-images` — link images by their signed URLs instead of downloading them.
+
+An option that cannot apply to the input is a `usage_error` before anything is uploaded.
+
+## Common options
+
+`-o/--output`, `--from <ext>` (stdin), `--space <id>`, `--timeout <seconds>` (default 300, the
+whole run), `--force`, `--api-key`, `--token`, `--api-base`, `--json`, `--quiet`.

@@ -1,5 +1,63 @@
 # Changelog
 
+## 4.0.0 — 2026-10-20 — Probe, render, extract and convert
+
+Breaking. DeckOps has four atomic capabilities and no parse verb or IR artifact: the cloud
+parses a document once, keeps that parse for 7 days, and reuses it by file hash in the same
+space without another charge. DeckOps 4 needs a DeckOps Cloud with document tasks
+(`GET /tools/capabilities`); against an older server, convert and extract fail with
+`unsupported` while render keeps working. There is no fallback to the 3.0 protocol.
+
+| 3.x | 4.0 |
+| --- | --- |
+| `deckops doc.pdf` | unchanged (= `convert --to markdown -o -`) |
+| `deckops convert doc.pdf -o doc.md` | unchanged (images in `doc.assets/`) |
+| `deckops parse doc.pdf` | removed; for structured content `deckops extract doc.pdf --to json -o doc.json` |
+| `deckops convert doc/` | removed (no artifacts; the cloud reuses the parse of the same file for 7 days) |
+| `deckops doc.pdf --format ir` | `deckops extract doc.pdf --to json -o -` |
+| `--report run.json` | removed; `--json` prints the envelope |
+| `--mode source\|runtime` | removed; a URL is read as the rendered page |
+| (new) | `deckops probe doc.pdf`, `deckops render deck.pptx --to image\|video`, `deckops extract doc.pdf --to assets` |
+| SDK `parse()` / `openArtifact()` / `ParsedDocument` / `read()` | `createClient().convert()` / `.extract()` / `.render()`; `probe()` |
+| browser `client.parse(file)` → `doc.ir()` → `doc.convert()` | `ops.convert(file)` and `ops.extract(file, { to: 'json' })`; one upload |
+| browser `getTask(id)` / `resume(id, type)` | `ops.tasks.get(id)`; resuming is internal to the Node CLI |
+
+- **probe** runs the optional `@deckflow/deckprobe@2.7.0` engine locally (native when its platform
+  package is installed, WebAssembly otherwise). It needs no credentials, sends no request and spends
+  no quota; its schema-2 report is printed unchanged. With `--omit=optional` it reports `unsupported`.
+- **render** turns PPTX/PPT, PDF, Keynote, DOCX (through PDF), HTML and Markdown into images, and
+  PPTX/PPT into video, with `--pages`, `--quality`, `--image-format png|jpg|webp`, `--width` and
+  `--scale`. Frames are written as `<stem>/001.png …`.
+- **extract** `--to json` writes the server's structured document with its `schemaVersion`, and its
+  images to `<stem>.assets/`; `--to assets` writes only the images.
+- **convert** writes Markdown with images in `<stem>.assets/` (each document owns its directory, so
+  many can share an output directory; `--split-pages` pages share it). `--keep-remote-images` keeps the
+  signed links.
+- One route table (`src/ops/routes.ts`, data only) maps verb × input × target to cloud tasks;
+  `deckops formats` prints it. A missing combination fails with `unsupported` and names the nearest
+  ones that exist.
+- `--json` envelopes are the same for every verb: `tasks[]` replaces `taskId`/`parseTaskId`, and
+  document verbs add `format`, `pages`, `reusedParse` and `schemaVersion`. Error envelopes and exit
+  codes are unchanged; `insufficientPackage` is now `quota_error`.
+- `--timeout` (default 300) bounds the whole run, uploads and downloads included; a timeout names the
+  task it waited for.
+- Uploads are verified by the server before a task uses them. `~/.cache/deckops/index.json` keeps only
+  `sha256 → fileId` (three days; never for password-protected sources) and the submission journal: an
+  interrupted run continues its task on the next identical run instead of paying again. There is no
+  artifact directory, `manifest.json`, `ir.json` or view cache any more.
+- SDK: `createClient()` returns `{ render, convert, extract, tasks, files }` plus `probe` in Node.
+  Results carry `content` (Markdown text, or the parsed JSON document), `format`, `pages`,
+  `reusedParse`, `warnings`, `tasks[]`, `outputs` of signed `RemoteFile`s (`blob()`), and `images` /
+  `assets`. `DeckOpsError` gains `details`; `isDeckOpsError(error, code?)` is exported.
+- Browser: `createClient({ apiBase, token, spaceId, onUnauthorized, authUuid })`; one call timeout in
+  seconds (default 300); `signal` rejects with its own reason; Markdown image links are signed URLs by
+  default (`imageRefs: 'path'` keeps the relative paths); the same `File` is uploaded once per client;
+  progress phases are `upload` / `task` / `download`. Unknown options such as `preflight` are a
+  `usage_error`. The bundle measures 39,025 bytes minified + gzip with the route table, render and
+  extract (3.0.0: 34,049); CI holds it to that plus 10 %.
+- Package: `@deckflow/deckprobe` is an optional dependency, kept out of `dist/` and out of the browser
+  entry. The `--omit=optional` install keeps the 3.0 budget (12 MiB, no native binaries).
+
 ## 3.0.0 — 2026-10-19 — Cloud-only SDK and CLI
 
 Breaking. DeckOps is now a thin client for DeckOps Cloud: the server parses, owns the IR and renders

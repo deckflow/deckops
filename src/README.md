@@ -25,16 +25,20 @@ and limits, `errors/` the error and exit code contract; both are safe in every r
 
 1. `cloud/` only knows HTTP and the task protocol — no filesystem, credential files or
    Markdown.
-2. `client/` never imports `node:*`; runtime differences arrive through `DeckRuntime`
-   (`cloud/runtime.ts`), implemented by `node/runtime.ts` and `cloud/browser.ts`.
+2. `client/` and `ops/` never import `node:*`; runtime differences arrive through
+   `DeckRuntime` (`cloud/runtime.ts`), implemented by `node/runtime.ts` and `cloud/browser.ts`.
 3. `node/` is the only layer that touches the filesystem; `cli/` is the only layer that
    touches the process (stdout, stderr, exit codes, argv).
-4. No layer interprets document content: nothing parses PDF, OOXML, IWA or HTML, derives a
-   view from the IR, or grades quality. The IR and Markdown pass through as the server sent
-   them; the client only rewrites image links to the files it downloaded.
+4. DeckOps code never interprets document content: nothing parses PDF, OOXML, IWA or HTML,
+   derives a view, or grades quality. Markdown and JSON pass through as the server sent them;
+   the client only points image links and asset references at signed URLs or downloaded files.
 5. The route table is data, not code. `ops/routes.ts` declares `{ verb, from, to, steps,
    options, requires?, caveat? }` rows whose steps name a mapping function in `ops/params.ts`;
    adding a conversion is adding a row.
+6. Probe is local and free. `ops/probe.ts` delegates to the optional DeckProbe engine, is the
+   only module that loads it, and reaches neither the cloud nor credentials or configuration;
+   the browser entry never contains it. The CLI creates its cloud client lazily, so a probe run
+   never resolves credentials.
 
 `pnpm check:boundaries` (`scripts/check-boundaries.mjs`) enforces the mechanical part: no
 parser dependencies (DeckProbe only as an optional dependency, imported only by
