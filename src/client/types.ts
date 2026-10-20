@@ -64,6 +64,13 @@ export interface TaskInfo {
   type: string;
   status: TaskStatus;
   error?: string | null;
+  /** Credits the server bills for the task. */
+  credits?: number;
+  /** Milliseconds the task ran; null until it ends. */
+  consumedMS?: number | null;
+  createdAt?: string;
+  /** Null until the task ends. */
+  completedAt?: string | null;
 }
 
 export interface UploadedFile {

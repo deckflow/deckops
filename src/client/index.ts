@@ -172,6 +172,11 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
   const taskInfo = (task: DeckTask): TaskInfo => ({
     id: task.id, spaceId: task.spaceId, type: task.type, status: task.status,
     ...(task.error !== undefined ? { error: task.error } : {}),
+    // What the server billed and timed, for reconciling usage.
+    ...(task.credits !== undefined ? { credits: task.credits } : {}),
+    ...(task.consumedMS !== undefined ? { consumedMS: task.consumedMS } : {}),
+    ...(task.createdAt !== undefined ? { createdAt: task.createdAt } : {}),
+    ...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
   });
 
   const lowLevel = async <T>(taskId: string, settings: object, allowed: readonly string[], action: () => Promise<T>): Promise<T> => {

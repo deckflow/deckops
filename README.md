@@ -142,7 +142,7 @@ const frames = await ops.render('deck.pptx', { to: 'image', pages: [1, 2], image
 await frames.outputs[0].blob();                     // signed URL, no credentials needed
 ```
 
-`createClient({ apiKey, token, spaceId, apiBase })` resolves the rest through the shared credential chain. The SDK returns results with signed URLs and writes nothing; the CLI writes files. Inputs are paths, `{ file, name }` or `{ url }`. Every call takes `signal`, `spaceId`, `timeout` (seconds for the whole call, default 300), `onProgress`, `useEventStream` and `pollInterval`; `convert` adds `anchors`, `splitPages`, `strict`, `imageRefs: 'url' | 'path'`, and extract and convert take the parse options. `ops.tasks.get / wait / download` and `ops.files.upload` are the low level. Unknown options — including removed ones such as `preflight` or `out` — are a `usage_error`, never silently ignored.
+`createClient({ apiKey, token, spaceId, apiBase })` resolves the rest through the shared credential chain. The SDK returns results with signed URLs and writes nothing; the CLI writes files. Inputs are paths, `{ file, name }` or `{ url }`. Every call takes `signal`, `spaceId`, `timeout` (seconds for the whole call, default 300), `onProgress`, `useEventStream` and `pollInterval`; `convert` adds `anchors`, `splitPages`, `strict`, `imageRefs: 'url' | 'path'`, and extract and convert take the parse options. `ops.tasks.get / wait / download` and `ops.files.upload` are the low level; a task reports `status`, `credits`, `consumedMS`, `createdAt` and `completedAt` as the server billed it. Unknown options — including removed ones such as `preflight` or `out` — are a `usage_error`, never silently ignored.
 
 ## Browser SDK
 

@@ -258,6 +258,15 @@ describe('browser SDK over real HTTP', () => {
     expect(submissions('pending_timeout')).toHaveLength(1);
   });
 
+  it('reports what a finished task billed and how long it ran', async () => {
+    const client = clientFor('billing');
+    const result = await client.convert(url);
+    expect(await client.tasks.get(result.tasks[0]!.id)).toEqual({
+      id: 'task-1', spaceId: 'test-space', type: 'document.convert', status: 'completed',
+      credits: 15, consumedMS: 27000, createdAt: '2026-10-20T08:00:00.000Z', completedAt: '2026-10-20T08:00:27.000Z',
+    });
+  });
+
   it('exposes the created task id and can inspect it after local cancellation', async () => {
     const controller = new AbortController();
     const client = clientFor('pending_recover');
@@ -269,7 +278,10 @@ describe('browser SDK over real HTTP', () => {
     const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     await vi.waitFor(() => expect(submitted).toBe('task-1'));
     controller.abort(); await rejected;
-    expect(await client.tasks.get(submitted!)).toMatchObject({ id: 'task-1', type: 'document.convert', status: 'running' });
+    expect(await client.tasks.get(submitted!)).toEqual({
+      id: 'task-1', spaceId: 'test-space', type: 'document.convert', status: 'running',
+      credits: 15, createdAt: '2026-10-20T08:00:00.000Z', completedAt: null, consumedMS: null,
+    });
     expect(submissions('pending_recover')).toHaveLength(1);
   });
 

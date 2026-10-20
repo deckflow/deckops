@@ -200,6 +200,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         const task = {
           id: `task-${state.tasks.length + 1}`, spaceId: body.spaceId ?? 'fixture-space',
           type: body.type, status: 'pending', params: body.params ?? {}, fileIds: body.fileIds ?? [],
+          credits: 15, createdAt: '2026-10-20T08:00:00.000Z', completedAt: null, consumedMS: null,
         };
         state.tasks.push(task);
         if (kind('hanging-create')) {
@@ -250,6 +251,7 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         const status = state.forceStatus ?? (kind('failed-task') ? 'failed' : kind('pending') || kind('sse') || kind('sse-unauthorized') || jsonStreamPending ? 'running' : 'completed');
         json(res, 200, {
           ...task, status, ...(status === 'failed' ? { error: 'Fixture parser failure' } : {}),
+          ...(status === 'completed' || status === 'failed' ? { completedAt: '2026-10-20T08:00:27.000Z', consumedMS: 27000 } : {}),
           // detail carries only the summary of a document result; the full one comes from download
           ...(status === 'completed' && task.type.startsWith('document.') ? { result: summary(task, state, caseName) } : {}),
         });

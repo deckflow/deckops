@@ -48,12 +48,13 @@ space without another charge. DeckOps 4 needs a DeckOps Cloud with document task
 - SDK: `createClient()` returns `{ render, convert, extract, tasks, files }` plus `probe` in Node.
   Results carry `content` (Markdown text, or the parsed JSON document), `format`, `pages`,
   `reusedParse`, `warnings`, `tasks[]`, `outputs` of signed `RemoteFile`s (`blob()`), and `images` /
-  `assets`. `DeckOpsError` gains `details`; `isDeckOpsError(error, code?)` is exported.
+  `assets`. `tasks.get()` adds the server's `credits`, `consumedMS`, `createdAt` and `completedAt`.
+  `DeckOpsError` gains `details`; `isDeckOpsError(error, code?)` is exported.
 - Browser: `createClient({ apiBase, token, spaceId, onUnauthorized, authUuid })`; one call timeout in
   seconds (default 300); `signal` rejects with its own reason; Markdown image links are signed URLs by
   default (`imageRefs: 'path'` keeps the relative paths); the same `File` is uploaded once per client;
   progress phases are `upload` / `task` / `download`. Unknown options such as `preflight` are a
-  `usage_error`. The bundle measures 39,025 bytes minified + gzip with the route table, render and
+  `usage_error`. The bundle measures 39,079 bytes minified + gzip with the route table, render and
   extract (3.0.0: 34,049); CI holds it to that plus 10 %.
 - Package: `@deckflow/deckprobe` is an optional dependency, kept out of `dist/` and out of the browser
   entry. The `--omit=optional` install keeps the 3.0 budget (12 MiB, no native binaries).

@@ -49,6 +49,12 @@ export interface DeckTask<T extends DeckTaskType = DeckTaskType> {
   createdAt?: (string) | undefined;
   /** ISO update timestamp. */
   updatedAt?: (string) | undefined;
+  /** ISO completion timestamp; null until the task ends. */
+  completedAt?: (string | null) | undefined;
+  /** Milliseconds the task ran; null until it ends. */
+  consumedMS?: (number | null) | undefined;
+  /** Credits the task costs. */
+  credits?: (number) | undefined;
 }
 
 export interface AuthUuidStorage {
