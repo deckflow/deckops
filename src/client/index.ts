@@ -1,3 +1,4 @@
+import { isValidAuthUuid } from '../cloud/device-id.js';
 import { createTransport, type TransportClient } from '../cloud/transport.js';
 import type { DeckRuntime } from '../cloud/runtime.js';
 import type { DeckTask } from '../cloud/contracts.js';
@@ -28,7 +29,6 @@ const MAX_TIMEOUT_SECONDS = 2_147_483;
 const MAX_PAGE = 10_000;
 
 const CLIENT_OPTIONS = ['apiBase', 'token', 'apiKey', 'spaceId', 'onUnauthorized', 'authUuid'];
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPERATION_OPTIONS = ['spaceId', 'timeout', 'signal', 'onProgress', 'useEventStream', 'pollInterval'];
 const PARSE_OPTIONS = ['profile', 'password', 'includeImages', 'stayImageAreaRate'];
 const VERB_OPTIONS: Record<Verb, readonly string[]> = {
@@ -63,8 +63,8 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
   if (options.onUnauthorized !== undefined && typeof options.onUnauthorized !== 'function') {
     throw DeckOpsError.usage('onUnauthorized must be a function.');
   }
-  if (options.authUuid !== undefined && !(typeof options.authUuid === 'string' && UUID_V4.test(options.authUuid))) {
-    throw DeckOpsError.usage('authUuid must be a UUID v4.');
+  if (options.authUuid !== undefined && !isValidAuthUuid(options.authUuid)) {
+    throw DeckOpsError.usage('authUuid must be a device id of 1–100 visible ASCII characters, such as a UUID.');
   }
   const transport: TransportClient = createTransport({
     ...(options.authUuid !== undefined ? { authUuid: options.authUuid } : {}),
@@ -97,14 +97,7 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
     const send = async () => (await transport.files.upload(source.data, {
       name, spaceId, signal, confirm: await confirmsUploads(signal), onProgress: (progress) => emit({ phase: 'upload', progress }),
     })).id;
-    let result: { id: string; reused: boolean };
-    try {
-      result = await uploads.fileId(spaceId, source, send, persist);
-    } catch (error) {
-      // Another call's upload this one joined was cancelled: upload it ourselves.
-      if (signal.aborted || !(error instanceof Error && error.name === 'AbortError')) throw error;
-      result = await uploads.fileId(spaceId, source, send, persist);
-    }
+    const result = await uploads.fileId(spaceId, source, send, { persist, signal });
     if (result.reused) emit({ phase: 'upload', progress: 1 });
     return result;
   };

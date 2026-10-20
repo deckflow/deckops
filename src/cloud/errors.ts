@@ -239,7 +239,8 @@ export class APIError extends Error {
   static paymentRequired(error: AxiosError): APIError {
     const data = error.response?.data;
     const requestId = extractRequestIdFromHeaders(error.response?.headers) ?? extractRequestIdFromBody(data);
-    const message = 'Payment is required. Please complete checkout and try again.';
+    // The server says which package ran out; the generic text is only for a body without a message.
+    const message = extractErrorMessage(data, 'Payment is required. Please complete checkout and try again.');
     return new APIError(formatAPIErrorMessage(402, message, requestId), 402, data as MetadataValue | undefined, requestId);
   }
 }

@@ -145,6 +145,25 @@ describe('browser SDK over real HTTP', () => {
     expect(submissions('json-stream')).toHaveLength(1);
   });
 
+  it('falls back to polling at once when the event stream fails at the network layer', async () => {
+    const realFetch = globalThis.fetch;
+    // The browser sends the task event stream through fetch; the network drops only that request.
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      new Headers(init?.headers).get('response-event-stream') === 'yes'
+        ? Promise.reject(new TypeError('Failed to fetch'))
+        : realFetch(input, init));
+    try {
+      cloud.state('sse-network').forceStatus = 'running';
+      setTimeout(() => { delete cloud.state('sse-network').forceStatus; }, 300);
+      const started = Date.now();
+      await expect(clientFor('sse-network').convert(url, { pollInterval: 50 })).resolves.toMatchObject({ content: expect.any(String) });
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(cloud.state('sse-network').tasks).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('fails closed on 401, with no guest identity request or duplicated task', async () => {
     await expect(clientFor('unauthorized').convert(url)).rejects.toMatchObject({ name: 'DeckOpsError', code: 'auth_error' });
     expect(submissions('unauthorized')).toHaveLength(1);
@@ -190,6 +209,8 @@ describe('browser SDK over real HTTP', () => {
     const error = await clientFor('insufficient').convert(url).catch((caught: unknown) => caught);
     expect(isDeckOpsError(error, 'quota_error')).toBe(true);
     expect((error as DeckOpsError).details?.data).toEqual(['Insufficient package balance', { need: 3, remain: 1 }]);
+    // The server's own words, not a generic checkout message.
+    expect((error as DeckOpsError).message).toBe('API Error (402): Insufficient package balance');
   });
 
   it('reports a failed task with its id and a soft rendering failure as a warning', async () => {
@@ -235,6 +256,45 @@ describe('browser SDK over real HTTP', () => {
     controller.abort(); await rejected;
     await vi.waitFor(() => expect(upload()?.closed).toBe(true));
     expect(submissions('hanging-upload')).toHaveLength(0);
+  });
+
+  for (const [ending, settings, end] of [
+    ['a custom abort reason', {}, (controller: AbortController) => controller.abort(new Error('left the page'))],
+    ['its own timeout', { timeout: 0.3 }, () => {}],
+  ] as const) {
+    it(`lets a call that joined a shared upload finish when the owner ends with ${ending}`, async () => {
+      const name = `first-upload-hangs_${ending.split(' ').pop()}`;
+      const client = clientFor(name);
+      const file = new NodeFile(['%PDF shared'], 'shared.pdf') as unknown as File;
+      const controller = new AbortController();
+      const owner = client.convert(file, { ...settings, signal: controller.signal }).catch((error: unknown) => error);
+      await vi.waitFor(() => expect(cloud.state(name).requests.some((req) => req.path === '/storage/file-1')).toBe(true));
+      const joined = client.extract(file, { to: 'json' });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      end(controller);
+      await expect(joined).resolves.toMatchObject({ content: FIXTURE_DOCUMENT });
+      expect(await owner).toSatisfy((error: unknown) => controller.signal.aborted
+        ? error === controller.signal.reason
+        : isDeckOpsError(error) && (error.details as { reason?: string }).reason === 'timeout');
+      expect(submissions(name).map((task) => (task.body as { fileIds?: string[] }).fileIds)).toEqual([['file-2']]);
+    });
+  }
+
+  it('ends a call waiting on a shared upload by its own signal, leaving the owner uploading', async () => {
+    const ownerControl = new AbortController();
+    const client = clientFor('hanging-upload_joined');
+    const file = new NodeFile(['%PDF shared'], 'shared.pdf') as unknown as File;
+    const owner = client.convert(file, { signal: ownerControl.signal }).catch((error: unknown) => error);
+    const upload = () => cloud.state('hanging-upload_joined').requests.find((req) => req.path === '/storage/file-1');
+    await vi.waitFor(() => expect(upload()).toBeDefined());
+    const controller = new AbortController();
+    const reason = new Error('closed the dialog');
+    const joined = client.extract(file, { to: 'json', signal: controller.signal }).catch((error: unknown) => error);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    controller.abort(reason);
+    expect(await joined).toBe(reason);
+    expect(upload()?.closed).toBeFalsy();
+    ownerControl.abort(); await owner;
   });
 
   it('aborts the result download after task completion', async () => {
@@ -323,11 +383,32 @@ describe('browser SDK over real HTTP', () => {
     expect(cloud.state('refresh_concurrent').tasks).toHaveLength(2);
   });
 
-  it('sends an explicit authUuid as X-Auth-UUID and rejects one that is not a UUID v4', async () => {
-    const authUuid = '0f8d1f8e-3c2b-4a6f-9e1d-2b3c4d5e6f70';
-    await createClient({ apiBase: cloud.apiBase('auth-uuid'), token: 'test-token', spaceId: 'test-space', authUuid }).convert(url);
-    expect(apiRequests('auth-uuid').every((req) => req.headers['x-auth-uuid'] === authUuid)).toBe(true);
-    expect(() => createClient({ authUuid: 'device-1' })).toThrow(expect.objectContaining({ code: 'usage_error', message: 'authUuid must be a UUID v4.' }));
+  it('retries a 401 that arrives after the shared refresh with the new token, without refreshing again', async () => {
+    const refresh = vi.fn(async () => 'fresh-token');
+    const client = createClient({ apiBase: cloud.apiBase('refresh-late'), token: 'stale-token', spaceId: 'test-space', onUnauthorized: refresh });
+    await Promise.all([client.convert(url), client.convert({ url: 'https://example.com/b' })]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(submissions('refresh-late').map((req) => req.headers['x-auth-token']).sort()).toEqual(['fresh-token', 'fresh-token', 'stale-token', 'stale-token']);
+    expect(cloud.state('refresh-late').tasks).toHaveLength(2);
+  });
+
+  it('keeps a call-level space when a refresh retries its request', async () => {
+    const client = createClient({ apiBase: cloud.apiBase('refresh_space'), token: 'stale-token', spaceId: 'space-A', onUnauthorized: async () => 'fresh-token' });
+    const result = await client.convert(url, { spaceId: 'space-B' });
+    expect(submissions('refresh_space').map((req) => (req.body as { spaceId?: string }).spaceId)).toEqual(['space-B', 'space-B']);
+    expect(cloud.state('refresh_space').tasks.find((task) => task.id === result.tasks[0]!.id)?.spaceId).toBe('space-B');
+  });
+
+  it('sends an explicit authUuid as X-Auth-UUID, a UUID or a nanoid, and rejects one that cannot be a header', async () => {
+    for (const [name, authUuid] of [['auth-uuid', '0f8d1f8e-3c2b-4a6f-9e1d-2b3c4d5e6f70'], ['auth-nanoid', 'V1StGXR8_Z5jdHi6B-myT']] as const) {
+      await createClient({ apiBase: cloud.apiBase(name), token: 'test-token', spaceId: 'test-space', authUuid }).convert(url);
+      expect(apiRequests(name).every((req) => req.headers['x-auth-uuid'] === authUuid)).toBe(true);
+    }
+    for (const authUuid of ['', 'device 1', 'x'.repeat(101), 'gerät']) {
+      expect(() => createClient({ authUuid })).toThrow(expect.objectContaining({
+        code: 'usage_error', message: 'authUuid must be a device id of 1–100 visible ASCII characters, such as a UUID.',
+      }));
+    }
   });
 
   it('rejects with the caller’s own abort reason, or an AbortError DOMException without one', async () => {
@@ -345,18 +426,21 @@ describe('browser SDK over real HTTP', () => {
 });
 
 describe('browser entry without a browser', () => {
-  it('imports without side effects, works during SSR, and reads the device id from localStorage df_uuid', async () => {
-    const stored = '5a6b7c8d-1e2f-4a3b-8c4d-9e0f1a2b3c4d';
+  it('imports without side effects, works during SSR, and reuses the app\'s own device id from localStorage df_uuid', async () => {
+    // An app without crypto.randomUUID keeps a nanoid there; it is reused, never replaced.
+    const stored = 'V1StGXR8_Z5jdHi6B-myT';
     const reads: string[] = [];
+    const writes: string[] = [];
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     vi.resetModules();
-    vi.stubGlobal('localStorage', { getItem: (key: string) => { reads.push(key); return stored; }, setItem: () => {} });
+    vi.stubGlobal('localStorage', { getItem: (key: string) => { reads.push(key); return stored; }, setItem: (key: string) => { writes.push(key); } });
     try {
       const entry = await import('../../src/browser/index.js');
       expect(reads).toEqual([]);
       expect(fetchSpy).not.toHaveBeenCalled();
       await entry.createClient({ apiBase: cloud.apiBase('df-uuid'), token: 'test-token', spaceId: 'test-space' }).convert(url);
       expect(reads).toEqual(['df_uuid']);
+      expect(writes).toEqual([]);
       expect(apiRequests('df-uuid').every((req) => req.headers['x-auth-uuid'] === stored)).toBe(true);
     } finally {
       vi.unstubAllGlobals();

@@ -11,6 +11,8 @@ type RetriableConfig = Record<string, unknown> & {
   data?: (unknown) | undefined;
   __deckopsCheckoutRetried?: (boolean) | undefined;
   __deckopsAuthRetried?: (boolean) | undefined;
+  /** The token version this request was sent with. */
+  __deckopsAuthVersion?: (number) | undefined;
   signal?: AbortSignal;
 };
 
@@ -36,6 +38,8 @@ export class HttpClient {
   private spaceIdExplicit = false;
   private resolvedSpaceIdPromise?: (Promise<string>) | undefined;
   private authRefreshPromise?: (Promise<AuthRefreshResult>) | undefined;
+  /** Bumped on every token change, so a 401 for a request sent with an older token is told apart. */
+  private authVersion = 0;
   private guestDowngradePromise?: (Promise<string>) | undefined;
   /** Set after credentials are cleared due to 401; later parallel 401s still retry as guest. */
   private authDowngradedToGuest = false;
@@ -65,6 +69,7 @@ export class HttpClient {
     this.client.interceptors.request.use(async (config) => {
       const authUuid = await withSignal(this.authUuidPromise, config.signal as AbortSignal | undefined);
       throwIfAborted(config.signal as AbortSignal | undefined);
+      (config as unknown as RetriableConfig).__deckopsAuthVersion = this.authVersion;
       const authHeaders = this.buildAuthHeaders();
       const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData;
       if (isFormData) {
@@ -125,6 +130,10 @@ export class HttpClient {
 
         if (status === 401 && cfg && !cfg.__deckopsAuthRetried) {
           cfg.__deckopsAuthRetried = true;
+          // The token was refreshed after this request left: retry once with it, without refreshing again.
+          if (this.token && cfg.__deckopsAuthVersion !== undefined && cfg.__deckopsAuthVersion !== this.authVersion) {
+            return await this.client.request(cfg);
+          }
           const oldSpaceId = this.spaceIdFromConfig(cfg) ?? this.spaceId;
 
           if (this.onUnauthorized && this.token && !this.isApiKeyAuth()) {
@@ -179,6 +188,7 @@ export class HttpClient {
 
   setToken(token: string | undefined): void {
     this.token = token;
+    this.authVersion += 1;
     if (token) {
       this.authDowngradedToGuest = false;
     }
@@ -313,6 +323,8 @@ export class HttpClient {
       headers?: (Record<string, string>) | undefined;
       params?: (Record<string, string>) | undefined;
       signal?: (AbortSignal) | undefined;
+      /** Retry network failures and gateway errors (default true). */
+      retry?: (boolean) | undefined;
     } = {}
   ): Promise<{ data: T | ReadableStream<Uint8Array> | NodeReadableLike; headers: Record<string, unknown> }> {
     if (this.shouldUseFetchStream()) {
@@ -350,6 +362,7 @@ export class HttpClient {
       headers?: (Record<string, string>) | undefined;
       params?: (Record<string, string>) | undefined;
       signal?: (AbortSignal) | undefined;
+      retry?: (boolean) | undefined;
     }
   ): Promise<{ data: T | ReadableStream<Uint8Array>; headers: Record<string, unknown> }> {
     let checkoutRetried = false;
@@ -364,6 +377,7 @@ export class HttpClient {
       }
 
       let response: Response;
+      const sentAuthVersion = this.authVersion;
       try {
         const headers = {
           ...this.buildAuthHeaders(),
@@ -377,7 +391,7 @@ export class HttpClient {
         });
       } catch (error) {
         throwIfAborted(config.signal);
-        if (networkRetry < getRetryDelaysMs().length && this.isRetriableFetchError(error)) {
+        if (config.retry !== false && networkRetry < getRetryDelaysMs().length && this.isRetriableFetchError(error)) {
           continue;
         }
         throw error;
@@ -397,6 +411,11 @@ export class HttpClient {
 
       if (response.status === 401 && !authRetried) {
         authRetried = true;
+        // The token was refreshed after this request left: retry once with it, without refreshing again.
+        if (this.token && sentAuthVersion !== this.authVersion) {
+          networkRetry = 0;
+          continue;
+        }
         const oldSpaceId = params.spaceId ?? this.spaceId;
 
         if (this.onUnauthorized && this.token && !this.isApiKeyAuth()) {
@@ -426,7 +445,7 @@ export class HttpClient {
       }
 
       if (!response.ok) {
-        if (networkRetry < getRetryDelaysMs().length && (response.status === 604 || response.status === 502)) {
+        if (config.retry !== false && networkRetry < getRetryDelaysMs().length && (response.status === 604 || response.status === 502)) {
           continue;
         }
         throw await this.readFetchAPIError(response, responseHeaders);
@@ -610,7 +629,8 @@ export class HttpClient {
     oldSpaceId?: string
   ): string | undefined {
     const nextToken = typeof auth === 'string' ? auth : auth.token;
-    const nextSpaceId = typeof auth === 'string' ? this.spaceId : auth.spaceId;
+    // A bare token keeps every request in its own space; only an explicit spaceId moves them.
+    const nextSpaceId = typeof auth === 'string' ? undefined : auth.spaceId;
     const previousSpaceId = oldSpaceId ?? this.spaceId;
 
     this.setToken(nextToken);

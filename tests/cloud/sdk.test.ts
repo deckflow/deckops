@@ -211,7 +211,7 @@ describe('Node cloud transport', () => {
     cancel();
   });
 
-  it('retries event-stream task detail requests after network failures', async () => {
+  it('polls instead of reconnecting when a wait loses its event stream to the network', async () => {
     vi.useFakeTimers();
     const deck = createDeck({
       root: 'http://localhost:3000/api',
@@ -221,47 +221,28 @@ describe('Node cloud transport', () => {
     });
     const url = 'http://localhost:3000/api/tools/tasks/task-retry';
     let sseAttempts = 0;
+    let polls = 0;
 
     mock.onGet(url).reply((config) => {
-      if (config.headers?.['response-event-stream'] !== 'yes') {
-        return [
-          200,
-          { id: 'task-retry', spaceId: 'space-1', type: 'image.ocr', status: 'running' },
-          { 'content-type': 'application/json' },
-        ];
-      }
-
-      sseAttempts += 1;
-      if (sseAttempts === 1) {
+      if (config.headers?.['response-event-stream'] === 'yes') {
+        sseAttempts += 1;
         return Promise.reject(new Error('Network Error'));
       }
-
+      polls += 1;
       return [
         200,
-        Readable.from([
-          `data: ${JSON.stringify({
-            id: 'task-retry',
-            spaceId: 'space-1',
-            type: 'image.ocr',
-            status: 'completed',
-          })}\n\n`,
-        ]),
-        { 'content-type': 'text/event-stream' },
+        { id: 'task-retry', spaceId: 'space-1', type: 'image.ocr', status: polls === 1 ? 'running' : 'completed' },
+        { 'content-type': 'application/json' },
       ];
     });
 
     const waiting = deck.tasks.wait('task-retry', { timeout: 30 });
     await vi.advanceTimersByTimeAsync(0);
-    expect(sseAttempts).toBe(1);
-
-    await vi.advanceTimersByTimeAsync(4999);
-    expect(sseAttempts).toBe(1);
-
-    await vi.advanceTimersByTimeAsync(1);
     const task = await waiting;
 
     expect(task.status).toBe('completed');
-    expect(sseAttempts).toBe(2);
+    expect(sseAttempts).toBe(1);
+    expect(polls).toBe(2);
   });
 
   it('stops event-stream network retries after 100 attempts', async () => {
@@ -816,7 +797,7 @@ describe('Node cloud transport', () => {
     expect(task2.id).toBe('task-2');
   });
 
-  it('prompts users to complete checkout on 402 without onPaymentRequired', async () => {
+  it('reports a 402 in the server\'s words, or prompts for checkout when it has none', async () => {
     const deck = createDeck({
       root: 'http://localhost:3000/api',
       token: 'token-1',
@@ -826,16 +807,17 @@ describe('Node cloud transport', () => {
 
     mock
       .onGet('http://localhost:3000/api/tools/tasks/task-1')
-      .reply(402, { message: 'payment required' }, { 'x-request-id': 'req-pay-1' });
+      .reply(402, { message: 'Insufficient package balance' }, { 'x-request-id': 'req-pay-1' });
+    mock.onGet('http://localhost:3000/api/tools/tasks/task-2').reply(402, {});
 
     await expect(deck.tasks.get('task-1')).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(APIError);
       const apiError = error as APIError;
       expect(apiError.statusCode).toBe(402);
-      expect(apiError.message).toContain('checkout');
-      expect(apiError.message).toContain('X-RequestId: req-pay-1');
+      expect(apiError.message).toBe('API Error (402): Insufficient package balance [X-RequestId: req-pay-1]');
       return true;
     });
+    await expect(deck.tasks.get('task-2')).rejects.toThrow('API Error (402): Payment is required. Please complete checkout and try again.');
   });
 
   it('includes X-RequestId in other 4xx errors', async () => {
