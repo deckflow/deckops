@@ -44,8 +44,10 @@ try {
   }
 
   const full = install('default', ['--omit=dev']);
-  const report = JSON.parse(execFileSync(full.cli, ['probe', path.join(root, 'tests/test-data/test.pdf'), '--json'], { encoding: 'utf8' }));
-  if (report.schema_version !== 2 || report.status !== 'ok') throw new Error(`probe failed in the default install:\n${JSON.stringify(report)}`);
+  const report = JSON.parse(execFileSync(full.cli, ['probe', path.join(root, 'tests/generated/test.pdf'), '--targets', 'page_count', '--json'], { encoding: 'utf8' }));
+  if (report.schema_version !== 2 || report.status !== 'ok' || report.results['pdf.page_count']?.value !== 1) {
+    throw new Error(`probe failed in the default install:\n${JSON.stringify(report)}`);
+  }
 
   const cli = strict.cli;
   const skillsContainer = path.join(workspace, 'agent-skills');

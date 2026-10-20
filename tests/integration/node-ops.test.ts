@@ -213,8 +213,8 @@ describe('probe', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     process.env.DECKOPS_API_BASE = cloud.apiBase('probe');
     for (const name of ['DECKOPS_API_KEY', 'DECKOPS_TOKEN', 'DECKFLOW_API_KEY', 'DECKFLOW_TOKEN']) delete process.env[name];
-    const report = await runProbe({ input: path.resolve('tests/test-data/test.pdf'), options: { targets: ['page_count'] }, common: {} });
-    expect(report).toMatchObject({ schema_version: 2, status: 'ok', results: { 'pdf.page_count': { value: 3 } } });
+    const report = await runProbe({ input: path.resolve('tests/generated/test.pdf'), options: { targets: ['page_count'] }, common: {} });
+    expect(report).toMatchObject({ schema_version: 2, status: 'ok', results: { 'pdf.page_count': { value: 1 } } });
     expect(cloud.state('probe').requests).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();

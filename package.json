@@ -45,7 +45,7 @@
     "check:browser": "pnpm typecheck:browser && pnpm test:browser && pnpm build:browser && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
     "check": "pnpm check:skill && pnpm typecheck && pnpm typecheck:browser && pnpm test && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs && pnpm check:boundaries && pnpm check:read",
     "check:boundaries": "node scripts/check-boundaries.mjs",
-    "check:package": "pnpm build && node scripts/check-package-size.mjs",
+    "check:package": "node scripts/generate-fixtures.mjs && pnpm build && node scripts/check-package-size.mjs",
     "browser:smoke": "node scripts/browser-smoke.mjs",
     "prepack": "pnpm check:skill && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
     "conformance": "node scripts/conformance.mjs",

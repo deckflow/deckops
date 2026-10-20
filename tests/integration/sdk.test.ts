@@ -37,8 +37,8 @@ describe('Node SDK', () => {
 
   it('rejects unknown client options, and probes locally without a client', async () => {
     expect(() => createClient({ engine: 'local' } as never)).toThrow(expect.objectContaining({ code: 'usage_error', message: 'Unknown client option: engine.' }));
-    const report = await probe(path.resolve('tests/test-data/test.pdf'), { targets: ['page_count'] });
-    expect(report).toMatchObject({ schema_version: 2, results: { 'pdf.page_count': { value: 3 } } });
+    const report = await probe(path.resolve('tests/generated/test.pdf'), { targets: ['page_count'] });
+    expect(report).toMatchObject({ schema_version: 2, results: { 'pdf.page_count': { value: 1 } } });
     await expect(probe(path.join(work, 'missing.pdf'))).rejects.toMatchObject({ code: 'input_error' });
   });
 });
