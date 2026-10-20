@@ -1,7 +1,7 @@
 {
   "name": "@deckflow/deckops",
-  "version": "3.0.0",
-  "description": "Parse any document into an agent-operable representation. Parse once, convert repeatedly: PDF, PPTX, DOCX, Keynote and URLs into durable IR artifacts and Markdown.",
+  "version": "4.0.0",
+  "description": "Probe, render, extract and convert documents: local DeckProbe reports, and PDF, PPTX, DOCX, Keynote and URLs to images, video, structured JSON and Markdown through DeckOps Cloud.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -45,7 +45,7 @@
     "check:browser": "pnpm typecheck:browser && pnpm test:browser && pnpm build:browser && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
     "check": "pnpm check:skill && pnpm typecheck && pnpm typecheck:browser && pnpm test && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs && pnpm check:boundaries && pnpm check:read",
     "check:boundaries": "node scripts/check-boundaries.mjs",
-    "check:package": "pnpm build && node scripts/check-package-size.mjs",
+    "check:package": "node scripts/generate-fixtures.mjs && pnpm build && node scripts/check-package-size.mjs",
     "browser:smoke": "node scripts/browser-smoke.mjs",
     "prepack": "pnpm check:skill && pnpm build && pnpm typecheck:browser-consumer && node scripts/check-browser.mjs",
     "conformance": "node scripts/conformance.mjs",
@@ -53,15 +53,16 @@
   },
   "keywords": [
     "cli",
-    "parse",
     "deckflow",
     "pdf",
     "pptx",
     "docx",
     "keynote",
     "markdown",
-    "ir",
-    "document-parsing"
+    "probe",
+    "render",
+    "extract",
+    "convert"
   ],
   "license": "Apache-2.0",
   "repository": {
@@ -95,5 +96,8 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
+  },
+  "optionalDependencies": {
+    "@deckflow/deckprobe": "2.7.0"
   }
 }

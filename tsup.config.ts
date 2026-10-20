@@ -7,5 +7,7 @@ export default defineConfig({
   dts: { entry: { index: 'src/index.ts' } },
   sourcemap: true,
   clean: true,
+  // The optional probe engine (with its WebAssembly) is loaded from node_modules at run time.
+  external: ['@deckflow/deckprobe'],
   banner: ({ format }) => (format === 'esm' ? { js: '' } : {}),
 });

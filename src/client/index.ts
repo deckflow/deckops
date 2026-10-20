@@ -1,75 +1,56 @@
 import { createTransport, type TransportClient } from '../cloud/transport.js';
 import type { DeckRuntime } from '../cloud/runtime.js';
-import type { ParseSource } from '../cloud/parse-facade.js';
-import type { DeckTask, WaitForTaskOptions } from '../cloud/contracts.js';
-import { DECK_TASK_TYPES } from '../cloud/contracts.js';
+import type { DeckTask } from '../cloud/contracts.js';
 import { DeckOpsError } from '../errors/index.js';
-import { PRE_UPLOAD_THRESHOLD } from '../shared/constants.js';
+import { planRoute } from '../ops/plan.js';
+import { runOps, type OpsEnv, type OpsResultFor } from '../ops/run.js';
+import type { OpsOptions, ProgressEvent, TaskRef, Verb } from '../ops/types.js';
 import { translateError } from '../shared/errors.js';
-import { parseParams, convertParams } from '../shared/params.js';
-import { formatForTaskType, validateParseFlagsForFormat, validateConvertFlagsForFormat } from '../shared/validation.js';
-import type { ParseTaskType } from '../types.js';
-import { resolveInput } from './input.js';
+import { describeInput, type InputSource, type SourceBytes } from './input.js';
+import { UploadCache } from './uploads.js';
 import type {
-  ClientInput, ClientOptions, ConvertOptions, ConvertRef, ConvertResult, OperationOptions, ParseOptions, ParseResult, TaskInfo,
+  ClientInput, ClientOptions, ExtractCallOptions, OperationOptions, OpsClient, TaskInfo,
 } from './types.js';
 
 export type * from './types.js';
 
 /**
- * The isomorphic SDK facade: input normalization, large-file pre-upload, task waiting and
- * error translation. It never touches a filesystem; Node adds artifacts in `node/`.
+ * The isomorphic SDK: render, convert and extract over the route table, plus low-level tasks and
+ * files. It never touches a filesystem; Node adds output files and the upload index in `node/`.
  */
 
 export type HintContext = 'node' | 'browser';
-export type ParseType = ParseTaskType | 'html.getByURL';
 
-/** An in-memory result: the server response plus a bound convert(). */
-export class CloudParsedDocument<R = unknown> {
-  readonly taskId: string;
-  readonly spaceId: string;
-  readonly type: ParseType;
-  readonly irKey: string;
-  readonly irSchemaVersion: string;
-  private readonly snapshot: R;
+/** The default budget of one call, in seconds. */
+export const DEFAULT_CALL_TIMEOUT = 300;
+/** setTimeout's ceiling. */
+const MAX_TIMEOUT_SECONDS = 2_147_483;
+const MAX_PAGE = 10_000;
 
-  constructor(parsed: ParseResult<R>, private readonly convertView: (options?: ConvertOptions) => Promise<ConvertResult>) {
-    this.taskId = parsed.taskId;
-    this.spaceId = parsed.spaceId;
-    this.type = parsed.type;
-    this.irKey = parsed.irKey;
-    this.irSchemaVersion = parsed.irSchemaVersion;
-    this.snapshot = parsed.ir;
-  }
+const CLIENT_OPTIONS = ['apiBase', 'token', 'apiKey', 'spaceId', 'onUnauthorized', 'authUuid'];
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const OPERATION_OPTIONS = ['spaceId', 'timeout', 'signal', 'onProgress', 'useEventStream', 'pollInterval'];
+const PARSE_OPTIONS = ['profile', 'password', 'includeImages', 'stayImageAreaRate'];
+const VERB_OPTIONS: Record<Verb, readonly string[]> = {
+  render: ['to', 'pages', 'quality', 'imageFormat', 'width', 'scale'],
+  convert: ['to', 'anchors', 'splitPages', 'strict', 'imageRefs', ...PARSE_OPTIONS],
+  extract: ['to', ...PARSE_OPTIONS],
+};
+const TARGETS: Record<Verb, readonly string[]> = { render: ['image', 'video'], convert: ['markdown'], extract: ['json', 'assets'] };
 
-  /** Returns the in-memory server response. Does not refetch it or extend cloud retention. */
-  async ir(): Promise<R> {
-    return this.snapshot;
-  }
-
-  async convert(options: ConvertOptions = {}): Promise<ConvertResult> {
-    const format = formatForTaskType(this.type);
-    if (format) validateConvertFlagsForFormat(format, options);
-    return this.convertView(options);
-  }
+/** Internal hooks for the Node layer's submission journal. */
+export interface CallInternals {
+  /** Continue this submitted task instead of uploading and creating it again. */
+  resume?: TaskRef;
+  /** Before the first task's request leaves. */
+  onDispatch?: () => Promise<void>;
+  /** The first task was created. */
+  onCreated?: (ref: TaskRef, spaceId: string) => Promise<void>;
 }
-
-export interface DeckClient<Input = ClientInput> {
-  parse<R = unknown>(input: Input, options?: ParseOptions): Promise<CloudParsedDocument<R>>;
-  /** Accepts only an IR reference or parse task id, never a source file. */
-  convert(ref: ConvertRef, options?: ConvertOptions): Promise<ConvertResult>;
-  /** Wait for a parse task an earlier call submitted and fetch its result: no upload, no new task. */
-  resume<R = unknown>(taskId: string, type: ParseType, options?: OperationOptions): Promise<CloudParsedDocument<R>>;
-  /** Inspect a submitted task after a local timeout/disconnect without submitting it again. */
-  getTask(taskId: string, options?: { signal?: AbortSignal; spaceId?: string }): Promise<TaskInfo>;
-}
-
-const CLIENT_OPTIONS = ['apiBase', 'token', 'apiKey', 'spaceId', 'onUnauthorized'];
-const PARSE_TYPES: readonly string[] = DECK_TASK_TYPES.filter((type) => type !== 'parse.convert');
 
 export function createClientWith<Input extends ClientInput = ClientInput>(
-  options: ClientOptions, runtime: DeckRuntime, context: HintContext
-): DeckClient<Input> {
+  options: ClientOptions, runtime: DeckRuntime, context: HintContext,
+): OpsClient<Input> & { run<V extends Verb>(verb: V, input: Input, settings: object, internals?: CallInternals): Promise<OpsResultFor<V>> } {
   if (context === 'browser' && typeof options === 'object' && options !== null && 'apiKey' in options) {
     throw DeckOpsError.usage('Unknown client option: apiKey.', {
       hint: 'Keep server API keys on your backend. Use a browser user token or an authenticated proxy.',
@@ -82,14 +63,17 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
   if (options.onUnauthorized !== undefined && typeof options.onUnauthorized !== 'function') {
     throw DeckOpsError.usage('onUnauthorized must be a function.');
   }
-  const deck: TransportClient = createTransport({
+  if (options.authUuid !== undefined && !(typeof options.authUuid === 'string' && UUID_V4.test(options.authUuid))) {
+    throw DeckOpsError.usage('authUuid must be a UUID v4.');
+  }
+  const transport: TransportClient = createTransport({
+    ...(options.authUuid !== undefined ? { authUuid: options.authUuid } : {}),
     ...(options.apiBase !== undefined ? { root: apiRoot(options.apiBase) } : {}),
     ...(options.token !== undefined ? { token: options.token } : {}),
     ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
     ...(options.spaceId !== undefined ? { spaceId: options.spaceId } : {}),
     ...(options.onUnauthorized !== undefined ? { onUnauthorized: async () => {
-      // Token refresh must not implicitly move an in-flight upload/document
-      // to a different space. Account changes need an explicit new client.
+      // A refresh must not move an in-flight upload or task to another space or account.
       const token = await options.onUnauthorized!();
       if (typeof token !== 'string' || !token.trim()) {
         throw DeckOpsError.auth('Token refresh must return a nonempty token for the same user.');
@@ -100,172 +84,251 @@ export function createClientWith<Input extends ClientInput = ClientInput>(
     allowGuestFallback: false,
     retryMutations: false,
   }, runtime);
+  const uploads = new UploadCache(runtime.fileIds, transport.root);
 
-  const convert = async (ref: ConvertRef, settings: ConvertOptions = {}): Promise<ConvertResult> => {
-    assertOptions(ref, ['irKey', 'taskId'], 'conversion reference', context);
-    if ((ref.irKey !== undefined) === (ref.taskId !== undefined)) {
-      throw DeckOpsError.input('Provide exactly one of irKey or the parse taskId.');
-    }
-    nonemptyString(ref.irKey ?? ref.taskId, 'IR reference');
-    validateOperation(settings, ['to', 'anchors', 'splitPages', 'strict'], context);
-    if (settings.to !== undefined && settings.to !== 'markdown') {
-      throw DeckOpsError.unsupported('Only conversion to markdown is supported.');
-    }
-    validateBooleans(settings, ['anchors', 'splitPages', 'strict']);
-    let taskId: string | undefined;
+  /** Servers with capabilities v1 verify uploads; older ones have no such endpoint and no document tasks. */
+  const confirmsUploads = async (signal: AbortSignal): Promise<boolean> =>
+    ((await transport.capabilities(signal)).server?.capabilitiesVersion ?? 0) >= 1;
+
+  /** One upload of the call's source, reusing an id this client already has. */
+  const uploadSource = async (
+    source: SourceBytes, name: string, spaceId: string, signal: AbortSignal, emit: (event: ProgressEvent) => void, persist = true,
+  ): Promise<{ id: string; reused: boolean }> => {
+    const send = async () => (await transport.files.upload(source.data, {
+      name, spaceId, signal, confirm: await confirmsUploads(signal), onProgress: (progress) => emit({ phase: 'upload', progress }),
+    })).id;
+    let result: { id: string; reused: boolean };
     try {
-      throwIfAborted(settings.signal);
-      const result = await deck.convert(ref, {
-        to: 'markdown',
-        ...convertParams(settings),
-        ...(settings.spaceId !== undefined ? { spaceId: settings.spaceId } : {}),
-        ...(settings.signal !== undefined ? { signal: settings.signal } : {}),
-        onTask: (task) => {
-          taskId = task.id;
-          reportTask('convert', settings, task);
-        },
-        wait: waitOptions('convert', settings),
-      });
-      throwIfAborted(settings.signal);
-      if (result.markdownError) {
-        throw DeckOpsError.backend(`Markdown rendering failed: ${result.markdownError}`, { taskId: result.taskId });
-      }
-      return { ...result, reusedParse: true };
+      result = await uploads.fileId(spaceId, source, send, persist);
     } catch (error) {
-      rethrow(error, context, settings.signal, taskId);
+      // Another call's upload this one joined was cancelled: upload it ourselves.
+      if (signal.aborted || !(error instanceof Error && error.name === 'AbortError')) throw error;
+      result = await uploads.fileId(spaceId, source, send, persist);
+    }
+    if (result.reused) emit({ phase: 'upload', progress: 1 });
+    return result;
+  };
+
+  async function run<V extends Verb>(verb: V, input: Input, settings: object, internals: CallInternals = {}): Promise<OpsResultFor<V>> {
+    const call = settings as OperationOptions & Record<string, unknown>;
+    validateOperation(call, VERB_OPTIONS[verb], context);
+    const opsOptions = toOpsOptions(verb, call);
+    const imageRefs = (call.imageRefs as 'url' | 'path' | undefined) ?? 'url';
+    const timeout = call.timeout ?? DEFAULT_CALL_TIMEOUT;
+    const budget = createBudget(timeout, call.signal);
+    const created: TaskRef[] = [];
+    try {
+      const source: InputSource = describeInput(input, runtime);
+      // Every option is checked against the route before any request.
+      planRoute(verb, source.family, source.name, opsOptions);
+      const emit = (event: ProgressEvent): void => call.onProgress?.(event);
+      const spaceId = await transport.resolveSpaceId(call.spaceId, budget.signal) ?? '';
+      let bytes: SourceBytes | undefined;
+      let reused = false;
+      const env: OpsEnv = {
+        tasks: transport.tasks,
+        spaceId,
+        signal: budget.signal,
+        remaining: budget.remaining,
+        wait: {
+          ...(call.useEventStream !== undefined ? { useEventStream: call.useEventStream } : {}),
+          ...(call.pollInterval !== undefined ? { pollInterval: call.pollInterval } : {}),
+        },
+        apiRoot: transport.root,
+        capabilities: (signal) => transport.capabilities(signal),
+        upload: async () => {
+          bytes ??= await source.read!(budget.signal);
+          // A password-protected source is never remembered on disk.
+          const uploaded = await uploadSource(bytes, source.name, spaceId, budget.signal, emit, call.password === undefined);
+          reused = uploaded.reused;
+          return uploaded.id;
+        },
+        uploadIntermediate: async (blob, name) => (await transport.files.upload(blob, {
+          name, spaceId, signal: budget.signal, confirm: await confirmsUploads(budget.signal),
+          onProgress: (progress) => emit({ phase: 'upload', progress }),
+        })).id,
+        emit,
+        imageRefs,
+        created,
+        resume: internals.resume,
+        onDispatch: internals.onDispatch,
+        onCreated: internals.onCreated,
+      };
+      try {
+        return await runOps(verb, source, opsOptions, env);
+      } catch (error) {
+        // An id this client reused has expired on the server: upload again, once.
+        if (!reused || created.length > 0 || !isStaleFile(error) || !bytes) throw error;
+        await uploads.forget(spaceId, bytes);
+        return await runOps(verb, source, opsOptions, env);
+      }
+    } catch (error) {
+      throw callError(error, verb, call.signal, budget, timeout, created, context);
+    } finally {
+      budget.dispose();
+    }
+  }
+
+  const taskInfo = (task: DeckTask): TaskInfo => ({
+    id: task.id, spaceId: task.spaceId, type: task.type, status: task.status,
+    ...(task.error !== undefined ? { error: task.error } : {}),
+    // What the server billed and timed, for reconciling usage.
+    ...(task.credits !== undefined ? { credits: task.credits } : {}),
+    ...(task.consumedMS !== undefined ? { consumedMS: task.consumedMS } : {}),
+    ...(task.createdAt !== undefined ? { createdAt: task.createdAt } : {}),
+    ...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
+  });
+
+  const lowLevel = async <T>(taskId: string, settings: object, allowed: readonly string[], action: () => Promise<T>): Promise<T> => {
+    nonemptyString(taskId, 'taskId');
+    assertOptions(settings, ['signal', 'spaceId', ...allowed], 'task', context);
+    const values = settings as { signal?: AbortSignal; spaceId?: string };
+    if (values.spaceId !== undefined) nonemptyString(values.spaceId, 'spaceId');
+    try {
+      values.signal?.throwIfAborted();
+      const result = await action();
+      values.signal?.throwIfAborted();
+      return result;
+    } catch (error) {
+      values.signal?.throwIfAborted();
+      throw translateError(error, context, taskId);
     }
   };
 
-  const document = <R>(parsed: ParseResult<R>): CloudParsedDocument<R> =>
-    new CloudParsedDocument(parsed, (convertOptions = {}) =>
-      convert({ irKey: parsed.irKey }, { ...(parsed.spaceId ? { spaceId: parsed.spaceId } : {}), ...convertOptions }));
-
   return {
-    convert,
-    async parse<R = unknown>(input: Input, settings: ParseOptions = {}): Promise<CloudParsedDocument<R>> {
-      validateOperation(settings, ['profile', 'password', 'includeImages', 'stayImageAreaRate', 'mode', 'onSubmit'], context);
-      validateBooleans(settings, ['includeImages']);
-      if (settings.profile !== undefined && !['fast', 'balanced', 'quality'].includes(settings.profile)) {
-        throw DeckOpsError.usage('profile must be fast, balanced, or quality.');
-      }
-      if (settings.mode !== undefined && !['source', 'runtime'].includes(settings.mode)) {
-        throw DeckOpsError.usage('mode must be source or runtime.');
-      }
-      if (settings.password !== undefined && typeof settings.password !== 'string') {
-        throw DeckOpsError.usage('password must be a string.');
-      }
-      if (settings.stayImageAreaRate !== undefined &&
-          (!Number.isFinite(settings.stayImageAreaRate) || settings.stayImageAreaRate < 0 || settings.stayImageAreaRate > 1)) {
-        throw DeckOpsError.usage('stayImageAreaRate must be a number between 0 and 1.');
-      }
-      if (settings.onSubmit !== undefined && typeof settings.onSubmit !== 'function') {
-        throw DeckOpsError.usage('onSubmit must be a function.');
-      }
-      throwIfAborted(settings.signal);
-      const inputSource = await resolveInput(input, runtime, settings.signal);
-      const { onSubmit, ...flags } = settings;
-      validateParseFlagsForFormat(inputSource.format, flags);
-      let taskId: string | undefined;
-      // Leave the default to the transport: it may have resolved it since construction.
-      // Only per-operation overrides are sent explicitly.
-      let spaceId = settings.spaceId;
-      try {
-        const onUpload = (progress: number): void => settings.onProgress?.({ phase: 'upload', progress });
-        let source: ParseSource;
-        if (inputSource.kind === 'url') {
-          source = { url: inputSource.url, ...(settings.mode !== undefined ? { mode: settings.mode } : {}) };
-        } else if (inputSource.bytes >= PRE_UPLOAD_THRESHOLD) {
-          const uploaded = await deck.files.upload(inputSource.data, {
-            name: inputSource.name,
-            onProgress: onUpload,
-            ...(spaceId !== undefined ? { spaceId } : {}),
-            ...(settings.signal !== undefined ? { signal: settings.signal } : {}),
-          });
-          throwIfAborted(settings.signal);
-          source = { fileId: uploaded.id, name: inputSource.name };
-        } else {
-          // The name must reach upload normalization, not only parser routing.
-          source = { file: { input: inputSource.data, name: inputSource.name }, name: inputSource.name };
+    run,
+    render: (input, settings) => run('render', input, settings),
+    convert: (input, settings = {}) => run('convert', input, settings),
+    extract: ((input: Input, settings: ExtractCallOptions) => run('extract', input, settings)) as OpsClient<Input>['extract'],
+    tasks: {
+      get: (taskId, settings = {}) => lowLevel(taskId, settings, [], async () => taskInfo(await transport.tasks.get(taskId, settings))),
+      wait: (taskId, settings = {}) => lowLevel(taskId, settings, ['timeout', 'useEventStream', 'pollInterval'], async () => {
+        validateOperation(settings, [], context);
+        return taskInfo(await transport.tasks.wait(taskId, { ...settings, timeout: settings.timeout ?? DEFAULT_CALL_TIMEOUT }));
+      }),
+      download: (taskId, settings = {}) => lowLevel(taskId, settings, [], () => transport.tasks.down(taskId, settings)),
+    },
+    files: {
+      async upload(input, settings = {}) {
+        assertOptions(settings, ['spaceId', 'signal', 'onProgress'], 'upload', context);
+        const signal = settings.signal ?? new AbortController().signal;
+        try {
+          signal.throwIfAborted();
+          const source = describeInput(input, runtime);
+          if (!source.read) throw DeckOpsError.input('A URL is not a file to upload.');
+          const bytes = await source.read(signal);
+          const spaceId = await transport.resolveSpaceId(settings.spaceId, signal) ?? '';
+          const uploaded = await uploadSource(bytes, source.name, spaceId, signal, (event) => settings.onProgress?.(event));
+          return { id: uploaded.id, name: source.name, bytes: bytes.bytes };
+        } catch (error) {
+          signal.throwIfAborted();
+          throw translateError(error, context);
         }
-        const parsed = await deck.parse<R>(source, {
-          ...parseParams(flags, false),
-          ...(spaceId !== undefined ? { spaceId } : {}),
-          ...(settings.signal !== undefined ? { signal: settings.signal } : {}),
-          ...(onSubmit !== undefined ? { onSubmit } : {}),
-          upload: { onProgress: onUpload },
-          onTask: (task) => {
-            taskId = task.id;
-            spaceId = task.spaceId;
-            reportTask('parse', settings, task);
-          },
-          wait: waitOptions('parse', settings),
-        });
-        throwIfAborted(settings.signal);
-        return document({ ...parsed, spaceId: spaceId ?? '' });
-      } catch (error) {
-        rethrow(error, context, settings.signal, taskId);
-      }
-    },
-    async resume<R = unknown>(taskId: string, type: ParseType, settings: OperationOptions = {}): Promise<CloudParsedDocument<R>> {
-      nonemptyString(taskId, 'taskId');
-      if (!PARSE_TYPES.includes(type)) throw DeckOpsError.usage(`Unknown parse task type: ${String(type)}.`);
-      validateOperation(settings, [], context);
-      let spaceId = settings.spaceId;
-      try {
-        throwIfAborted(settings.signal);
-        const parsed = await deck.resume<R>(taskId, type, {
-          ...(spaceId !== undefined ? { spaceId } : {}),
-          ...(settings.signal !== undefined ? { signal: settings.signal } : {}),
-          wait: waitOptions('parse', { ...settings, onProgress: (event) => {
-            if (event.phase === 'parse') spaceId = event.spaceId;
-            settings.onProgress?.(event);
-          } }),
-        });
-        throwIfAborted(settings.signal);
-        return document({ ...parsed, spaceId: spaceId ?? '' });
-      } catch (error) {
-        rethrow(error, context, settings.signal, taskId);
-      }
-    },
-    async getTask(taskId, settings = {}) {
-      nonemptyString(taskId, 'taskId');
-      assertOptions(settings, ['signal', 'spaceId'], 'task', context);
-      if (settings.spaceId !== undefined) nonemptyString(settings.spaceId, 'spaceId');
-      try {
-        throwIfAborted(settings.signal);
-        const task = await deck.tasks.get(taskId, settings);
-        throwIfAborted(settings.signal);
-        return { id: task.id, spaceId: task.spaceId, type: task.type, status: task.status,
-          ...(task.error !== undefined ? { error: task.error } : {}) };
-      } catch (error) {
-        rethrow(error, context, settings.signal, taskId);
-      }
+      },
     },
   };
 }
 
-function reportTask(phase: 'parse' | 'convert', options: OperationOptions, task: DeckTask): void {
-  options.onProgress?.({ phase, taskId: task.id, spaceId: task.spaceId, status: task.status });
-}
-
-function waitOptions(phase: 'parse' | 'convert', options: OperationOptions): WaitForTaskOptions {
+/** One deadline for the whole call, merged with the caller's signal. */
+function createBudget(seconds: number, user?: AbortSignal) {
+  const controller = new AbortController();
+  const deadline = Date.now() + seconds * 1000;
+  let expired = false;
+  const timer = setTimeout(() => {
+    expired = true;
+    controller.abort(new DOMException(`The call did not finish within ${seconds}s.`, 'TimeoutError'));
+  }, seconds * 1000);
+  const onAbort = (): void => controller.abort(user?.reason);
+  if (user?.aborted) onAbort();
+  else user?.addEventListener('abort', onAbort, { once: true });
   return {
-    ...(options.timeout !== undefined ? { timeout: options.timeout } : {}),
-    ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    ...(options.useEventStream !== undefined ? { useEventStream: options.useEventStream } : {}),
-    ...(options.pollInterval !== undefined ? { pollInterval: options.pollInterval } : {}),
-    onProgress: (task) => reportTask(phase, options, task),
+    signal: controller.signal,
+    remaining: (): number => Math.max((deadline - Date.now()) / 1000, 0),
+    get expired(): boolean { return expired; },
+    dispose(): void {
+      clearTimeout(timer);
+      user?.removeEventListener('abort', onAbort);
+    },
   };
 }
 
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  signal?.throwIfAborted();
+function callError(
+  error: unknown, verb: Verb, signal: AbortSignal | undefined, budget: { expired: boolean }, timeout: number,
+  created: TaskRef[], context: HintContext,
+): unknown {
+  // A cancelled call rejects with the caller's own reason, never wrapped.
+  if (signal?.aborted) return signal.reason ?? new DOMException('Aborted', 'AbortError');
+  const taskId = created[created.length - 1]?.id;
+  if (budget.expired) {
+    return DeckOpsError.backend(`${verb} did not finish within ${timeout}s.`, {
+      hint: context === 'node'
+        ? 'Tasks already created keep running in the cloud. Raise --timeout and run the command again.'
+        : 'Tasks already created keep running in the cloud. Increase the timeout, or check the task later with its taskId.',
+      ...(taskId !== undefined ? { taskId } : {}),
+      details: { reason: 'timeout', timeoutSeconds: timeout },
+      cause: error,
+    });
+  }
+  const translated = translateError(error, context, taskId);
+  // A failure after a task ran (a page beyond the result, say) still names that task.
+  if (translated.taskId === undefined && taskId !== undefined) {
+    return new DeckOpsError(translated.code, translated.message, {
+      ...(translated.hint !== undefined ? { hint: translated.hint } : {}),
+      ...(translated.details !== undefined ? { details: translated.details } : {}),
+      taskId, cause: translated.cause ?? error,
+    });
+  }
+  return translated;
 }
 
-function rethrow(error: unknown, context: HintContext, signal: AbortSignal | undefined, taskId?: string): never {
-  throwIfAborted(signal);
-  if (error instanceof Error && error.name === 'AbortError') throw error;
-  throw translateError(error, context, taskId);
+/** The server forgot an uploaded file id (old files expire): `ttask.add` answers 404 "File not found". */
+function isStaleFile(error: unknown): boolean {
+  return error instanceof Error && error.name === 'APIError' && (error as { statusCode?: number }).statusCode === 404 &&
+    /File not found/i.test(error.message);
+}
+
+function toOpsOptions(verb: Verb, call: Record<string, unknown>): OpsOptions {
+  const to = call.to ?? (verb === 'convert' ? 'markdown' : undefined);
+  if (to === undefined) throw DeckOpsError.usage(`${verb} needs a target: to: ${TARGETS[verb].map((item) => `'${item}'`).join(' | ')}.`);
+  if (typeof to !== 'string' || !TARGETS[verb].includes(to)) {
+    throw DeckOpsError.unsupported(`${verb} cannot produce ${String(to)}.`, { hint: `${verb} supports ${TARGETS[verb].join(', ')}.` });
+  }
+  validateValues(call);
+  const options: Record<string, unknown> = { to };
+  for (const key of VERB_OPTIONS[verb]) {
+    if (key !== 'to' && key !== 'imageRefs' && call[key] !== undefined) options[key] = call[key];
+  }
+  if (Array.isArray(options.pages)) options.pages = [...new Set(options.pages as number[])].sort((a, b) => a - b);
+  return options as OpsOptions;
+}
+
+function validateValues(call: Record<string, unknown>): void {
+  oneOf(call, 'quality', ['low', 'medium', 'high']);
+  oneOf(call, 'imageFormat', ['png', 'jpg', 'webp']);
+  oneOf(call, 'profile', ['fast', 'balanced', 'quality']);
+  oneOf(call, 'imageRefs', ['url', 'path']);
+  validateBooleans(call, ['anchors', 'splitPages', 'strict', 'includeImages']);
+  if (call.pages !== undefined && (!Array.isArray(call.pages) || !call.pages.length ||
+      !call.pages.every((page) => Number.isSafeInteger(page) && page >= 1 && page <= MAX_PAGE))) {
+    throw DeckOpsError.usage(`pages must be a nonempty list of page numbers from 1 to ${MAX_PAGE}.`);
+  }
+  if (call.width !== undefined && !(Number.isSafeInteger(call.width) && (call.width as number) > 0)) {
+    throw DeckOpsError.usage('width must be a positive whole number of pixels.');
+  }
+  if (call.scale !== undefined && !(typeof call.scale === 'number' && Number.isFinite(call.scale) && call.scale > 0)) {
+    throw DeckOpsError.usage('scale must be a positive number.');
+  }
+  if (call.password !== undefined && typeof call.password !== 'string') throw DeckOpsError.usage('password must be a string.');
+  if (call.stayImageAreaRate !== undefined && !(typeof call.stayImageAreaRate === 'number' &&
+      call.stayImageAreaRate >= 0 && call.stayImageAreaRate <= 1)) {
+    throw DeckOpsError.usage('stayImageAreaRate must be a number between 0 and 1.');
+  }
+}
+
+function oneOf(call: Record<string, unknown>, key: string, values: readonly string[]): void {
+  if (call[key] !== undefined && !values.includes(call[key] as string)) {
+    throw DeckOpsError.usage(`${key} must be ${values.join(', ')}.`);
+  }
 }
 
 function assertOptions(value: unknown, allowed: readonly string[], label: string, context: HintContext): asserts value is object {
@@ -276,21 +339,23 @@ function assertOptions(value: unknown, allowed: readonly string[], label: string
     if (!allowed.includes(key)) {
       const hint = context === 'browser'
         ? 'The browser SDK accepts values and returns data; filesystem and CLI options are not supported.'
-        : 'Artifact, output and cache options belong to the Node operations, not the cloud client.';
+        : 'Output and cache options belong to the Node operations, not the cloud client.';
       throw DeckOpsError.usage(`Unknown ${label} option: ${key}.`, { hint });
     }
   }
 }
 
-function validateOperation(options: OperationOptions, flags: readonly string[], context: HintContext): void {
-  assertOptions(options, ['spaceId', 'timeout', 'signal', 'onProgress', 'useEventStream', 'pollInterval', ...flags], 'operation', context);
-  if (options.spaceId !== undefined) nonemptyString(options.spaceId, 'spaceId');
-  for (const key of ['timeout', 'pollInterval'] as const) {
-    if (options[key] !== undefined && (!Number.isFinite(options[key]) || options[key]! <= 0)) {
-      throw DeckOpsError.usage(`${key} must be a positive finite number.`);
-    }
+function validateOperation(options: object, flags: readonly string[], context: HintContext): void {
+  assertOptions(options, [...OPERATION_OPTIONS, ...flags], 'operation', context);
+  const values = options as OperationOptions;
+  if (values.spaceId !== undefined) nonemptyString(values.spaceId, 'spaceId');
+  if (values.timeout !== undefined && (!Number.isFinite(values.timeout) || values.timeout <= 0 || values.timeout > MAX_TIMEOUT_SECONDS)) {
+    throw DeckOpsError.usage('timeout must be a positive number of seconds.');
   }
-  if (options.onProgress !== undefined && typeof options.onProgress !== 'function') {
+  if (values.pollInterval !== undefined && (!Number.isFinite(values.pollInterval) || values.pollInterval <= 0)) {
+    throw DeckOpsError.usage('pollInterval must be a positive finite number.');
+  }
+  if (values.onProgress !== undefined && typeof values.onProgress !== 'function') {
     throw DeckOpsError.usage('onProgress must be a function.');
   }
   validateBooleans(options, ['useEventStream']);
@@ -322,3 +387,4 @@ function apiRoot(value: string): string {
     throw DeckOpsError.usage('apiBase must be an HTTP(S) API root, or a relative URL when running in a browser.');
   }
 }
+

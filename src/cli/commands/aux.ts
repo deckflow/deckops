@@ -11,25 +11,24 @@ import {
 } from '../../config/index.js';
 import { DeckOpsError } from '../../errors/index.js';
 import { readProductConfig, writeProductOption } from '../../config/product.js';
+import { matrix } from '../../ops/plan.js';
 
-/** `deckops formats` — the cloud support matrix, honest about what fails. */
+/** Probe runs locally on whatever DeckProbe recognizes; these are the document families it targets. */
+const PROBE_INPUTS = ['pdf', 'pptx', 'docx', 'xlsx', 'key', 'ppt', 'doc', 'pages', 'numbers'];
+
+/** `deckops formats` — verb × target × input, read from the route table rather than written by hand. */
 export function runFormats(options: { json?: boolean }): void {
   const rows = [
-    { input: '.pdf', parse: '☁ pdf.pdfParse', markdown: '✅', notes: '--profile --password --no-images; --anchors' },
-    { input: '.pptx', parse: '☁ pptx.parse', markdown: '✅', notes: '--split-pages' },
-    { input: '.docx', parse: '☁ docx.parseTextAndImage', markdown: '✅', notes: '' },
-    { input: '.key', parse: '☁ keynote.parseTextAndImage', markdown: '✅', notes: '--stay-image-area-rate; --split-pages' },
-    { input: 'http(s) URL', parse: '☁ html.getByURL', markdown: '✅', notes: '--mode source|runtime (default runtime)' },
-    { input: '.doc .ppt .xls(x) .pages .numbers', parse: '❌ unsupported', markdown: '❌', notes: 'clear error + hint' },
+    { verb: 'probe', to: 'report', from: PROBE_INPUTS, runs: 'local' },
+    ...matrix().map((row) => ({ verb: row.verb, to: row.to, from: row.from as string[], runs: 'cloud' })),
   ];
   if (options.json) {
     process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
     return;
   }
   for (const row of rows) {
-    process.stdout.write(
-      `${row.input.padEnd(36)} parse ${row.parse.padEnd(30)} markdown ${row.markdown.padEnd(4)} ${chalk.dim(row.notes)}\n`
-    );
+    const inputs = row.from.map((family) => (family === 'url' ? 'URL' : `.${family}`)).join(' ');
+    process.stdout.write(`${row.verb.padEnd(8)} ${row.to.padEnd(9)} ${row.runs.padEnd(6)} ${chalk.dim(inputs)}\n`);
   }
 }
 

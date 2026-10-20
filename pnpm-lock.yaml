@@ -26,6 +26,10 @@ importers:
       p-limit:
         specifier: ^5.0.0
         version: 5.0.0
+    optionalDependencies:
+      '@deckflow/deckprobe':
+        specifier: 2.7.0
+        version: 2.7.0
     devDependencies:
       '@types/node':
         specifier: ^20.10.0
@@ -47,6 +51,57 @@ importers:
         version: 2.1.9(@types/node@20.19.43)
 
 packages:
+
+  '@deckflow/deckprobe-darwin-arm64@2.7.0':
+    resolution: {integrity: sha512-KnrDaqGrvAgl9Gs5b1TtRcXR4OGzta/rnC/QuZwWvtWs58dZ/Ewcv3hTtQNlsrXzhQRpb19CYyqJWxAgi/MBaw==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-darwin-arm64/-/deckprobe-darwin-arm64-2.7.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@deckflow/deckprobe-darwin-x64@2.7.0':
+    resolution: {integrity: sha512-DWvQgC/p77XcPnYYA3XggIq0OvKod30jICVAaYG7Vo2tlRdHj47jB+SJqxJ/NXXRSPhbcwarMgI5lQSgJN4G9w==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-darwin-x64/-/deckprobe-darwin-x64-2.7.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@deckflow/deckprobe-linux-arm64-gnu@2.7.0':
+    resolution: {integrity: sha512-p5+M2eOOV1B1jfFFV4vLj4IL3QyPyQsdH4Vza6RpN+H6kIoxij6FUDkQzyX1EIepYulK5MTV++PnjQ7p3br8NA==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-linux-arm64-gnu/-/deckprobe-linux-arm64-gnu-2.7.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@deckflow/deckprobe-linux-arm64-musl@2.7.0':
+    resolution: {integrity: sha512-JglqGtoAMao9SllkzWBQzbZKcNYsT5rxbBRMjGkqR0CutGPt9lYKdMquFkhb7g8P0yqavXi2ckcd6tMJST7EDA==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-linux-arm64-musl/-/deckprobe-linux-arm64-musl-2.7.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@deckflow/deckprobe-linux-x64-gnu@2.7.0':
+    resolution: {integrity: sha512-+WqqMCEuaC8xJ0EcEMaSnXLXzaY62p6zSUGLSVcEd4hKrfKRL8dnPTYvMD3C5/DS6dYPGLnFyOLu9SXj6+0/OA==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-linux-x64-gnu/-/deckprobe-linux-x64-gnu-2.7.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@deckflow/deckprobe-linux-x64-musl@2.7.0':
+    resolution: {integrity: sha512-vToyX5yHDij/djNjBVQvBz/iskunYTLLZF+t6YMXwZbB7PIyh0wfe3JTfY5GyRMBCYUUPNDpoecf8idZc8cczw==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-linux-x64-musl/-/deckprobe-linux-x64-musl-2.7.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@deckflow/deckprobe-win32-x64-msvc@2.7.0':
+    resolution: {integrity: sha512-lBhf+2plr5zl9tyi/javywXKMz081ibphumRUwobTTKhYRzft/i7GM6213pEd+4Xu+epqglfy9wtweQywt+KjA==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe-win32-x64-msvc/-/deckprobe-win32-x64-msvc-2.7.0.tgz}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [win32]
+
+  '@deckflow/deckprobe@2.7.0':
+    resolution: {integrity: sha512-xlwiAroXj+ALl9rl4bs4tSBqazEi0Q73fOMlEBtLDhXTm05DJYK2LDKRC+84+F2mIHBXbW1+CKMqN5xBgFTEUg==, tarball: https://registry.npmmirror.com/@deckflow/deckprobe/-/deckprobe-2.7.0.tgz}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==, tarball: https://registry.npmmirror.com/@esbuild/aix-ppc64/-/aix-ppc64-0.21.5.tgz}
@@ -1059,6 +1114,38 @@ packages:
     engines: {node: '>=12.20'}
 
 snapshots:
+
+  '@deckflow/deckprobe-darwin-arm64@2.7.0':
+    optional: true
+
+  '@deckflow/deckprobe-darwin-x64@2.7.0':
+    optional: true
+
+  '@deckflow/deckprobe-linux-arm64-gnu@2.7.0':
+    optional: true
+
+  '@deckflow/deckprobe-linux-arm64-musl@2.7.0':
+    optional: true
+
+  '@deckflow/deckprobe-linux-x64-gnu@2.7.0':
+    optional: true
+
+  '@deckflow/deckprobe-linux-x64-musl@2.7.0':
+    optional: true
+
+  '@deckflow/deckprobe-win32-x64-msvc@2.7.0':
+    optional: true
+
+  '@deckflow/deckprobe@2.7.0':
+    optionalDependencies:
+      '@deckflow/deckprobe-darwin-arm64': 2.7.0
+      '@deckflow/deckprobe-darwin-x64': 2.7.0
+      '@deckflow/deckprobe-linux-arm64-gnu': 2.7.0
+      '@deckflow/deckprobe-linux-arm64-musl': 2.7.0
+      '@deckflow/deckprobe-linux-x64-gnu': 2.7.0
+      '@deckflow/deckprobe-linux-x64-musl': 2.7.0
+      '@deckflow/deckprobe-win32-x64-msvc': 2.7.0
+    optional: true
 
   '@esbuild/aix-ppc64@0.21.5':
     optional: true

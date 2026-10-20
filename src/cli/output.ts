@@ -1,11 +1,12 @@
 import chalk from 'chalk';
 import type { DeckOpsError } from '../errors/index.js';
-import type { ConvertEnvelope, Envelope, ParseEnvelope } from '../types.js';
+import type { ProbeReport } from '../ops/probe.js';
+import type { ErrorEnvelope, OpsEnvelope } from '../types.js';
 
 /**
- * Result rendering. `--json` prints the envelope verbatim (public contract);
- * human mode prints a short outcome summary. Everything informational goes to
- * stdout, errors to stderr.
+ * Result rendering. `--json` prints the envelope verbatim (public contract); human mode prints
+ * content, or a short outcome summary when files were written. Errors go to stderr, or as an
+ * error envelope to stdout with `--json`.
  */
 
 export interface OutputContext {
@@ -13,81 +14,48 @@ export interface OutputContext {
   quiet: boolean;
 }
 
-export function printEnvelope(envelope: Envelope, ctx: OutputContext): void {
+export function printEnvelope(envelope: OpsEnvelope, ctx: OutputContext): void {
   if (ctx.json) {
     process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
     return;
   }
-  if (!envelope.ok) {
+  if (envelope.content !== undefined) {
+    process.stdout.write(typeof envelope.content === 'string' ? envelope.content : `${JSON.stringify(envelope.content, null, 2)}\n`);
+    if (!ctx.quiet) printWarnings(envelope.warnings);
     return;
   }
-  if (envelope.op === 'convert' && envelope.content !== undefined) { process.stdout.write(envelope.content); printWarnings(envelope.warnings); return; }
-  if (ctx.quiet) {
-    return;
-  }
-  if (envelope.op === 'parse') {
-    printParse(envelope);
-  } else {
-    printConvert(envelope);
-  }
-}
-
-function printParse(envelope: ParseEnvelope): void {
-  const head = envelope.reusedParse
-    ? chalk.green('✓ reused existing artifact')
-    : chalk.green('✓ parsed');
-  process.stdout.write(`${head}  ${chalk.dim(`[${envelope.type}]`)}\n`);
-  process.stdout.write(`  artifact  ${envelope.artifact}\n`);
-  process.stdout.write(`  schema    ${envelope.irSchemaVersion}\n`);
-  process.stdout.write(`  irKey     ${envelope.irKey}\n`);
-  process.stdout.write(`  task      ${envelope.taskId}\n`);
-  process.stdout.write(`  expires   ${envelope.expiresAt}\n`);
-  process.stdout.write(chalk.dim(`  ${envelope.durationMs} ms\n`));
+  if (ctx.quiet) return;
+  const detail = [envelope.format, envelope.reusedParse ? 'reused parse' : undefined].filter(Boolean).join(', ');
+  process.stdout.write(`${chalk.green(`✓ ${envelope.op} → ${envelope.to}`)}${detail ? `  ${chalk.dim(`[${detail}]`)}` : ''}\n`);
+  for (const output of envelope.outputs) process.stdout.write(`  ${output.file}\n`);
+  process.stdout.write(chalk.dim(`  ${envelope.tasks.map((task) => `${task.type} ${task.id}`).join(', ')} · ${envelope.durationMs} ms\n`));
   printWarnings(envelope.warnings);
 }
 
-function printConvert(envelope: ConvertEnvelope): void {
-  const head =
-    envelope.taskId === null
-      ? chalk.green('✓ reused existing view')
-      : chalk.green(`✓ converted to ${envelope.to}`);
-  process.stdout.write(`${head}  ${chalk.dim(`[${envelope.format}]`)}\n`);
-  for (const output of envelope.outputs.filter((entry) => entry.file.endsWith('.md'))) {
-    process.stdout.write(`  ${output.file}\n`);
-  }
-  const assets = envelope.outputs.filter((entry) => !entry.file.endsWith('.md') && !entry.file.endsWith('.json'));
-  if (assets.length > 0) {
-    process.stdout.write(chalk.dim(`  + ${assets.length} image${assets.length === 1 ? '' : 's'} localized\n`));
-  }
-  process.stdout.write(chalk.dim(`  ${envelope.durationMs} ms\n`));
-  printWarnings(envelope.warnings);
+/** DeckProbe's schema-2 report, unchanged: the same JSON `deckprobe --pretty` prints. */
+export function printProbe(report: ProbeReport): void {
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
 
-export function printWarnings(warnings: string[]): void {
+export function printWarnings(warnings: readonly string[]): void {
   for (const warning of warnings) {
     process.stderr.write(`${chalk.yellow('warning:')} ${warning}\n`);
   }
 }
 
-export function printError(error: DeckOpsError, op: 'parse' | 'convert' | 'install' | 'read', ctx: OutputContext): void {
+export function printError(error: DeckOpsError, op: ErrorEnvelope['op'], ctx: OutputContext): void {
   if (ctx.json) {
-    process.stdout.write(
-      `${JSON.stringify(
-        {
-          ...(op === 'read' ? { schemaVersion: 'deckops.read.v2' } : {}),
-          ok: false,
-          op,
-          error: {
-            code: error.code,
-            message: error.message,
-            ...(error.hint ? { hint: error.hint } : {}),
-            ...(error.taskId ? { taskId: error.taskId } : {}),
-          },
-        },
-        null,
-        2
-      )}\n`
-    );
+    const envelope: ErrorEnvelope = {
+      ok: false,
+      op,
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.hint ? { hint: error.hint } : {}),
+        ...(error.taskId ? { taskId: error.taskId } : {}),
+      },
+    };
+    process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
     return;
   }
   process.stderr.write(`${chalk.red('error:')} ${error.message} ${chalk.dim(`[${error.code}]`)}\n`);

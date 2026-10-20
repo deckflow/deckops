@@ -7,19 +7,26 @@ import { DeckOpsError } from '../errors/index.js';
  * 环境的域名在本机连不上，请求还在按 30 秒一次重试，命令等满 120 秒后只剩这一句，看不出是文档
  * 太大、云端太慢还是根本没连上。调用方自己的取消信号照原样抛出。
  */
-export async function withinOperationTimeout<T>(ms: number, userSignal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>, extraHint?: string): Promise<T> {
+export async function withinOperationTimeout<T>(
+  ms: number, userSignal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>, extraHint?: string,
+  /** The last cloud task the run created, named in the timeout error. */
+  taskId?: () => string | undefined,
+): Promise<T> {
   const timeout = AbortSignal.timeout(ms);
   const signal = userSignal ? AbortSignal.any([userSignal, timeout]) : timeout;
   try {
     return await run(signal);
   } catch (error) {
     if (timeout.aborted && !userSignal?.aborted && causedByTimeout(error)) {
+      const id = taskId?.();
       throw DeckOpsError.backend(`Stopped after ${Math.round(ms / 1000)}s without a result.`, {
         hint: [
           'Raise --timeout for a large document.',
           extraHint,
           'If the API root may be unreachable from here, `deckops config list` shows which one is in use.',
         ].filter(Boolean).join(' '),
+        ...(id !== undefined ? { taskId: id } : {}),
+        details: { reason: 'timeout', timeoutSeconds: ms / 1000 },
         cause: error,
       });
     }

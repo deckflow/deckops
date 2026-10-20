@@ -5,9 +5,15 @@ export const DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024;
 /** When creating a task with files under this total size, attach them inline as `files` instead of async upload + `fileIds`. */
 export const INLINE_TASK_FILES_MAX_BYTES = 10 * 1024 * 1024;
 
-export const DECK_TASK_TYPES = ['pdf.pdfParse', 'pptx.parse', 'docx.parseTextAndImage', 'keynote.parseTextAndImage', 'html.getByURL', 'parse.convert'] as const;
+/** Every task type the route table (`src/ops/routes.ts`) can submit. */
+export const OPS_TASK_TYPES = [
+  'convertor.ppt2image', 'convertor.pdf2image', 'convertor.keynote2image', 'convertor.doc2pdf',
+  'convertor.html2png', 'convertor.markdown2png', 'convertor.ppt2video', 'image.convertWebp',
+  'document.convert', 'document.extract',
+] as const;
 
-export type DeckTaskType = (typeof DECK_TASK_TYPES)[number];
+export type OpsTaskType = (typeof OPS_TASK_TYPES)[number];
+export type DeckTaskType = OpsTaskType;
 export type DeckTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export type MetadataValue =
@@ -43,6 +49,12 @@ export interface DeckTask<T extends DeckTaskType = DeckTaskType> {
   createdAt?: (string) | undefined;
   /** ISO update timestamp. */
   updatedAt?: (string) | undefined;
+  /** ISO completion timestamp; null until the task ends. */
+  completedAt?: (string | null) | undefined;
+  /** Milliseconds the task ran; null until it ends. */
+  consumedMS?: (number | null) | undefined;
+  /** Credits the task costs. */
+  credits?: (number) | undefined;
 }
 
 export interface AuthUuidStorage {
@@ -86,7 +98,7 @@ export interface CreateTaskParams<T extends DeckTaskType = DeckTaskType> {
   signal?: (AbortSignal) | undefined;
   /** Space/workspace id. Falls back to createDeck({ spaceId }) or user.self id. */
   spaceId?: (string) | undefined;
-  /** Ordered input file ids. Required for file-based parse tasks. */
+  /** Ordered input file ids. A URL-input document task has none. */
   fileIds?: (string[]) | undefined;
   /**
    * Local files for the task. When total size is under {@link INLINE_TASK_FILES_MAX_BYTES}
@@ -105,9 +117,10 @@ export interface CreateTaskParams<T extends DeckTaskType = DeckTaskType> {
   /**
    * Invoked once, right before the task-creation request is sent. A failure before this point
    * (space lookup, file preparation, uploads) left no task behind; after it, a failure without a
-   * response cannot tell whether the cloud created the task.
+   * response cannot tell whether the cloud created the task. Awaited, so a journal entry is on disk
+   * before the request leaves.
    */
-  onDispatch?: (() => void) | undefined;
+  onDispatch?: (() => void | Promise<void>) | undefined;
 }
 
 export interface WaitForTaskOptions {
@@ -222,6 +235,11 @@ export interface UploadOptions {
   chunkSize?: (number) | undefined;
   /** Upload progress from 0 to 1. */
   onProgress?: ((percentage: number) => void) | undefined;
+  /**
+   * Ask the server to verify the stored bytes (`PUT /files/:id/status/uploaded`) before the id is
+   * used: document tasks only accept verified files. Servers with capabilities v1 offer it.
+   */
+  confirm?: (boolean) | undefined;
 }
 
 export type TaskUploadOptions = Omit<UploadOptions, 'spaceId'>;

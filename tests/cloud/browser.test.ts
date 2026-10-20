@@ -7,7 +7,7 @@ import { resetRetryDelaysForTests, setRetryDelaysForTests } from '../../src/clou
 
 const root = 'https://sdk.test/v1';
 const authUuid = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-const task = { id: 't1', spaceId: 's1', type: 'pptx.parse', status: 'completed' };
+const task = { id: 't1', spaceId: 's1', type: 'convertor.ppt2image', status: 'completed' };
 const client = (options: CreateDeckOptions = {}) => createDeck({ root, authUuid, spaceId: 's1', token: 'user-token', ...options });
 
 describe('browser entry and safety', () => {
@@ -65,7 +65,7 @@ describe('browser entry and safety', () => {
   it('does not retry an uncertain task POST but still retries reads', async () => {
     mock.onPost(`${root}/tools/tasks`).reply(502, { message: 'upstream failed' });
     mock.onGet(`${root}/tools/tasks/t1`).replyOnce(502, {}).onGet(`${root}/tools/tasks/t1`).reply(200, task);
-    await expect(client().tasks.create({ type: 'pptx.parse', fileIds: ['f1'] })).rejects.toMatchObject({ statusCode: 502 });
+    await expect(client().tasks.create({ type: 'convertor.ppt2image', fileIds: ['f1'] })).rejects.toMatchObject({ statusCode: 502 });
     expect(mock.history.post).toHaveLength(1);
     await expect(client().tasks.get('t1')).resolves.toMatchObject({ id: 't1' });
     expect(mock.history.get).toHaveLength(2);
@@ -73,19 +73,17 @@ describe('browser entry and safety', () => {
 
   it('supports an explicit mutation retry opt-in', async () => {
     mock.onPost(`${root}/tools/tasks`).replyOnce(502, {}).onPost(`${root}/tools/tasks`).reply(200, task);
-    await expect(client({ retryMutations: true }).tasks.create({ type: 'pptx.parse' })).resolves.toMatchObject({ id: 't1' });
+    await expect(client({ retryMutations: true }).tasks.create({ type: 'convertor.ppt2image' })).resolves.toMatchObject({ id: 't1' });
     expect(mock.history.post).toHaveLength(2);
   });
 
-  it('rejects pre-aborted parse, convert, upload and create without requests', async () => {
+  it('rejects pre-aborted upload and create without requests', async () => {
     const controller = new AbortController(); controller.abort();
     const signal = controller.signal;
     const deck = client();
     for (const promise of [
-      deck.parse({ fileId: 'f1', name: 'a.pdf' }, { signal }),
-      deck.convert({ irKey: 'ir.json' }, { signal }),
       deck.files.upload(new Blob(['x']), { name: 'a.pdf', signal }),
-      deck.tasks.create({ type: 'pptx.parse', signal }),
+      deck.tasks.create({ type: 'convertor.ppt2image', signal }),
     ]) await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
     expect(mock.history.get).toHaveLength(0);
     expect(mock.history.post).toHaveLength(0);
@@ -98,7 +96,7 @@ describe('browser entry and safety', () => {
       controller.abort();
       return [200, { id: 's1' }];
     });
-    await expect(client({ spaceId: undefined }).tasks.create({ type: 'pptx.parse', signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(client({ spaceId: undefined }).tasks.create({ type: 'convertor.ppt2image', signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
     expect(mock.history.post).toHaveLength(0);
   });
 
@@ -120,40 +118,39 @@ describe('browser entry and safety', () => {
     expect(mock.history.post).toHaveLength(1);
   });
 
-  it('reports inline completion after POST and exposes task id before waiting', async () => {
-    const controller = new AbortController();
+  it('reports inline completion after the POST and before any wait', async () => {
     const events: string[] = [];
     mock.onPost(`${root}/tools/tasks`).reply((config) => {
-      expect(config.signal).toBe(controller.signal);
       expect((config.data as FormData).get('files')).toMatchObject({ name: 'a.pdf' });
       events.push('post');
       return [200, { ...task, status: 'pending' }];
     });
-    await expect(client().parse({ file: new Blob(['abc']), name: 'a.pdf' }, {
-      signal: controller.signal,
-      upload: { onProgress: () => events.push('uploaded') },
-      onTask: (created) => { expect(created.id).toBe('t1'); events.push('task'); controller.abort(); },
-    })).rejects.toMatchObject({ name: 'AbortError' });
-    expect(events).toEqual(['post', 'uploaded', 'task']);
+    await expect(client().tasks.create({
+      type: 'convertor.pdf2image', files: [{ input: new Blob(['abc']), name: 'a.pdf' }],
+      upload: { onProgress: () => events.push('uploaded') }, onDispatch: () => { events.push('dispatch'); },
+    })).resolves.toMatchObject({ id: 't1' });
+    expect(events).toEqual(['dispatch', 'post', 'uploaded']);
     expect(mock.history.get).toHaveLength(0);
   });
 
-  it('propagates a convert signal through create, wait and download', async () => {
+  it('propagates a signal through create, wait and download', async () => {
     const signal = new AbortController().signal;
     mock.onPost(`${root}/tools/tasks`).reply((config) => {
       expect(config.signal).toBe(signal);
-      expect(JSON.parse(String(config.data)).params.irKey).toBe('ir.json');
-      return [200, { ...task, type: 'parse.convert' }];
+      return [200, { ...task, type: 'document.convert' }];
     });
     mock.onGet(`${root}/tools/tasks/t1`).reply((config) => {
       expect(config.signal).toBeDefined();
-      return [200, { ...task, type: 'parse.convert' }];
+      return [200, { ...task, type: 'document.convert' }];
     });
     mock.onGet(`${root}/tools/tasks/t1/download`).reply((config) => {
       expect(config.signal).toBe(signal);
-      return [200, { markdown: '# hello' }];
+      return [200, { to: 'markdown' }];
     });
-    await expect(client().convert({ irKey: 'ir.json' }, { signal })).resolves.toMatchObject({ taskId: 't1', markdown: '# hello' });
+    const deck = client();
+    const created = await deck.tasks.create({ type: 'document.convert', fileIds: ['f1'], signal });
+    await deck.tasks.wait(created.id, { signal });
+    await expect(deck.tasks.down(created.id, { signal })).resolves.toEqual({ to: 'markdown' });
   });
 
   it('stops poll delay immediately on abort', async () => {
@@ -265,29 +262,18 @@ describe('browser entry and safety', () => {
     mock.onPost(`${root}/tools/tasks`).reply((config) => {
       const form = config.data as FormData;
       expect(form.get('files')).toMatchObject({ name: 'a.pdf', size: 3 });
-      expect(JSON.parse(String(form.get('params')))).toMatchObject({ password: 'pw' });
+      expect(JSON.parse(String(form.get('params')))).toMatchObject({ format: 'png' });
       seen.push({ space: form.get('spaceId'), token: config.headers?.['X-Auth-Token'] });
-      return seen.length === 1 ? [401, { message: 'expired' }] : [200, { ...task, spaceId: 's2', type: 'pdf.pdfParse' }];
+      return seen.length === 1 ? [401, { message: 'expired' }] : [200, { ...task, spaceId: 's2', type: 'convertor.pdf2image' }];
     });
-    mock.onGet(`${root}/tools/tasks/t1`).reply((config) => {
-      expect(config.params.spaceId).toBe('s2');
-      return [200, { ...task, spaceId: 's2', type: 'pdf.pdfParse' }];
-    });
-    mock.onGet(`${root}/tools/tasks/t1/download`).reply((config) => {
-      expect(config.params.spaceId).toBe('s2');
-      return [200, { irKey: 'ir.json', irSchemaVersion: 'pdf.v1' }];
-    });
-    await expect(client({ onUnauthorized: async () => ({ token: 'fresh', spaceId: 's2' }) })
-      .parse({ file: new Blob(['abc']), name: 'a.pdf' }, { password: 'pw' })).resolves.toMatchObject({ irKey: 'ir.json' });
+    await expect(client({ onUnauthorized: async () => ({ token: 'fresh', spaceId: 's2' }) }).tasks.create({
+      type: 'convertor.pdf2image', files: [{ input: new Blob(['abc']), name: 'a.pdf' }], params: { format: 'png' },
+    })).resolves.toMatchObject({ spaceId: 's2' });
     expect(seen).toEqual([{ space: 's1', token: 'user-token' }, { space: 's2', token: 'fresh' }]);
   });
 
-  it.each([false, true])('keeps a per-parse space across snapshot, SSE and polling (SSE=%s)', async (useEventStream) => {
+  it.each([false, true])('keeps a per-call space across snapshot, SSE, polling and download (SSE=%s)', async (useEventStream) => {
     const otherTask = { ...task, spaceId: 'operation-space' };
-    mock.onPost(`${root}/tools/tasks`).reply((config) => {
-      expect(JSON.parse(String(config.data)).spaceId).toBe('operation-space');
-      return [200, otherTask];
-    });
     let gets = 0;
     mock.onGet(`${root}/tools/tasks/t1`).reply((config) => {
       expect(config.params.spaceId).toBe('operation-space');
@@ -295,34 +281,18 @@ describe('browser entry and safety', () => {
     });
     mock.onGet(`${root}/tools/tasks/t1/download`).reply((config) => {
       expect(config.params.spaceId).toBe('operation-space');
-      return [200, { irKey: 'ir.json' }];
+      return [200, [['https://files.test/1.png', 1, 'h']]];
     });
     const fetchMock = vi.fn(async (url: string) => {
       expect(new URL(url).searchParams.get('spaceId')).toBe('operation-space');
       return new Response(JSON.stringify({ ...otherTask, status: 'running' }), { headers: { 'content-type': 'application/json' } });
     });
     vi.stubGlobal('fetch', fetchMock);
-    await expect(client().parse({ fileId: 'f1', name: 'a.pptx' }, {
-      spaceId: 'operation-space', wait: { useEventStream, timeout: 0.05, pollInterval: 1 },
-    })).resolves.toMatchObject({ irKey: 'ir.json' });
+    const deck = client();
+    await expect(deck.tasks.wait('t1', { spaceId: 'operation-space', useEventStream, timeout: 0.05, pollInterval: 1 }))
+      .resolves.toMatchObject({ status: 'completed' });
+    await expect(deck.tasks.down('t1', { spaceId: 'operation-space' })).resolves.toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledTimes(useEventStream ? 1 : 0);
     expect(gets).toBe(2);
-    expect(mock.history.post).toHaveLength(1);
-  });
-
-  it('uses the actual created task space for convert wait and download', async () => {
-    mock.onPost(`${root}/tools/tasks`).reply((config) => {
-      expect(JSON.parse(String(config.data)).spaceId).toBe('requested-space');
-      return [200, { ...task, type: 'parse.convert', spaceId: 'canonical-space' }];
-    });
-    mock.onGet(`${root}/tools/tasks/t1`).reply((config) => {
-      expect(config.params.spaceId).toBe('canonical-space');
-      return [200, { ...task, type: 'parse.convert', spaceId: 'canonical-space' }];
-    });
-    mock.onGet(`${root}/tools/tasks/t1/download`).reply((config) => {
-      expect(config.params.spaceId).toBe('canonical-space');
-      return [200, { markdown: '# done' }];
-    });
-    await expect(client().convert({ irKey: 'ir.json' }, { spaceId: 'requested-space' })).resolves.toMatchObject({ markdown: '# done' });
   });
 });

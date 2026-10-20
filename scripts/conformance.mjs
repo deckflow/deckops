@@ -5,7 +5,8 @@
  *
  * Fixtures come from tests/test-data/test.<ext> (see its README; untracked,
  * bring your own). CONFORMANCE_<EXT> environment variables override, and
- * CONFORMANCE_URL adds a link one-shot case:
+ * CONFORMANCE_URL adds a URL case. The server must offer document tasks
+ * (`GET /tools/capabilities`):
  *
  *   DECKOPS_API_BASE=…  DECKOPS_TOKEN=…  node scripts/conformance.mjs
  *
@@ -36,6 +37,7 @@ const env = {
   ...process.env,
   DECKFLOW_CONFIG_DIR: configDir,
   DECKOPS_CONFIG_DIR: configDir,
+  DECKOPS_CACHE_DIR: path.join(work, 'cache'),
 };
 
 let failures = 0;
@@ -71,62 +73,63 @@ for (const format of ['pdf', 'pptx', 'docx', 'key']) {
   }
   const local = path.join(work, `sample.${format}`);
   cpSync(sample, local);
-  const artifact = path.join(work, `artifact-${format}`);
+  const out = path.join(work, format);
 
-  check(`${format}: parse stores the server IR with manifest v3`, () => {
-    const envelope = runJson(['parse', local, '-o', artifact]);
-    if (!envelope.ok || envelope.reusedParse || !envelope.taskId || !envelope.irKey || !envelope.irSchemaVersion || !envelope.expiresAt) {
-      throw new Error(JSON.stringify(envelope));
-    }
-    const manifest = JSON.parse(readFileSync(path.join(artifact, 'manifest.json'), 'utf8'));
-    if (manifest.manifestVersion !== 3 || manifest.parse.irKey !== envelope.irKey) throw new Error('not a manifest v3');
-    const ir = JSON.parse(readFileSync(path.join(artifact, 'ir.json'), 'utf8'));
-    if (ir.irKey !== envelope.irKey) throw new Error('ir.json is not the server response');
+  check(`${format}: probe answers locally`, () => {
+    const report = JSON.parse(run(['probe', local, '--json']));
+    if (report.schema_version !== 2 || report.status === 'error') throw new Error(JSON.stringify(report));
   });
 
-  check(`${format}: second parse reuses the artifact (zero cloud calls)`, () => {
-    const envelope = runJson(['parse', local, '-o', artifact]);
-    if (!envelope.reusedParse) throw new Error(JSON.stringify(envelope));
+  check(`${format}: convert writes Markdown with local images`, () => {
+    const envelope = runJson(['convert', local, '-o', path.join(out, 'doc.md')]);
+    if (!envelope.ok || envelope.tasks?.[0]?.type !== 'document.convert') throw new Error(JSON.stringify(envelope));
+    if (/[?&](?:Expires|Signature|OSSAccessKeyId)=/i.test(readFileSync(path.join(out, 'doc.md'), 'utf-8'))) throw new Error('markdown contains expiring links');
   });
 
-  check(`${format}: convert derives the view without re-parsing`, () => {
-    const envelope = runJson(['convert', artifact]);
-    if (!envelope.ok || !envelope.reusedParse || !envelope.taskId) throw new Error(JSON.stringify(envelope));
-    const view = readFileSync(path.join(artifact, 'views/markdown/index.md'), 'utf-8');
-    if (/Expires=/i.test(view)) throw new Error('view still contains expiring links');
+  check(`${format}: extract reuses the parse (no new parse charge)`, () => {
+    const envelope = runJson(['extract', local, '--to', 'json', '-o', path.join(out, 'doc.json')]);
+    if (!envelope.ok || envelope.reusedParse !== true || !envelope.schemaVersion) throw new Error(JSON.stringify(envelope));
+    JSON.parse(readFileSync(path.join(out, 'doc.json'), 'utf-8'));
   });
 
-  check(`${format}: second convert hits the cached view`, () => {
-    const envelope = runJson(['convert', artifact]);
-    if (envelope.taskId !== null) throw new Error(JSON.stringify(envelope));
+  check(`${format}: extract assets lists the images`, () => {
+    const envelope = runJson(['extract', local, '--to', 'assets', '-o', path.join(out, 'assets-only')]);
+    if (!envelope.ok || envelope.reusedParse !== true) throw new Error(JSON.stringify(envelope));
   });
+
+  if (format !== 'docx' || process.env.CONFORMANCE_RENDER_DOCX) {
+    check(`${format}: render to images`, () => {
+      const envelope = runJson(['render', local, '--to', 'image', '--pages', '1', '-o', path.join(out, 'frames')]);
+      if (!envelope.ok || envelope.outputs.length !== 1) throw new Error(JSON.stringify(envelope));
+    });
+  }
 }
 
 if (process.env.CONFORMANCE_URL) {
-  check('url: one-shot convert produces durable markdown', () => {
+  check('url: convert produces durable markdown', () => {
     const target = path.join(work, 'page.md');
     const envelope = runJson(['convert', process.env.CONFORMANCE_URL, '-o', target]);
-    if (!envelope.ok || !envelope.taskId || !envelope.parseTaskId) throw new Error(JSON.stringify(envelope));
-    if (/Expires=/i.test(readFileSync(target, 'utf-8'))) throw new Error('markdown contains expiring links');
+    if (!envelope.ok || envelope.format !== 'html') throw new Error(JSON.stringify(envelope));
+    if (/[?&](?:Expires|Signature|OSSAccessKeyId)=/i.test(readFileSync(target, 'utf-8'))) throw new Error('markdown contains expiring links');
   });
 }
 
 check('unsupported input fails with exit 3 and a hint', () => {
   try {
-    run(['parse', path.join(root, 'package.json')]);
+    run(['convert', path.join(root, 'package.json')]);
     throw new Error('should have failed');
   } catch (error) {
     if (error.status !== 3) throw new Error(`exit ${error.status}, wanted 3`);
   }
 });
 
-// Negative fixtures: real spreadsheet/iWork files must be refused, not mangled.
+// Negative fixtures: spreadsheet/iWork files are not cloud inputs in 4.0.
 for (const ext of ['xlsx', 'numbers']) {
   const sample = sampleFor(ext);
   if (!sample) continue;
   check(`${ext}: real file is refused with unsupported (exit 3)`, () => {
     try {
-      run(['parse', sample]);
+      run(['convert', sample]);
       throw new Error('should have failed');
     } catch (error) {
       if (error.status !== 3) throw new Error(`exit ${error.status}, wanted 3`);

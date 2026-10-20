@@ -1,5 +1,12 @@
-import type { ConvertFlags, ParseFlags, ParseTaskType } from '../types.js';
-import type { ConvertImage } from '../cloud/parse/types.js';
+import type {
+  ConvertOptions, ConvertResult, ExtractAssetsResult, ExtractJsonResult, ExtractOptions, ExtractResult, ProgressEvent, RenderOptions,
+  RenderResult, TaskStatus,
+} from '../ops/types.js';
+
+export type {
+  ConvertOptions, ConvertResult, DocumentFormat, ExtractAssetsResult, ExtractJsonResult, ExtractOptions, ExtractResult, ImageFormat,
+  OpsResult, ParseOptions, ProgressEvent, Quality, RemoteFile, RenderOptions, RenderResult, TaskRef, TaskStatus,
+} from '../ops/types.js';
 
 /**
  * Inputs are values. A bare path string or `{ file: path }` is accepted only when the
@@ -12,20 +19,6 @@ export type ClientInput =
   | { url: string }
   | string;
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
-
-export interface TaskInfo {
-  id: string;
-  spaceId: string;
-  type: string;
-  status: TaskStatus;
-  error?: string | null;
-}
-
-export type ProgressEvent =
-  | { phase: 'upload'; progress: number }
-  | { phase: 'parse' | 'convert'; taskId: string; spaceId: string; status: TaskStatus };
-
 export interface ClientOptions {
   /** Cloud API root or an authenticated same-origin proxy, e.g. /api/deckops. */
   apiBase?: string;
@@ -36,15 +29,19 @@ export interface ClientOptions {
   spaceId?: string;
   /** Refresh the same user's token once after a 401; changing accounts/spaces requires a new client. */
   onUnauthorized?: () => Promise<string>;
+  /**
+   * Device id sent as X-Auth-UUID (a UUID v4). Without it the browser reuses localStorage `df_uuid`
+   * and Node the id saved under ~/.deckflow.
+   */
+  authUuid?: string;
 }
 
 export interface OperationOptions {
   spaceId?: string;
-  /** Task wait timeout in seconds (not milliseconds). Defaults to 300. */
+  /** Seconds for the whole call — upload, every task and the result download. Defaults to 300. */
   timeout?: number;
-  /** Cancels local upload/request/waiting, not an already-created cloud task. */
+  /** Cancels the call (it rejects with `signal.reason`); tasks already created keep running in the cloud. */
   signal?: AbortSignal;
-  /** Task events contain the id immediately after submission, for later recovery. */
   onProgress?: (event: ProgressEvent) => void;
   /** Prefer SSE, falling back to polling. Set false for polling only. */
   useEventStream?: boolean;
@@ -52,39 +49,56 @@ export interface OperationOptions {
   pollInterval?: number;
 }
 
-export interface ParseOptions extends ParseFlags, OperationOptions {
-  /**
-   * Invoked right before the task-creation request is sent. A failure before it created no
-   * task; a failure after it without a response leaves the task's existence unknown.
-   */
-  onSubmit?: () => void;
-}
+export type RenderCallOptions = RenderOptions & OperationOptions;
 
-export interface ConvertOptions extends Pick<ConvertFlags, 'to' | 'anchors' | 'splitPages' | 'strict'>, OperationOptions {}
+export type ConvertCallOptions = ConvertOptions & OperationOptions & {
+  /** Markdown image links: signed URLs (`url`, default) or the relative `images[].path` (`path`). */
+  imageRefs?: 'url' | 'path';
+};
 
-export type ConvertRef = { irKey: string; taskId?: never } | { taskId: string; irKey?: never };
+export type ExtractCallOptions = ExtractOptions & OperationOptions;
 
-export interface ConvertResult {
-  taskId: string;
-  format: 'pdf' | 'pptx' | 'docx' | 'keynote' | 'html';
-  schemaVersion: string;
-  to: 'markdown';
-  markdown: string;
-  markdownPages?: string[];
-  /** Signed, expiring image URLs. Durable copies are the caller's concern. */
-  images: ConvertImage[];
-  /** Conversion references stored IR; it never resubmits the source. */
-  reusedParse: true;
-}
-
-export interface ParseResult<R = unknown> {
-  taskId: string;
+export interface TaskInfo {
+  id: string;
   spaceId: string;
-  type: ParseTaskType | 'html.getByURL';
-  irKey: string;
-  irSchemaVersion: string;
-  /** The server response, verbatim. */
-  ir: R;
+  type: string;
+  status: TaskStatus;
+  error?: string | null;
+  /** Credits the server bills for the task. */
+  credits?: number;
+  /** Milliseconds the task ran; null until it ends. */
+  consumedMS?: number | null;
+  createdAt?: string;
+  /** Null until the task ends. */
+  completedAt?: string | null;
 }
 
-export type { ConvertImage };
+export interface UploadedFile {
+  id: string;
+  name: string;
+  bytes: number;
+}
+
+export interface TaskCallOptions {
+  spaceId?: string;
+  signal?: AbortSignal;
+}
+
+export interface OpsClient<Input = ClientInput> {
+  render(input: Input, options: RenderCallOptions): Promise<RenderResult>;
+  convert(input: Input, options?: ConvertCallOptions): Promise<ConvertResult>;
+  extract(input: Input, options: ExtractCallOptions & { to: 'json' }): Promise<ExtractJsonResult>;
+  extract(input: Input, options: ExtractCallOptions & { to: 'assets' }): Promise<ExtractAssetsResult>;
+  extract(input: Input, options: ExtractCallOptions): Promise<ExtractResult>;
+  /** Low level: inspect, wait for or download a task by id without submitting it again. */
+  tasks: {
+    get(taskId: string, options?: TaskCallOptions): Promise<TaskInfo>;
+    wait(taskId: string, options?: TaskCallOptions & Pick<OperationOptions, 'timeout' | 'useEventStream' | 'pollInterval'>): Promise<TaskInfo>;
+    /** The task's delivered result, as the server sends it. */
+    download(taskId: string, options?: TaskCallOptions): Promise<unknown>;
+  };
+  /** Low level: upload once and reuse the id; the operations reuse it for the same file too. */
+  files: {
+    upload(input: Input, options?: Pick<OperationOptions, 'spaceId' | 'signal' | 'onProgress'>): Promise<UploadedFile>;
+  };
+}

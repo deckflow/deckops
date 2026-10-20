@@ -1,32 +1,31 @@
 # DeckOps
 
-> The open-source CLI and SDK for DeckOps Cloud: turn PDF, PPTX, DOCX, Keynote and web pages into Markdown and durable IR artifacts an agent can hold on to.
+> The open-source CLI and SDK for DeckOps Cloud: probe, render, extract and convert PDF, PPTX, DOCX, Keynote and web pages.
 
-DeckOps is a thin client. Parsing, the IR, Markdown rendering and quality judgments all happen in DeckOps Cloud; the client uploads the source, waits for the task, stores what the server returns and downloads the images it references. **Every parse uploads the document to DeckFlow's cloud.**
+DeckOps has four atomic capabilities. **Probe** runs locally and free with the open-source [DeckProbe](https://github.com/deckflow/deckprobe) engine and never uploads. **Render**, **Extract** and **Convert** run in DeckOps Cloud: the client uploads the source once, waits for the task and fetches the result. **Those three upload the document to DeckFlow's cloud.**
 
 ```bash
-deckops doc.pdf                    # Markdown on stdout
-deckops doc.pdf --json             # content + run report
-deckops doc.pdf -o doc.md          # portable Markdown + adjacent image assets
-deckops parse doc.pdf              # durable artifact doc/ (server IR, manifest)
-deckops convert doc/               # artifact → Markdown view, never re-uploads
-deckops convert doc.pdf -o doc.md  # one-shot: parse + convert, no artifact kept
+deckops probe deck.pptx                     # local metadata and detection report; no login, no network
+deckops render deck.pptx --to image         # slide images  deck/001.png …
+deckops extract report.pdf --to json        # the structured document  report.json + report.assets/
+deckops convert report.pdf -o report.md     # Markdown + report.assets/
+deckops report.pdf                          # Markdown on stdout (= convert -o -)
 ```
 
-It is the **Parse** pillar of the [DeckFlow](https://github.com/deckflow) family: [DeckRender](https://github.com/deckflow/deckrender) turns documents into pixels, DeckOps turns them into state an agent can work with.
+The cloud parses a document once and reuses that parse for 7 days: converting and then extracting the same file in the same space is one parse and one charge, from any machine.
 
 ## Install
 
 ```bash
-npx -y @deckflow/deckops@latest doc.pdf
+npx -y @deckflow/deckops@latest report.pdf
 npm install -g @deckflow/deckops
 ```
 
-The CLI and Node.js entry require Node.js 22.18 or newer. Frontend applications use the [browser entry](#browser-sdk) of the same package.
+The CLI and Node.js entry require Node.js 22.18 or newer. `@deckflow/deckprobe` is an optional dependency: installing with `--omit=optional` keeps every verb except `probe`, which then reports `unsupported` with the install command. Frontend applications use the [browser entry](#browser-sdk) of the same package; it has no probe.
 
 ## Log in
 
-All parsing runs in DeckOps Cloud, so DeckOps needs an identity. Log in once:
+Render, extract and convert need an identity; probe never does. Log in once:
 
 ```bash
 deckops auth login
@@ -36,60 +35,55 @@ deckops config list     # every credential, and exactly where it came from
 
 Credentials live in `~/.deckflow/credentials` and are shared with every DeckFlow CLI. Each field resolves independently through flags → environment → file: `--api-key` / `DECKOPS_API_KEY` / `DECKFLOW_API_KEY`, and likewise `--token`, `--space` (`DECKOPS_SPACE_ID`) and `--api-base` (`DECKOPS_API_BASE`). `DECKFLOW_CONFIG_DIR` moves the shared directory; `DECKOPS_CONFIG_DIR` moves the product defaults (`~/.deckflow/deckops/config.json`), whose only setting is `deckops config set timeout <seconds>`. Without any credential the cloud treats a call as a guest with a small daily quota (`quota_error`); a rejected credential is an `auth_error`, never a silent guest.
 
-## Three verbs
+## Four verbs
 
-```
-SOURCE    document → Markdown       default entry (read)
-parse     document → IR artifact    durable, reusable
-convert   artifact → Markdown view  never uploads or re-parses; a document is a one-shot
-```
+| Verb | Produces | Inputs | Runs |
+| --- | --- | --- | --- |
+| `probe` | DeckProbe report (schema 2) | `.pdf` `.pptx` `.docx` `.xlsx` `.key` `.ppt` `.doc` `.pages` `.numbers` | local, free |
+| `render --to image` | one image per page or slide | `.pptx` `.ppt` `.pdf` `.key` `.docx` `.html` `.md` (URL once the server offers it) | cloud |
+| `render --to video` | a video | `.pptx` `.ppt` | cloud |
+| `extract --to json` | the structured document | `.pdf` `.pptx` `.docx` `.key`, URL | cloud |
+| `extract --to assets` | the document's images | `.pdf` `.pptx` `.docx` `.key`, URL | cloud |
+| `convert --to markdown` | Markdown | `.pdf` `.pptx` `.docx` `.key`, URL | cloud |
+
+`deckops formats [--json]` prints this matrix from the route table itself. A combination that is not in it fails with `unsupported` and names the nearest ones that are.
 
 ```bash
-deckops report.pdf > report.md
-deckops report.pdf --report run.json > report.md   # deckops.run.v2 report beside the content
-deckops report.pdf --format ir --json               # the server IR instead of Markdown
-deckops parse slides.pptx -o slides/
-deckops convert slides/ --split-pages               # views/markdown/001.md …
-deckops convert slides/ -o - --anchors              # Markdown to stdout
+deckops probe report.pdf --targets page_count,title --level metadata
+deckops render deck.pptx --to image --pages 1-3,7 --quality high --image-format webp -o frames/
+deckops render deck.pptx --to video -o deck.mp4
+deckops extract report.pdf --to json -o -          # JSON on stdout
+deckops extract slides.key --to assets -o images/
+deckops convert slides.pptx --split-pages -o slides.md
+deckops convert https://example.com/article -o article.md
 ```
 
-- **Read** parses into a cache artifact under `DECKOPS_CACHE_DIR` (default `~/.cache/deckops`), converts it, and prints only the content on stdout; warnings go to stderr. `-o FILE` writes `FILE` plus an immutable `FILE.assets-<id>/` directory; without `-o`, image links point at the cache. URL and password-protected sources are never reused by identity.
-- **Parse twice, pay once.** Same source bytes and parse options → the artifact is reused with no request (`reusedParse: true`). `--force` parses again.
-- **Convert never re-uploads.** It sends the artifact's `irKey` to the cloud renderer, downloads every image into `assets/` and rewrites the links, so the Markdown outlives the signed URLs. A failed image download fails the convert unless `--keep-remote-images`.
-- **Interrupted runs resume.** If a parse task was created but its result never arrived (timeout, lost connection), `submission.json` records it and the next identical run waits for that task instead of submitting and paying again.
-- **Cloud IR lives 7 days.** A parse after `expiresAt` parses again (with a warning); a convert after it fails with `ir_expired` before any request.
+- **Probe** is DeckProbe in-process (native binary when its platform package is installed, WebAssembly otherwise). It needs no login and sends no request, and its report is printed unchanged — `deckops probe --json` and `deckprobe --pretty` print the same JSON. Probe is not a preflight: the other verbs never call it.
+- **Render** maps `--quality low|medium|high`, `--width` and `--scale` to what each task accepts (PPTX renders at 1080/1920/2560 and says when it snapped). The cloud renders every page; `--pages` selects which ones are kept, before any per-frame WebP conversion. DOCX is laid out as PDF first.
+- **Extract** `--to json` returns the server's structured document with its `schemaVersion`; asset references are relative paths. `--to assets` lists the images without another parse.
+- **Convert** returns Markdown. `--anchors` (PDF) adds per-element provenance comments, `--split-pages` (PPTX/Keynote) one Markdown file per slide, `--strict` fails instead of warning when rendering degrades.
+- **Parse options** for extract and convert: `--profile fast|balanced|quality`, `--password`, `--no-images` (PDF); `--stay-image-area-rate` (Keynote). An option that cannot apply to the input is a `usage_error` before anything is uploaded. A password-protected source is never reused by the server and never remembered on disk.
+- **One upload.** Uploads are verified by the server before a task uses them. `~/.cache/deckops/index.json` (`DECKOPS_CACHE_DIR`) remembers `sha256 → fileId` for three days, so repeated runs on the same bytes upload nothing.
+- **Interrupted runs continue.** If a task was created but its result never arrived (timeout, lost connection, a failed download), the next identical run waits for that task instead of submitting and paying again. If the request left but no task id came back, DeckOps refuses to guess; `--force` submits anew.
 
-Options: `-o/--output`, `--from <ext>` (stdin), `--space <id>`, `--timeout <seconds>` (default 120), `--force`, `--api-key`, `--token`, `--api-base`, `--json`, `--quiet`. Parse: `--profile fast|balanced|quality`, `--password`, `--no-images` (PDF); `--stay-image-area-rate` (Keynote); `--mode source|runtime` (URL, default runtime). Convert: `--to markdown`, `--anchors` (PDF), `--split-pages` (PPTX/Keynote), `--strict`, `--keep-remote-images`. A flag that cannot apply to the input is a `usage_error` before anything is uploaded.
+Common options: `-o/--output` (`-` for stdout where the verb allows it), `--from <ext>` (stdin), `--space <id>`, `--timeout <seconds>` (default 300: the whole run, uploads and downloads included), `--force`, `--api-key`, `--token`, `--api-base`, `--json`, `--quiet`. Sources larger than 256 MiB are refused before they are read. `modify` and `export` are reserved and exit with `not_implemented`.
 
-`--timeout` (SDK `timeout`, seconds, fractions allowed) bounds each stage: a `parse`, or a `convert` including its image downloads and portable copy. A one-shot `convert SOURCE` runs parse and convert in one budget; `read` gives its parse and its convert one budget each, so it can take up to twice the value. Sources larger than 256 MiB are refused before they are read.
-
-| Input | Parse task | Markdown | Notes |
-| --- | --- | --- | --- |
-| `.pdf` | `pdf.pdfParse` | ✅ | `--profile` `--password` `--no-images`; `--anchors` |
-| `.pptx` | `pptx.parse` | ✅ | `--split-pages` |
-| `.docx` | `docx.parseTextAndImage` | ✅ | |
-| `.key` | `keynote.parseTextAndImage` | ✅ | `--stay-image-area-rate`; `--split-pages` |
-| http(s) URL | `html.getByURL` | ✅ | `--mode source\|runtime` |
-| `.doc` `.ppt` `.xls(x)` `.pages` `.numbers` | ❌ | ❌ | `unsupported` with a way out |
-
-`deckops formats [--json]` prints the same matrix. `extract`, `modify` and `export` are reserved and exit with `not_implemented`.
-
-## Artifact layout
+## Files on disk
 
 ```
-doc/
-├── ir.json            the server parse response, verbatim (irKey and irSchemaVersion at the top)
-├── manifest.json      written last: registered ⇒ present
-├── submission.json    only while a cloud task has no result yet
-├── assets/            images downloaded by convert, named by persistent key
-└── views/markdown/    index.md (+ 001.md … with --split-pages)
+report.md            convert -o report.md        links  report.assets/…
+report.assets/       that document's images, replaced as a whole on every run
+report-001.md …      convert --split-pages (same report.assets/)
+report.json          extract --to json -o report.json   (+ report.assets/)
+report/assets/…      extract --to assets (default directory <stem>/)
+deck/001.png …       render; a single output is <stem>.<ext>, -o x.png with many frames gives x-001.png …
 ```
 
-`manifest.json` is version 3: `source` (sha256, name, bytes; a URL records sha256 of the URL), `parse` (taskId, type, irKey, irSchemaVersion, params, createdAt, expiresAt = createdAt + 7 days), `views.markdown` (taskId, schemaVersion, params, files), `assets` (key, hash, bytes, mediaType) and `producer.deckops`. Artifacts written by DeckOps 2.x (manifest v1/v2) are refused with `input_error`; run `deckops parse <source> --force`.
+Without `-o`, `convert SOURCE` writes `<stem>.md` and `extract SOURCE --to json` writes `<stem>.json` beside the source; the bare `deckops SOURCE` prints Markdown with signed image links. Every download is checked against the md5 the server reported. Each document owns its `<stem>.assets/`, so many documents can be written into one directory.
 
 ## Coding agents
 
-DeckOps ships an Agent Skill that teaches coding agents when to parse, when to reuse an artifact, and that a parse uploads the document.
+DeckOps ships an Agent Skill that teaches coding agents to combine the verbs — probe first, then extract, convert or render — and that only probe stays on the machine.
 
 ```bash
 deckops install --skills                    # into agent directories found in the project
@@ -102,103 +96,99 @@ Upgrades protect managed files that were edited after installation; `--force` re
 ## `--json` and errors
 
 ```jsonc
-// deckops parse doc.pdf --json
-{ "ok": true, "op": "parse", "input": "doc.pdf", "type": "pdf.pdfParse", "format": "pdf",
-  "taskId": "t_1", "irKey": "ir_1", "irSchemaVersion": "result.v3", "expiresAt": "2026-10-26T…",
-  "reusedParse": false, "artifact": "doc", "outputs": [{ "file": "doc/ir.json", "bytes": 1 }],
-  "warnings": [], "durationMs": 1 }
-// deckops convert doc/ --json   (taskId is null for a cached view; content only with -o -)
-{ "ok": true, "op": "convert", "input": "doc/", "to": "markdown", "format": "pdf",
-  "taskId": "t_2", "parseTaskId": "t_1", "reusedParse": true,
-  "outputs": [{ "file": "doc/views/markdown/index.md", "bytes": 1 }], "warnings": [], "durationMs": 1 }
-// deckops doc.pdf --json
-{ "schemaVersion": "deckops.read.v2", "ok": true, "format": "markdown", "content": "…",
-  "outputs": [], "assets": [{ "path": "…", "lifecycle": "cache", "bytes": 1 }],
-  "report": { "schemaVersion": "deckops.run.v2", "parseTaskId": "t_1", "convertTaskId": "t_2",
-              "cacheHit": false, "artifactBase": "…", "warnings": [] } }
+// deckops render deck.pptx --to image --json
+{ "ok": true, "op": "render", "input": "deck.pptx", "to": "image",
+  "tasks": [{ "type": "convertor.ppt2image", "id": "t_1" }],
+  "outputs": [{ "file": "deck/001.png", "bytes": 1, "page": 1, "width": 1920, "height": 1080 }],
+  "pages": 12, "warnings": [], "durationMs": 1 }
+// deckops convert report.pdf -o - --json   (content only with -o -)
+{ "ok": true, "op": "convert", "input": "report.pdf", "to": "markdown",
+  "tasks": [{ "type": "document.convert", "id": "t_2" }], "outputs": [],
+  "format": "pdf", "pages": 12, "reusedParse": false, "content": "# …", "warnings": [], "durationMs": 1 }
+// deckops extract report.pdf --to json -o report.json --json
+{ "ok": true, "op": "extract", "input": "report.pdf", "to": "json",
+  "tasks": [{ "type": "document.extract", "id": "t_3" }],
+  "outputs": [{ "file": "report.json", "bytes": 1 }, { "file": "report.assets/p1_i0000.png", "bytes": 1 }],
+  "format": "pdf", "pages": 12, "reusedParse": true, "schemaVersion": "result.v3", "warnings": [], "durationMs": 1 }
 // any failure
-{ "ok": false, "op": "parse", "error": { "code": "auth_error", "message": "…", "hint": "…", "taskId": "…" } }
+{ "ok": false, "op": "convert", "error": { "code": "quota_error", "message": "…", "hint": "…", "taskId": "…" } }
 ```
+
+`deckops probe --json` prints the DeckProbe report itself, and the error envelope only on failure.
 
 | exit | `error.code` | meaning |
 | --- | --- | --- |
-| 2 | `usage_error` | bad or removed flag, or a flag that cannot apply to this input |
-| 3 | `unsupported` | unsupported extension or `--to` target |
+| 2 | `usage_error` | bad or removed flag, or an option that cannot apply to this input |
+| 3 | `unsupported` | an input, target or combination the route table does not have, or a server without it |
 | 4 | `auth_error` | credential missing, rejected or expired |
-| 5 | `input_error`, `ir_not_found`, `ir_expired`, `ir_schema_unsupported`, `ir_invalid`, `asset_error` | fixable by the caller — each carries a hint |
-| 6 | `backend_error` | task failed or the API was unreachable; carries the taskId when one exists |
-| 7 | `not_implemented` | reserved verbs (`extract`, `modify`, `export`) |
-| 8 | `quota_error` | quota exhausted — `deckops auth login` |
+| 5 | `input_error`, `asset_error`, `ir_*` | fixable by the caller — each carries a hint |
+| 6 | `backend_error` | task failed or timed out, or the API was unreachable; carries the taskId when one exists |
+| 7 | `not_implemented` | reserved verbs (`modify`, `export`) |
+| 8 | `quota_error` | quota or package balance exhausted |
 
-The `--json` envelopes, error and exit codes, artifact layout and shared credential file are public contracts; changing any of them is a breaking change recorded in `CHANGELOG.md`. The backend-code table in `src/shared/errors.ts` and `src/errors/codes.ts` are the cross-language contract other SDKs follow.
+The `--json` envelopes, error and exit codes, files on disk and the shared credential file are public contracts; changing any of them is a breaking change recorded in `CHANGELOG.md`. The backend-code table in `src/shared/errors.ts` and `src/errors/codes.ts` are the cross-language contract other SDKs follow.
 
 ## Node SDK
 
 ```ts
-import { createClient, parse, read, openArtifact, DeckOpsError } from '@deckflow/deckops';
+import { createClient, probe, isDeckOpsError } from '@deckflow/deckops';
 
-const { content } = await read('report.pdf');          // Markdown, nothing on stdout
-const doc = await parse('report.pdf');                 // artifact report/
-doc.taskId; doc.irKey; doc.irSchemaVersion; doc.expiresAt;
-const ir = await doc.ir();                             // ir.json as the server returned it
-await doc.convert({ anchors: true });                  // report/views/markdown/index.md
+const report = await probe('report.pdf', { targets: ['page_count'] });  // local; no client, no network
 
-const same = await openArtifact('report/');            // later, in another process
-await same.convert();                                  // cached view, or a new one while the IR lives
-
-const client = createClient({ spaceId: 'space_1' });  // explicit values win over the credential chain
-await client.convert('slides.pptx', { out: 'slides.md', splitPages: true });
-await client.parseEnvelope('doc.pdf', { out: 'doc', force: true });   // the CLI's --json envelope
+const ops = createClient();                         // credentials resolve on the first cloud call
+const markdown = await ops.convert('report.pdf');   // { content, images, format, pages, reusedParse, tasks, … }
+const json = await ops.extract('report.pdf', { to: 'json' });          // one upload, reused parse
+const frames = await ops.render('deck.pptx', { to: 'image', pages: [1, 2], imageFormat: 'webp' });
+await frames.outputs[0].blob();                     // signed URL, no credentials needed
 ```
 
-`createClient({ apiKey, token, spaceId, apiBase })` resolves the rest through the shared credential chain. Every call takes `signal` (it also stops image downloads), `spaceId`, `timeout` (seconds per stage) and `force`; `parse`/`read`/`convert` take the parse options (`profile`, `password`, `includeImages`, `stayImageAreaRate`, `mode`), `out` and `from`; `convert` adds `to`, `anchors`, `splitPages`, `strict`, `keepRemoteImages`; `read` adds `format`, `reportFile`, `cacheDir`, `anchors`. Unknown options — including the removed 2.x ones such as `engine` or `preflight` — are a `usage_error`, never silently ignored.
+`createClient({ apiKey, token, spaceId, apiBase })` resolves the rest through the shared credential chain. The SDK returns results with signed URLs and writes nothing; the CLI writes files. Inputs are paths, `{ file, name }` or `{ url }`. Every call takes `signal`, `spaceId`, `timeout` (seconds for the whole call, default 300), `onProgress`, `useEventStream` and `pollInterval`; `convert` adds `anchors`, `splitPages`, `strict`, `imageRefs: 'url' | 'path'`, and extract and convert take the parse options. `ops.tasks.get / wait / download` and `ops.files.upload` are the low level; a task reports `status`, `credits`, `consumedMS`, `createdAt` and `completedAt` as the server billed it. Unknown options — including removed ones such as `preflight` or `out` — are a `usage_error`, never silently ignored.
 
 ## Browser SDK
 
 ```ts
-import { createClient } from '@deckflow/deckops/browser';
+import { createClient, isDeckOpsError } from '@deckflow/deckops/browser';
 
-const client = createClient({
+const ops = createClient({
   apiBase: '/api/deckops',             // an authenticated same-origin proxy (recommended)
-  // or: apiBase: 'https://app.deckflow.com/v1', token: userAccessToken,
-  //     onUnauthorized: async () => refreshUserAccessToken(),
+  // or: apiBase: 'https://app.deckflow.com/v1', token: userAccessToken, spaceId,
+  //     onUnauthorized: async () => refreshUserAccessToken(), authUuid,
 });
 
 const controller = new AbortController();
-const doc = await client.parse(file, {  // File from <input type="file">
+const markdown = await ops.convert(file, {   // File from <input type="file">
   signal: controller.signal,
-  timeout: 300,                         // seconds; bounds task waiting, not the upload
+  timeout: 300,                              // seconds for the whole call
   onProgress(event) {
-    if (event.phase === 'upload') console.log(event.progress);       // 0..1
-    else console.log(event.phase, event.taskId, event.status);       // parse | convert
+    if (event.phase === 'task') console.log(event.type, event.id, event.status);
+    else console.log(event.phase, event.progress);                  // upload | download, 0..1
   },
 });
-const ir = await doc.ir();              // in-memory server response
-const view = await doc.convert({ splitPages: true });
-console.log(view.markdown, view.markdownPages, view.images);
-await client.convert({ irKey: doc.irKey }, { strict: true });        // no upload, no re-parse
+markdown.content;                            // image links are signed URLs (imageRefs: 'url')
+const json = await ops.extract(file, { to: 'json' });               // the same File is not uploaded again
+json.content; json.schemaVersion; json.assets;
 ```
 
-Inputs are `File`, `{ file: Blob | Uint8Array | ArrayBuffer, name }` or `{ url }`; paths, stdin, unnamed Blobs and Node options (`out`, `force`, …) are rejected before any request. `parse()` returns a `BrowserParsedDocument` (`taskId`, `spaceId`, `type`, `irKey`, `irSchemaVersion`, `ir()`, `convert()`). `convert()` returns `markdown`, optional `markdownPages`, `images` (signed, expiring URLs), `format`, `schemaVersion`, `taskId` and `reusedParse: true`; a `markdownError` rejects instead of returning placeholder content. Nothing is written to storage.
+Inputs are `File`, `{ file: Blob | Uint8Array | ArrayBuffer, name }` or `{ url }`; paths, unnamed Blobs and Node options are rejected before any request, and so is any option the client does not know (`usage_error` naming it). Results carry `content`, `format`, `pages`, `reusedParse`, `warnings`, `tasks` (`{ type, id }`) and `outputs`; `images` / `assets` are the matching outputs, and `RemoteFile.blob()` fetches one. Progress events belong to the call that made them: `upload` (0–1, at once 1 when the file is reused), `task` (on creation and each status change, `completed` before `download`) and `download`.
 
-**Authentication.** Never put a server API key in browser code; the browser client has no `apiKey` option. Prefer a backend proxy: it keeps secrets server-side, preserves the upstream API paths (requests, the task event stream, uploads and downloads), checks the user, tenant and `spaceId` on every operation, and protects cookie-authenticated mutations against CSRF. Connect directly only with a short-lived, user-scoped token. A 401 calls `onUnauthorized` once; return a nonempty token for the same user. A failed refresh rejects with `auth_error` and never falls back to a guest identity.
+**Authentication.** Never put a server API key in browser code; the browser client has no `apiKey` option. Prefer a backend proxy that checks the user, tenant and `spaceId` on every operation. Connect directly only with a short-lived, user-scoped token. A 401 calls `onUnauthorized` once (concurrent 401s share the refresh); return a nonempty token for the same user and the request is retried once. A failed refresh rejects with `auth_error` and never falls back to a guest; requests that create tasks are never retried. The device id is `authUuid` when given, otherwise localStorage `df_uuid`, sent as `X-Auth-UUID`.
 
-**CORS for direct access.** Allow your origin on the API, the SSE stream, signed upload URLs, result downloads and image URLs; allow the `X-Auth-Token`, `X-Auth-UUID`, `Content-Type` and `response-event-stream` headers; expose `ETag` for multipart uploads. Local tests cannot certify a production deployment.
+**Errors and cancellation.** Failures are `DeckOpsError` (`code`, `message`, `hint`, `taskId`, `details`); `isDeckOpsError(error, 'quota_error')` narrows them, and a quota error keeps the server body in `details` for a top-up dialog. A timeout carries the task id and `details.reason === 'timeout'`. Aborting rejects with the signal's own `reason` (an `AbortError` `DOMException` without one) and does not cancel a submitted cloud task; `ops.tasks.get(id, { spaceId })` reports it later.
 
-**Recovery.** Aborting stops requests and waiting but does not cancel a submitted cloud task. Keep the task id from `onProgress`; `client.getTask(id, { spaceId })` reports it and `client.convert({ taskId })` renders a completed parse without another upload. Task creation is never retried automatically; files of 4 MiB or more are uploaded first and referenced by id. Treat Markdown as untrusted input and sanitize it when rendering; persist images yourself if the Markdown must outlive the signed URLs. The entry is framework-independent ESM, safe to import during SSR, and needs Fetch, Web Crypto, Blob/File and AbortController.
+**CORS for direct access.** Allow your origin on the API (including `GET /tools/capabilities` and `PUT /files/:id/status/uploaded`), the SSE stream, signed upload URLs and result downloads; allow the `X-Auth-Token`, `X-Auth-UUID`, `Content-Type` and `response-event-stream` headers; expose `ETag` for multipart uploads. Treat Markdown as untrusted input. The entry is framework-independent ESM without Workers or WebAssembly, has no import side effects, is safe to import during SSR, and needs Fetch, Web Crypto, Blob/File and AbortController.
 
 ## Development
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm check           # skill, typecheck (Node + browser), tests, build, browser export, boundaries, CLI contract
-pnpm check:package   # tarball ≤ 1 MiB, production install ≤ 12 MiB, `formats --json` cold start P95 ≤ 300 ms
+pnpm check:package   # tarball ≤ 1 MiB; --omit=optional install ≤ 12 MiB; probe in the default install; cold start P95 ≤ 300 ms
 pnpm browser:smoke   # open the printed localhost URL for real-browser checks
 
 DECKOPS_API_BASE=… DECKOPS_TOKEN=… CONFORMANCE_PDF=sample.pdf pnpm conformance   # real backend, by hand
 ```
 
-Tests run the SDK and the built CLI over real HTTP against a local wire-protocol fixture (`tests/browser/fake-cloud.mjs`); they verify the client contract, not cloud parsing quality. `check:boundaries` keeps document parsing out for good: no parser dependencies, no `local/`, `engine/`, `quality/`, `ir/` or `views/` source trees, no `node:` imports in `client/`, `cloud/`, `shared/` or `errors/`, no worker threads and no WebAssembly. `check-browser` holds the browser bundle to its gzip budget. The layering rules are in [`src/README.md`](src/README.md); the transport's provenance is in [`src/cloud/README.md`](src/cloud/README.md).
+Tests run the SDK and the built CLI over real HTTP against a local wire-protocol fixture (`tests/browser/fake-cloud.mjs`); they verify the client contract, not cloud quality. `check:boundaries` keeps document interpretation out of the client: DeckProbe only as an optional dependency imported by `src/ops/probe.ts` alone (which may not reach the cloud, auth or config layers), a declarative route table, no `node:` imports in the isomorphic layers, no worker threads and no WebAssembly in `dist/`. The layering rules are in [`src/README.md`](src/README.md); the transport's provenance is in [`src/cloud/README.md`](src/cloud/README.md).
 
 ## License
 
@@ -208,4 +198,5 @@ Copyright (c) 2026 DeckFlow. DeckOps-owned code is licensed under the
 Previously published versions keep the license they were published under: 2.x under
 `AGPL-3.0-only`, 1.x under MIT.
 Third-party components retain their own licenses and notices; see
-[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). The optional `@deckflow/deckprobe` engine is a separate
+package under its own license.

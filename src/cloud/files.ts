@@ -1,6 +1,7 @@
 import axios from 'axios';
 import pLimit from 'p-limit';
 import { throwIfAborted, withSignal } from './abort.js';
+import { APIError, UploadUnconfirmedError } from './errors.js';
 import type { HttpClient } from './http-client.js';
 import type { DeckRuntime } from './runtime.js';
 import {
@@ -70,22 +71,14 @@ export class FilesApi {
 
     if (!auth.auth) {
       options.onProgress?.(1);
-      return {
-        id: auth.id,
-        key: auth.key,
-        name: file.name,
-        bytes: file.bytes,
-        hash: file.hash,
-      };
-    }
-
-    if (auth.multipart) {
+    } else if (auth.multipart) {
       await this.uploadMultipart(file, auth, options.onProgress, options.signal);
     } else {
       await this.uploadSingle(file, auth, options.onProgress, options.signal);
     }
 
     throwIfAborted(options.signal);
+    if (options.confirm) await this.confirmUpload(auth.id, file.name, options.signal);
     return {
       id: auth.id,
       key: auth.key,
@@ -93,6 +86,17 @@ export class FilesApi {
       bytes: file.bytes,
       hash: file.hash,
     };
+  }
+
+  /** The server checks size and md5 of the stored object; only then may document tasks use the id. */
+  private async confirmUpload(id: string, name: string, signal?: AbortSignal): Promise<void> {
+    try {
+      await this.http.put(`/files/${encodeURIComponent(id)}/status/uploaded`, undefined, { signal });
+    } catch (error) {
+      throwIfAborted(signal);
+      if (error instanceof APIError) throw new UploadUnconfirmedError(id, name, { cause: error });
+      throw error;
+    }
   }
 
   private async normalizeInput(input: UploadInput, options: UploadOptions): Promise<PreparedUpload> {
