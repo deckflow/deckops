@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.0.1 — 2026-10-20 — Browser runtime fixes
+## 4.0.1 — 2026-10-21 — Browser runtime fixes
 
 Fixes from runtime checks of the 4.0.0 browser entry in platform-slide-editor.
 
