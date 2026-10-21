@@ -71,7 +71,7 @@ export interface CreateDeckOptions {
   apiKey?: (string) | undefined;
   /** Default space id used by task and upload calls. When omitted, resolved from GET /user. */
   spaceId?: (string) | undefined;
-  /** Explicit client UUID (UUID v4) sent as X-Auth-UUID. Skips automatic persistence. */
+  /** Explicit device id (1–100 visible ASCII characters) sent as X-Auth-UUID. Skips automatic persistence. */
   authUuid?: (string) | undefined;
   /** Custom UUID storage for SSR, tests, or embedded integrations. */
   authUuidStorage?: (AuthUuidStorage) | undefined;
@@ -155,6 +155,11 @@ export interface SubscribeTaskHandlers<T extends DeckTaskType = DeckTaskType> {
   onUpdate: (task: DeckTask<T>) => void;
   /** Called when the stream or parser fails. */
   onError?: ((error: Error) => void) | undefined;
+  /**
+   * Reconnect after a network failure (default true). Waiting for a task sets it to false: the
+   * first network failure reaches onError at once, and the wait polls instead.
+   */
+  reconnect?: (boolean) | undefined;
 }
 
 export type UploadPlatform = 'oss' | 'local';

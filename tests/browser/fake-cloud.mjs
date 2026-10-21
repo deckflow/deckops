@@ -127,7 +127,11 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
         res.end(kind('corrupt-result') ? Buffer.from('not the reported bytes') : RESULT_BYTES[extension] ?? FIXTURE_PNG); return;
       }
       const token = req.headers['x-auth-token'];
-      if (kind('unauthorized') || (kind('refresh') && token !== 'fresh-token')) {
+      // refresh-late: every stale request after the first answers 401 only once the first refresh is over.
+      if (kind('refresh-late') && token !== 'fresh-token' && (state.staleRequests = (state.staleRequests ?? 0) + 1) > 1) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      if (kind('unauthorized') || ((kind('refresh') || kind('refresh-late')) && token !== 'fresh-token')) {
         json(res, 401, { code: 'auth_error', message: 'Expired browser token' }); return;
       }
       if (route === '/user') { json(res, 200, { id: 'fixture-space' }); return; }
@@ -157,8 +161,8 @@ export async function createFakeCloud({ staticRoot, port = 0 } = {}) {
       if (route.startsWith('/storage/')) {
         // Keep byte counts, not a multi-megabyte string, in test diagnostics.
         request.body = route.endsWith('/complete') ? bytes.toString() : undefined;
-        if (kind('hanging-upload')) return;
         const [, , fileId, part] = route.split('/');
+        if (kind('hanging-upload') || (kind('first-upload-hangs') && fileId === 'file-1')) return;
         const stored = state.uploads.find((upload) => upload.id === fileId);
         if (stored && (!part || part === 'complete')) stored.stored = true;
         res.setHeader('ETag', '"fixture-etag"');

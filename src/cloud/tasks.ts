@@ -362,7 +362,7 @@ export class TasksApi {
           if (closed || this.isCanceledError(error)) {
             return;
           }
-          if (!this.isSseTransportError(error) || retryCount >= SSE_MAX_RETRIES) {
+          if (!this.isSseTransportError(error) || handlers.reconnect === false || retryCount >= SSE_MAX_RETRIES) {
             handlers.onError?.(error as Error);
             return;
           }
@@ -389,6 +389,7 @@ export class TasksApi {
       headers: { 'response-event-stream': 'yes' },
       signal,
       params: this.taskQueryParams(handlers.spaceId),
+      retry: handlers.reconnect !== false,
     });
 
     const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
@@ -740,6 +741,8 @@ export class TasksApi {
       void this.subscribe<T>(taskId, {
         signal,
         spaceId,
+        // Any stream failure, with a status or without one (the network), falls back to polling.
+        reconnect: false,
         onUpdate: (task) => {
           onProgress?.(task);
           if (task.status === 'completed') {

@@ -1,3 +1,4 @@
+import { throwIfAborted, withSignal } from '../cloud/abort.js';
 import type { FileIdStore } from '../cloud/runtime.js';
 import type { SourceBytes } from './input.js';
 
@@ -16,23 +17,30 @@ export class UploadCache {
 
   /**
    * The fileId for `source` in `spaceId`; `upload` runs only when nothing matches. `persist: false`
-   * keeps a sensitive upload (a password-protected source) out of the persistent store.
+   * keeps a sensitive upload (a password-protected source) out of the persistent store. A call that
+   * joins another call's upload ends only by its own `signal`: when that upload fails for any reason
+   * (the other call was cancelled or timed out, say), this call uploads for itself.
    */
   async fileId(
-    spaceId: string, source: SourceBytes, upload: () => Promise<string>, persist = true,
+    spaceId: string, source: SourceBytes, upload: () => Promise<string>, options: { persist?: boolean; signal?: AbortSignal } = {},
   ): Promise<{ id: string; reused: boolean }> {
+    const { persist = true, signal } = options;
     const objects = source.identity ? this.objectsFor(source.identity) : undefined;
-    const known = objects?.get(spaceId);
-    if (known) return { id: await known, reused: true };
+    for (let known = objects?.get(spaceId); known; known = objects!.get(spaceId)) {
+      const id = await join(objects!, spaceId, known, signal);
+      if (id !== undefined) return { id, reused: true };
+    }
 
     let reused = false;
     // The object is claimed before hashing, so concurrent calls with it share one upload.
     const pending = (async () => {
       const hashKey = await this.hashKey(spaceId, source);
-      const shared = hashKey === undefined ? undefined : this.byHash.get(hashKey);
-      if (shared) {
-        reused = true;
-        return await shared;
+      for (let shared = hashKey === undefined ? undefined : this.byHash.get(hashKey); shared; shared = this.byHash.get(hashKey!)) {
+        const id = await join(this.byHash, hashKey!, shared, signal);
+        if (id !== undefined) {
+          reused = true;
+          return id;
+        }
       }
       const stored = persist && hashKey !== undefined ? await this.stored(hashKey) : undefined;
       if (stored !== undefined) {
@@ -93,6 +101,22 @@ export class UploadCache {
       this.byObject.set(identity, map);
     }
     return map;
+  }
+}
+
+/**
+ * Wait for another call's upload, or until this call is cancelled. Undefined when that upload failed:
+ * it is dropped so the caller uploads for itself instead of inheriting someone else's failure.
+ */
+async function join(
+  map: Map<string, Promise<string>>, key: string, shared: Promise<string>, signal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    return await withSignal(shared, signal);
+  } catch {
+    throwIfAborted(signal);
+    if (map.get(key) === shared) map.delete(key);
+    return undefined;
   }
 }
 

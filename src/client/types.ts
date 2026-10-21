@@ -30,8 +30,8 @@ export interface ClientOptions {
   /** Refresh the same user's token once after a 401; changing accounts/spaces requires a new client. */
   onUnauthorized?: () => Promise<string>;
   /**
-   * Device id sent as X-Auth-UUID (a UUID v4). Without it the browser reuses localStorage `df_uuid`
-   * and Node the id saved under ~/.deckflow.
+   * Device id sent as X-Auth-UUID: 1–100 visible ASCII characters, such as a UUID or a nanoid.
+   * Without it the browser reuses localStorage `df_uuid` and Node the id saved under ~/.deckflow.
    */
   authUuid?: string;
 }

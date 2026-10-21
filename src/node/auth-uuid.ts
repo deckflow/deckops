@@ -1,18 +1,15 @@
 import type { CreateDeckOptions } from '../cloud/contracts.js';
+import { isValidAuthUuid } from '../cloud/device-id.js';
 
 export const AUTH_UUID_STORAGE_KEY = 'df_uuid';
 export const AUTH_UUID_FILENAME = 'auth-uuid';
-
-const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type BrowserStorage = {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 };
 
-export function isValidAuthUuid(value: string | null | undefined): value is string {
-  return typeof value === 'string' && UUID_V4_RE.test(value);
-}
+export { isValidAuthUuid };
 
 export function generateAuthUuid(): string {
   return globalThis.crypto.randomUUID();

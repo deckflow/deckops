@@ -1,11 +1,9 @@
 import type { CreateDeckOptions } from './contracts.js';
+import { isValidAuthUuid } from './device-id.js';
 
-const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let defaultResolving: Promise<string> | undefined;
 
-export function isValidAuthUuid(value: unknown): value is string {
-  return typeof value === 'string' && UUID_V4_RE.test(value);
-}
+export { isValidAuthUuid };
 
 export function generateAuthUuid(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
